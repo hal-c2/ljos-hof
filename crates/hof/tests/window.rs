@@ -335,10 +335,8 @@ fn going_back_to_a_tab_gives_the_keys_to_its_pane() {
 }
 
 impl Hof {
-    fn asking_clipboard(&self) -> bool {
-        self.engine
-            .read_by_name(self.root, "askingClipboard")
-            .to_boolean()
+    fn asking(&self) -> bool {
+        self.engine.read_by_name(self.root, "asking").to_boolean()
     }
 }
 
@@ -357,13 +355,72 @@ fn a_program_reading_the_clipboard_waits_for_the_user() {
         .invoke_by_name(t, "write", &[Value::from("\x1b]52;c;?\x07")])
         .unwrap();
     hof.window.settle().unwrap();
-    assert!(hof.asking_clipboard(), "the user is asked");
+    assert!(hof.asking(), "the user is asked");
 
     hof.window.key(&KeyEvent::press(KEY_ESCAPE));
     hof.window.settle().unwrap();
-    assert!(!hof.asking_clipboard());
+    assert!(!hof.asking());
     assert!(
         hof.engine.read_by_name(t, "activeFocus").to_boolean(),
         "the keys go back to the terminal"
     );
+}
+
+#[test]
+fn a_program_asking_to_open_a_url_waits_for_the_user() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    let url = String::from_utf8(hof_vt::open_request("https://ljos.dev")).unwrap();
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from(url.as_str())])
+        .unwrap();
+    hof.window.settle().unwrap();
+    assert!(hof.asking(), "the user is asked");
+    hof.window.key(&KeyEvent::press(KEY_ESCAPE));
+    hof.window.settle().unwrap();
+    assert!(!hof.asking());
+}
+
+impl Hof {
+    /// Moves time on until `done`, or fails saying `what` it waited for.
+    fn until(&mut self, what: &str, done: impl Fn(&Self) -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !done(self) {
+            assert!(std::time::Instant::now() < deadline, "waiting for {what}");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            self.window.advance(20).unwrap();
+        }
+    }
+
+    fn screen(&self, t: ObjectId) -> String {
+        self.engine
+            .invoke_by_name(t, "screenText", &[])
+            .unwrap()
+            .to_js_string()
+            .as_str()
+            .to_owned()
+    }
+}
+
+#[test]
+fn hof_copy_and_paste_in_a_pane_go_through_its_terminal() {
+    let hof = env!("CARGO_BIN_EXE_hof");
+    let script = format!("'{hof}' copy ljós && echo got:$('{hof}' paste); read x");
+    let mut hof = opened();
+    // In a tab of its own: what the first pane runs is the process's, and
+    // other tests set it as they go.
+    let command = Value::list(
+        ["sh", "-c", &script]
+            .iter()
+            .map(|&a| Value::from(a))
+            .collect(),
+    );
+    hof.engine
+        .invoke_by_name(hof.root, "newTab", &[Value::from(""), command])
+        .unwrap();
+    hof.window.settle().unwrap();
+    let t = hof.current().unwrap();
+    hof.until("the paste to ask", |h| h.asking());
+    hof.window.key(&KeyEvent::press(KEY_RETURN));
+    hof.until("the paste", |h| h.screen(t).contains("got:ljós"));
 }

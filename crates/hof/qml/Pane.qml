@@ -23,7 +23,10 @@ Item {
     readonly property bool searching: search.visible
     // A paste is waiting for the user to say yes.
     readonly property bool confirmingPaste: confirm.visible
-    readonly property bool askingClipboard: clipboardConfirm.visible
+    // Asking whether the program may read the clipboard or open a URL.
+    readonly property bool asking: clipboardPermit.visible || openPermit.visible
+    // Who "the program" is, in a question.
+    readonly property string programName: root.remote ? "A program on " + root.host : "The program"
     // The AI agent the pane runs, if any, and how it is: "working",
     // "waiting" for the user, "idle", or "none".
     readonly property string agent: terminal.agent
@@ -91,6 +94,7 @@ Item {
             return i >= 0 ? Settings.hostClipboards[i] : "ask";
         }
         clipboardWrite: Settings.clipboardWrite
+        openUrls: Settings.openUrls
         // Main's shortcuts own the keys the config binds.
         shortcuts: false
         program: {
@@ -123,7 +127,8 @@ Item {
             root.terminalReady(terminal, root)
         onExited: root.finished()
         onPasteBlocked: text => confirm.ask(text)
-        onClipboardRequested: clipboard => clipboardConfirm.ask(clipboard)
+        onClipboardRequested: clipboard => clipboardPermit.ask(root.programName + " wants to read the " + clipboard + ".", "It would see whatever was copied last, here or in any other program.")
+        onOpenRequested: url => openPermit.ask(root.programName + " wants to open:", url.length > 300 ? url.slice(0, 300) + "…" : url)
         onBell: root.hook("bell", [])
         onCommandStarted: command => {
             root.command = command;
@@ -192,18 +197,34 @@ Item {
         fontSize: root.fontSize
     }
 
-    ClipboardConfirm {
-        id: clipboardConfirm
+    Permit {
+        id: clipboardPermit
 
         anchors.centerIn: parent
         z: 3
         terminal: terminal
-        host: root.host
         background: root.background
         foreground: root.foreground
         border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
         fontFamily: Settings.fontFamily
         fontSize: root.fontSize
+
+        onAnswered: (allow, always) => terminal.answerClipboard(allow, always)
+    }
+
+    Permit {
+        id: openPermit
+
+        anchors.centerIn: parent
+        z: 3
+        terminal: terminal
+        background: root.background
+        foreground: root.foreground
+        border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+        fontFamily: Settings.fontFamily
+        fontSize: root.fontSize
+
+        onAnswered: (allow, always) => terminal.answerOpen(allow, always)
     }
 
     // An agent waiting for the user: a frame round the pane, seen from

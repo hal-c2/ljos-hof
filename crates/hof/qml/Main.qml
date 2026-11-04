@@ -48,10 +48,11 @@ Window {
         const item = window.paneItems[workspace.focusedPane];
         return item !== undefined && item.confirmingPaste;
     }
-    readonly property bool askingClipboard: {
+    // The focused pane asks whether its program may do something.
+    readonly property bool asking: {
         void window.terminalsRevision;
         const item = window.paneItems[workspace.focusedPane];
-        return item !== undefined && item.askingClipboard;
+        return item !== undefined && item.asking;
     }
     readonly property bool searchShown: {
         void window.terminalsRevision;

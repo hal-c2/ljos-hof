@@ -247,6 +247,18 @@
               "notify": "clipboardWriteChanged"
             },
             {
+              "name": "openUrls",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "openUrlsChanged"
+            },
+            {
               "name": "program",
               "type": "string",
               "kind": "value",
@@ -776,6 +788,15 @@
                   "type": "string"
                 }
               ]
+            },
+            {
+              "name": "openRequested",
+              "parameters": [
+                {
+                  "name": "url",
+                  "type": "string"
+                }
+              ]
             }
           ],
           "methods": [
@@ -851,6 +872,20 @@
             },
             {
               "name": "answerClipboard",
+              "parameters": [
+                {
+                  "name": "allow",
+                  "type": "bool"
+                },
+                {
+                  "name": "always",
+                  "type": "bool"
+                }
+              ],
+              "returnType": "void"
+            },
+            {
+              "name": "answerOpen",
               "parameters": [
                 {
                   "name": "allow",
@@ -1714,6 +1749,18 @@
               "constant": false,
               "group": false,
               "notify": "clipboardWriteChanged"
+            },
+            {
+              "name": "openUrls",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "openUrlsChanged"
             },
             {
               "name": "dropdownWidth",

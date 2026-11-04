@@ -79,6 +79,9 @@ pub struct Settings {
     pub clipboard_read: String,
     #[qml(notify, readonly)]
     pub clipboard_write: bool,
+    /// Whether programs may have URLs opened: as `clipboardRead`.
+    #[qml(notify, readonly)]
+    pub open_urls: String,
 
     /// Of the screen, 0 to 1.
     #[qml(notify, readonly)]
@@ -267,6 +270,7 @@ impl Settings {
             confirm_unsafe_paste: terminal.confirm_unsafe_paste,
             clipboard_read: permission(terminal.clipboard_read),
             clipboard_write: terminal.clipboard_write,
+            open_urls: permission(terminal.open_urls),
             dropdown_width: dropdown.width,
             dropdown_height: dropdown.height,
             dropdown_bottom: dropdown.position == Position::Bottom,
@@ -359,6 +363,7 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
         confirm_unsafe_paste => CONFIRM_UNSAFE_PASTE,
         clipboard_read => CLIPBOARD_READ,
         clipboard_write => CLIPBOARD_WRITE,
+        open_urls => OPEN_URLS,
         dropdown_width => DROPDOWN_WIDTH,
         dropdown_height => DROPDOWN_HEIGHT,
         dropdown_bottom => DROPDOWN_BOTTOM,

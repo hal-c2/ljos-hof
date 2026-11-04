@@ -8,6 +8,7 @@ mod mcp;
 mod scripts;
 mod sessions;
 mod settings;
+pub mod tty;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;

@@ -1,25 +1,26 @@
 import QtQuick
 import Hof
 
-// Asks before the program reads the clipboard (OSC 52), which may hold a
-// password or anything else the user copied. The program waits for the
-// answer. Enter lets it this once, A always (for this pane), Escape not.
+// Asks whether the program may do something: read the clipboard, open a
+// URL. Enter lets it this once, A always (for this pane), Escape not.
 Rectangle {
     id: root
 
     required property Terminal terminal
-    // The `[hosts]` machine the program runs on; empty for this one.
-    property string host
     property color background
     property color foreground
     property color border
     property string fontFamily
     property real fontSize: 11
 
-    property string clipboard: "clipboard"
+    property string question
+    property string detail
 
-    function ask(clipboard) {
-        root.clipboard = clipboard;
+    signal answered(bool allow, bool always)
+
+    function ask(question, detail) {
+        root.question = question;
+        root.detail = detail;
         root.visible = true;
         root.forceActiveFocus();
     }
@@ -27,7 +28,7 @@ Rectangle {
     function answer(allow, always) {
         root.visible = false;
         root.terminal.forceActiveFocus();
-        root.terminal.answerClipboard(allow, always);
+        root.answered(allow, always);
     }
 
     visible: false
@@ -62,7 +63,7 @@ Rectangle {
 
         Text {
             width: parent.width
-            text: (root.host.length > 0 ? "A program on " + root.host : "The program") + " wants to read the " + (root.clipboard === "selection" ? "selection" : "clipboard") + "."
+            text: root.question
             color: root.foreground
             font.family: root.fontFamily
             font.pointSize: root.fontSize
@@ -72,7 +73,8 @@ Rectangle {
 
         Text {
             width: parent.width
-            text: "It would see whatever was copied last, here or in any other program."
+            text: root.detail
+            visible: root.detail.length > 0
             color: root.foreground
             opacity: 0.7
             font.family: root.fontFamily

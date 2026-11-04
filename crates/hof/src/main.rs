@@ -60,6 +60,26 @@ enum Action {
         #[command(subcommand)]
         what: hof::ctl::Ctl,
     },
+    /// Put TEXT, or what comes on stdin, on the clipboard of the terminal
+    /// this runs in, on whichever machine it runs (OSC 52).
+    Copy {
+        /// The selection, which the middle button pastes, not the clipboard.
+        #[arg(short, long)]
+        selection: bool,
+        text: Vec<String>,
+    },
+    /// Print what is on the clipboard of the terminal this runs in. Hof
+    /// asks the user first, unless `clipboard-read` says otherwise.
+    Paste {
+        #[arg(short, long)]
+        selection: bool,
+        /// Seconds to wait for the terminal, and the user, to answer.
+        #[arg(short, long, default_value_t = 60.0)]
+        timeout: f64,
+    },
+    /// Open a URL, or a file, with what the desktop Hof runs on opens it
+    /// with, from whichever machine this runs on.
+    Open { target: String },
     /// Run remote panes' programs on this machine, for a Hof elsewhere
     /// that reaches it over ssh. Stays while it has panes or connections.
     Agent {
@@ -98,6 +118,24 @@ fn main() -> Result<()> {
             socket,
             detach,
         }) => return agent(stdio, socket, detach),
+        Some(Action::Copy { selection, text }) => {
+            let text = if text.is_empty() {
+                let mut all = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut all)
+                    .context("reading stdin")?;
+                all
+            } else {
+                text.join(" ")
+            };
+            return Ok(hof::tty::copy(&text, clipboard(selection))?);
+        }
+        Some(Action::Paste { selection, timeout }) => {
+            let wait = std::time::Duration::try_from_secs_f64(timeout).context("the timeout")?;
+            let text = hof::tty::paste(clipboard(selection), wait)?;
+            print!("{text}");
+            return Ok(());
+        }
+        Some(Action::Open { target }) => return Ok(hof::tty::open(&target)?),
         None => {}
     }
     let working_directory = match cli.working_directory {
@@ -143,6 +181,14 @@ fn main() -> Result<()> {
     hof_qml::remote::finish(std::time::Duration::from_secs(2));
     ran?;
     Ok(())
+}
+
+fn clipboard(selection: bool) -> hof_vt::Clipboard {
+    if selection {
+        hof_vt::Clipboard::Selection
+    } else {
+        hof_vt::Clipboard::Standard
+    }
 }
 
 fn agent(stdio: bool, socket: Option<PathBuf>, detach: bool) -> Result<()> {
