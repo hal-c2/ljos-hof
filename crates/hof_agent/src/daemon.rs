@@ -18,8 +18,8 @@ use crate::Agent;
 const START_WAIT: Duration = Duration::from_secs(5);
 
 /// Where the agent listens: `$HOF_AGENT_SOCKET`, else
-/// `$XDG_RUNTIME_DIR/hof-agent.sock`, else `hof-agent-<uid>.sock` in the
-/// temporary directory.
+/// `$XDG_RUNTIME_DIR/hof-agent.sock`, else `agent.sock` in a private
+/// directory for this user in the temporary directory.
 pub fn socket_path() -> PathBuf {
     socket_path_in(
         std::env::var_os("HOF_AGENT_SOCKET"),
@@ -41,8 +41,70 @@ fn socket_path_in(
     match runtime_dir.map(PathBuf::from) {
         // The spec says to ignore a relative one.
         Some(dir) if dir.is_absolute() => dir.join("hof-agent.sock"),
-        _ => temp_dir.join(format!("hof-agent-{uid}.sock")),
+        _ => temp_dir.join(format!("hof-agent-{uid}")).join("agent.sock"),
     }
+}
+
+fn prepare_parent(path: &Path) -> io::Result<()> {
+    let uid = rustix::process::getuid().as_raw();
+    let dir = std::env::temp_dir().join(format!("hof-agent-{uid}"));
+    if path.parent() == Some(dir.as_path()) {
+        ensure_private_dir(&dir, uid)?;
+    }
+    Ok(())
+}
+
+fn ensure_private_dir(path: &Path, uid: u32) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            std::fs::DirBuilder::new().mode(0o700).create(path)?;
+        }
+        Err(error) => return Err(error),
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_dir()
+        || metadata.uid() != uid
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "{} must be a directory owned by this user and private to it",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn connect(path: &Path) -> io::Result<UnixStream> {
+    let stream = UnixStream::connect(path)?;
+    same_user(&stream)?;
+    Ok(stream)
+}
+
+fn same_user(stream: &UnixStream) -> io::Result<()> {
+    same_user_as(stream, rustix::process::getuid().as_raw())
+}
+
+#[cfg(target_os = "linux")]
+fn same_user_as(stream: &UnixStream, expected_uid: u32) -> io::Result<()> {
+    let credentials = rustix::net::sockopt::socket_peercred(stream)?;
+    if credentials.uid.as_raw() == expected_uid {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the agent socket peer belongs to another user",
+        ))
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn same_user_as(_stream: &UnixStream, _expected_uid: u32) -> io::Result<()> {
+    Ok(())
 }
 
 /// How long an agent with nothing to do waits before it goes: long enough
@@ -63,6 +125,9 @@ pub fn serve(agent: &Agent, path: &Path, linger: Duration) -> io::Result<()> {
         .spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };
+                if same_user(&stream).is_err() {
+                    continue;
+                }
                 let agent = serving.clone();
                 let _ = thread::Builder::new()
                     .name("hof-agent-read".into())
@@ -95,11 +160,16 @@ pub fn serve(agent: &Agent, path: &Path, linger: Duration) -> io::Result<()> {
 }
 
 fn bind(path: &Path) -> io::Result<UnixListener> {
-    if UnixStream::connect(path).is_ok() {
-        return Err(io::Error::new(
-            io::ErrorKind::AddrInUse,
-            format!("an agent already listens at {}", path.display()),
-        ));
+    prepare_parent(path)?;
+    match connect(path) {
+        Ok(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                format!("an agent already listens at {}", path.display()),
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => return Err(error),
+        Err(_) => {}
     }
     // Left by an agent that died.
     let _ = std::fs::remove_file(path);
@@ -159,12 +229,18 @@ where
     R: Read + Send + 'static,
     W: Write,
 {
-    let socket = match UnixStream::connect(path) {
+    let socket = match connect(path) {
         Ok(socket) => socket,
-        Err(_) => {
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
             start()?;
             wait_for(path)?
         }
+        Err(error) => return Err(error),
     };
     let mut to_agent = socket.try_clone()?;
     // Not joined: when the agent goes first this thread is still blocked
@@ -195,8 +271,9 @@ where
 fn wait_for(path: &Path) -> io::Result<UnixStream> {
     let deadline = Instant::now() + START_WAIT;
     loop {
-        match UnixStream::connect(path) {
+        match connect(path) {
             Ok(socket) => return Ok(socket),
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err(e),
             Err(e) if Instant::now() >= deadline => {
                 return Err(io::Error::new(
                     e.kind(),
@@ -235,7 +312,34 @@ mod tests {
         );
         assert_eq!(
             path(Some(""), Some("run")),
-            Path::new("/tmp/hof-agent-7.sock")
+            Path::new("/tmp/hof-agent-7/agent.sock")
+        );
+    }
+
+    #[test]
+    fn a_fallback_directory_is_private_and_cannot_be_a_symlink() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("agent");
+        let uid = rustix::process::getuid().as_raw();
+        ensure_private_dir(&dir, uid).unwrap();
+        assert_eq!(
+            std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        std::fs::remove_dir(&dir).unwrap();
+        std::os::unix::fs::symlink(temp.path(), &dir).unwrap();
+        assert!(ensure_private_dir(&dir, uid).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_peer_with_another_users_identity_is_refused() {
+        let (stream, _other) = UnixStream::pair().unwrap();
+        let uid = rustix::process::getuid().as_raw();
+        same_user_as(&stream, uid).unwrap();
+        assert_eq!(
+            same_user_as(&stream, uid + 1).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
         );
     }
 }

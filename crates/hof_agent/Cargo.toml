@@ -11,7 +11,7 @@ publish.workspace = true
 [dependencies]
 hof_vt.workspace = true
 hof_remote.workspace = true
-rustix.workspace = true
+rustix = { workspace = true, features = ["net"] }
 thiserror.workspace = true
 anyhow.workspace = true
 clap.workspace = true
