@@ -45,6 +45,23 @@ impl Hof {
         self.engine.read_by_name(obj, name).to_number()
     }
 
+    fn find(&self, name: &str) -> Option<ObjectId> {
+        let mut items = vec![self.root];
+        while let Some(item) = items.pop() {
+            if self
+                .engine
+                .read_by_name(item, "objectName")
+                .to_js_string()
+                .as_str()
+                == name
+            {
+                return Some(item);
+            }
+            items.extend(self.engine.children(item));
+        }
+        None
+    }
+
     fn panes(&self) -> usize {
         self.number(self.root, "paneCount") as usize
     }
@@ -376,6 +393,8 @@ fn a_program_asking_to_open_a_url_waits_for_the_user() {
         .unwrap();
     hof.window.settle().unwrap();
     assert!(hof.asking(), "the user is asked");
+    let detail = hof.find("permitDetail").expect("the URL is shown");
+    assert_eq!(hof.number(detail, "textFormat"), 0.0, "plain text");
     hof.window.key(&KeyEvent::press(KEY_ESCAPE));
     hof.window.settle().unwrap();
     assert!(!hof.asking());
@@ -538,6 +557,8 @@ fn a_link_under_the_pointer_is_named_until_the_screen_moves_it_away() {
     hof.window.settle().unwrap();
     let hovered = |hof: &Hof| hof.engine.read_by_name(t, "hoveredLink").to_js_string();
     assert_eq!(hovered(&hof), "https://example.com/hof");
+    let text = hof.find("hoveredLinkText").expect("the link is named");
+    assert_eq!(hof.number(text, "textFormat"), 0.0, "plain text");
 
     hof.engine
         .invoke_by_name(t, "write", &[Value::from("\x1b[2J\x1b[H")])

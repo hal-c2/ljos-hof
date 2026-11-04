@@ -274,6 +274,7 @@ Item {
             text: (root.agentState === "waiting" ? "● " : root.agentState === "working" ? "◌ " : "○ ") + root.agent + " · " + root.agentState
             color: root.foreground
             font.family: Settings.fontFamily
+            textFormat: Text.PlainText
             font.pointSize: Math.max(1, root.fontSize - 2)
         }
     }
@@ -293,6 +294,7 @@ Item {
 
         Text {
             id: hoveredText
+            objectName: "hoveredLinkText"
 
             anchors.verticalCenter: parent.verticalCenter
             x: 7
@@ -301,6 +303,7 @@ Item {
             color: root.foreground
             elide: Text.ElideMiddle
             font.family: Settings.fontFamily
+            textFormat: Text.PlainText
             font.pointSize: Math.max(1, root.fontSize - 2)
         }
     }
@@ -315,6 +318,7 @@ Item {
         color: root.foreground
         opacity: 0.45
         font.family: Settings.fontFamily
+        textFormat: Text.PlainText
         font.pointSize: Math.max(1, root.fontSize - 2)
     }
 
@@ -347,6 +351,7 @@ Item {
             elide: Text.ElideRight
             horizontalAlignment: Text.AlignHCenter
             font.family: Settings.fontFamily
+            textFormat: Text.PlainText
             font.pointSize: Math.max(1, root.fontSize - 1)
         }
     }
@@ -359,6 +364,7 @@ Item {
         text: terminal.error
         color: root.foreground
         font.family: Settings.fontFamily
+        textFormat: Text.PlainText
         font.pointSize: root.fontSize
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap

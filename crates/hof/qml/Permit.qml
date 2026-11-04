@@ -79,11 +79,13 @@ Rectangle {
             color: root.foreground
             font.family: root.fontFamily
             font.pointSize: root.fontSize
+            textFormat: Text.PlainText
             font.bold: true
             wrapMode: Text.Wrap
         }
 
         Text {
+            objectName: "permitDetail"
             width: parent.width
             text: root.detail
             visible: root.detail.length > 0
@@ -91,6 +93,7 @@ Rectangle {
             opacity: 0.7
             font.family: root.fontFamily
             font.pointSize: root.fontSize
+            textFormat: Text.PlainText
             wrapMode: Text.Wrap
         }
 
@@ -136,6 +139,7 @@ Rectangle {
                         color: root.foreground
                         font.family: root.fontFamily
                         font.pointSize: root.fontSize
+            textFormat: Text.PlainText
                     }
 
                     MouseArea {

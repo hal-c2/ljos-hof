@@ -88,6 +88,7 @@ Item {
                     anchors.right: close.left
                     anchors.verticalCenter: parent.verticalCenter
                     text: tab.title
+                    textFormat: Text.PlainText
                     elide: Text.ElideRight
                     color: root.foreground
                     opacity: tab.current ? 1 : 0.6
