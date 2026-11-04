@@ -524,6 +524,10 @@ fn an_unsafe_paste_is_shown_above_a_clipboard_request() {
     let clipboard = hof.find("clipboardPermit").unwrap();
     assert!(hof.engine.read_by_name(paste, "activeFocus").to_boolean());
     assert!(hof.number(paste, "z") > hof.number(clipboard, "z"));
+    hof.run("new-tab");
+    hof.run("previous-tab");
+    assert!(hof.engine.read_by_name(paste, "activeFocus").to_boolean());
+    assert!(hof.number(paste, "z") > hof.number(clipboard, "z"));
 
     hof.window.key(&KeyEvent::press(KEY_RETURN));
     hof.window.settle().unwrap();

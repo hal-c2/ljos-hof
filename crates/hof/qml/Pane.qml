@@ -64,7 +64,9 @@ Item {
     function giveFocus() {
         if (!root.focused || !root.shown)
             return;
-        if (clipboardPermit.visible)
+        if (confirm.visible && confirm.z >= clipboardPermit.z && confirm.z >= openPermit.z)
+            confirm.forceActiveFocus();
+        else if (clipboardPermit.visible && clipboardPermit.z >= openPermit.z)
             clipboardPermit.forceActiveFocus();
         else if (openPermit.visible)
             openPermit.forceActiveFocus();
