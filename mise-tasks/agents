@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#MISE description="Build the static hof-agent Hof copies to machines that have no Hof, for each musl target installed"
+set -euo pipefail
+# Ghostty's source from an earlier build, so a new target needn't fetch it.
+if [ -z "${GHOSTTY_SOURCE_DIR:-}" ]; then
+  for src in target/*/build/libghostty-vt-sys-*/out/ghostty-src target/*/*/build/libghostty-vt-sys-*/out/ghostty-src; do
+    if [ -f "$src/build.zig" ]; then export GHOSTTY_SOURCE_DIR="$PWD/$src"; break; fi
+  done
+fi
+built=0
+for arch in x86_64 aarch64; do
+  target="$arch-unknown-linux-musl"
+  rustup target list --installed | grep -qx "$target" || { echo "skipping $target: rustup target add $target"; continue; }
+  cargo build --profile agent --offline -p hof_agent --bin hof-agent --target "$target"
+  # Beside Hof's own program, where it looks for them.
+  for dir in target/debug target/release; do
+    mkdir -p "$dir"
+    cp "target/$target/agent/hof-agent" "$dir/hof-agent-$arch-linux"
+  done
+  echo "built hof-agent-$arch-linux"
+  built=1
+done
+[ "$built" = 1 ] || { echo "no musl target is installed" >&2; exit 1; }

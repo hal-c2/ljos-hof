@@ -57,3 +57,10 @@ debug = false
 
 [profile.release.package.libghostty-vt-sys]
 debug = false
+
+# `hof-agent`, as Hof copies it to other machines: small, so the copy is
+# quick over a slow link.
+[profile.agent]
+inherits = "release"
+debug = false
+strip = true
