@@ -8,7 +8,7 @@ mod mcp;
 mod scripts;
 mod sessions;
 mod settings;
-pub mod tty;
+pub use hof_agent::tty;
 
 use std::path::PathBuf;
 use std::sync::OnceLock;

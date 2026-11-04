@@ -36,6 +36,8 @@ pub struct Options {
     pub scrollback: usize,
     /// What the agent says it is: the machine's name.
     pub name: String,
+    /// The `PATH` its panes get, when it is not the agent's own.
+    pub path: Option<OsString>,
 }
 
 impl Default for Options {
@@ -44,8 +46,34 @@ impl Default for Options {
             backlog: 4 * 1024 * 1024,
             scrollback: 10_000,
             name: host_name(),
+            path: path_with(
+                std::env::current_exe().ok().as_deref(),
+                std::env::var_os("PATH"),
+            ),
         }
     }
+}
+
+/// `path` with the directory of `program` after it, when `program` is a
+/// `hof` that `path` doesn't reach: one Hof copied to the machine, so
+/// `hof copy` works in its panes.
+pub(crate) fn path_with(
+    program: Option<&std::path::Path>,
+    path: Option<OsString>,
+) -> Option<OsString> {
+    let program = program?;
+    if program.file_name()? != "hof" {
+        return None;
+    }
+    let dir = program.parent()?;
+    let path = path.unwrap_or_default();
+    if std::env::split_paths(&path).any(|p| p == dir || p.join("hof").exists()) {
+        return None;
+    }
+    let dirs = std::env::split_paths(&path)
+        .filter(|p| !p.as_os_str().is_empty())
+        .chain([dir.to_owned()]);
+    std::env::join_paths(dirs).ok()
 }
 
 fn host_name() -> String {
@@ -387,12 +415,17 @@ impl Agent {
             Some(PathBuf::from(directory))
         };
         // What finds Hof's services first, so Hof's own say wins.
-        spawn.env = self
-            .inner
-            .forwards
-            .environment(me)
+        let path = self.inner.options.path.clone();
+        spawn.env = path
+            .map(|p| (OsString::from("PATH"), p))
             .into_iter()
-            .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+            .chain(
+                self.inner
+                    .forwards
+                    .environment(me)
+                    .into_iter()
+                    .map(|(k, v)| (OsString::from(k), OsString::from(v))),
+            )
             .chain(
                 environment
                     .iter()
@@ -578,5 +611,28 @@ fn catch_up(id: PaneId, pane: &Pane, sent: &mut Sent, out: &mut Vec<u8>) {
     {
         Message::Exited { pane: id, code }.encode(out);
         sent.told_exit = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn a_copied_hof_puts_its_directory_last_on_the_path() {
+        let path = path_with(
+            Some(Path::new("/nowhere/hof/0.1/hof")),
+            Some("/usr/bin:/bin".into()),
+        );
+        assert_eq!(path, Some("/usr/bin:/bin:/nowhere/hof/0.1".into()));
+    }
+
+    #[test]
+    fn a_hof_the_path_reaches_leaves_the_path_alone() {
+        let on = path_with(Some(Path::new("/opt/x/hof")), Some("/bin:/opt/x".into()));
+        assert_eq!(on, None);
+        let other = path_with(Some(Path::new("/opt/x/hof-agent")), Some("/bin".into()));
+        assert_eq!(other, None, "only a program called hof");
     }
 }

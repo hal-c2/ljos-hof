@@ -10,12 +10,16 @@
 //! [`Agent`] is the panes and the protocol, over any reader and writer.
 //! [`daemon`] is the agent as a process that outlives its connections, on
 //! a unix socket, and the `--stdio` bridge ssh runs to reach it.
+//! [`cli`] is the commands `hof` and `hof-agent` both take, and [`tty`]
+//! what `hof copy`, `hof paste` and `hof open` say to their terminal.
 //!
 //! The agent also passes on to Hof the X11 and sound clients its panes'
 //! programs start, when Hof offers to take them.
 
 mod agent;
+pub mod cli;
 pub mod daemon;
 mod forward;
+pub mod tty;
 
 pub use agent::{Agent, Options};

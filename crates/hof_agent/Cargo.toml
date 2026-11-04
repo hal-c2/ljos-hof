@@ -12,6 +12,9 @@ publish.workspace = true
 hof_vt.workspace = true
 hof_remote.workspace = true
 rustix.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+clap.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
