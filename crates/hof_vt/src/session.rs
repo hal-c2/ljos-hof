@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use libghostty_vt::fmt::{Format, Formatter, FormatterOptions};
 use libghostty_vt::paste;
-use libghostty_vt::screen::{GridRef, RowSemanticPrompt};
+use libghostty_vt::screen::{CellWide, GridRef, RowSemanticPrompt};
 use libghostty_vt::selection::{FormatOptions, SelectLineOptions, SelectWordOptions, Selection};
 use libghostty_vt::terminal::{
     ClipboardMime, CursorStyle, Mode, Point, PointCoordinate, PointSpace, ScrollViewport,
@@ -17,6 +17,7 @@ use libghostty_vt::terminal::{
 use libghostty_vt::{Terminal, focus};
 
 use crate::find::{Finder, Found, Highlight};
+use crate::links::{self, Hyperlink, LineText};
 use crate::pty::{self, Pty, Spawn};
 use crate::remote::{Feed, Outlet, Slot};
 use crate::signals::{Changes, Event, Signals};
@@ -625,6 +626,74 @@ impl Session {
         Ok(found)
     }
 
+    /// The link at a cell of the view: the program's own (OSC 8), else a
+    /// URL in the text of the line there.
+    pub fn link_at(&self, col: u16, row: u16) -> Option<Hyperlink> {
+        let guard = self.shared.lock();
+        let term = &guard.term;
+        let Size { cols, rows, .. } = guard.size;
+        if col >= cols || row >= rows {
+            return None;
+        }
+        let row_of = |r: u16| term.grid_ref(viewport(0, r)).and_then(|g| g.row()).ok();
+        let mut top = row;
+        while top > 0 && row_of(top).is_some_and(|r| r.is_wrap_continuation().unwrap_or(false)) {
+            top -= 1;
+        }
+        let mut bottom = row;
+        while bottom + 1 < rows && row_of(bottom).is_some_and(|r| r.is_wrapped().unwrap_or(false)) {
+            bottom += 1;
+        }
+        let cells = (top..=bottom).flat_map(|r| (0..cols).map(move |c| (r, c)));
+
+        let here = term.grid_ref(viewport(col, row)).ok()?;
+        if here.cell().and_then(|c| c.has_hyperlink()).unwrap_or(false) {
+            let url = uri_of(&here)?;
+            let same = |&(r, c): &(u16, u16)| {
+                term.grid_ref(viewport(c, r))
+                    .ok()
+                    .and_then(|g| uri_of(&g))
+                    .is_some_and(|u| u == url)
+            };
+            let cells: Vec<_> = cells.collect();
+            let at = cells.iter().position(|&cell| cell == (row, col))?;
+            let start = cells[..at]
+                .iter()
+                .rposition(|c| !same(c))
+                .map_or(0, |i| i + 1);
+            let end = cells[at..]
+                .iter()
+                .position(|c| !same(c))
+                .map_or(cells.len(), |i| at + i);
+            return Some(Hyperlink {
+                url,
+                spans: links::spans_of(&cells[start..end]),
+            });
+        }
+
+        let mut line = LineText::default();
+        let mut chars = ['\0'; 16];
+        for (r, c) in cells {
+            if line.text.len() > links::MOST_LINE {
+                break;
+            }
+            let Ok(cell) = term.grid_ref(viewport(c, r)) else {
+                continue;
+            };
+            if matches!(
+                cell.cell().and_then(|c| c.wide()),
+                Ok(CellWide::SpacerTail | CellWide::SpacerHead)
+            ) {
+                continue;
+            }
+            match cell.graphemes(&mut chars) {
+                Ok(0) | Err(_) => line.push(' ', r, c),
+                Ok(n) => chars[..n].iter().for_each(|&ch| line.push(ch, r, c)),
+            }
+        }
+        line.url_at(row, col)
+    }
+
     pub fn select_all(&self) -> Result<(), Error> {
         let guard = self.shared.lock();
         let all = guard.term.select_all()?;
@@ -897,6 +966,20 @@ fn prompt_rows_at_cursor(term: &Terminal<'static, 'static>) -> usize {
         }
     }
     0
+}
+
+/// A cell's OSC 8 link, if it has one.
+fn uri_of(cell: &GridRef<'_>) -> Option<String> {
+    let mut buf = vec![0; 512];
+    let len = match cell.hyperlink_uri(&mut buf) {
+        Ok(len) => len,
+        Err(libghostty_vt::Error::OutOfSpace { required }) => {
+            buf.resize(required, 0);
+            cell.hyperlink_uri(&mut buf).ok()?
+        }
+        Err(_) => return None,
+    };
+    (len > 0).then(|| String::from_utf8_lossy(&buf[..len]).into_owned())
 }
 
 fn active(col: u16, row: u16) -> Point {

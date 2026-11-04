@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use hof_vt::{
-    Attrs, Changes, CursorShape, Event, Found, Grid, Highlight, Key, KeyInput, Mods, Options,
-    PasteError, PromptMark, Rgb, Scroll, Selecting, Session, Size, Spawn, Theme,
+    Attrs, Changes, CursorShape, Event, Found, Grid, Highlight, Hyperlink, Key, KeyInput, LinkSpan,
+    Mods, Options, PasteError, PromptMark, Rgb, Scroll, Selecting, Session, Size, Spawn, Theme,
 };
 
 fn detached(cols: u16, rows: u16) -> (Session, Arc<AtomicUsize>) {
@@ -685,4 +685,49 @@ fn a_clipboard_write_of_nothing_clears_it() {
             text: String::new(),
         }]
     );
+}
+
+#[test]
+fn a_programs_own_link_is_found_under_its_text() {
+    let (session, _) = detached(40, 4);
+    session.feed(b"see \x1b]8;;https://example.com/docs\x1b\\the docs\x1b]8;;\x1b\\ here");
+    let link = session.link_at(6, 0).unwrap();
+    assert_eq!(
+        link,
+        Hyperlink {
+            url: "https://example.com/docs".into(),
+            spans: vec![LinkSpan {
+                row: 0,
+                start: 4,
+                end: 12
+            }],
+        }
+    );
+    assert_eq!(session.link_at(2, 0), None, "plain words are no link");
+    assert_eq!(session.link_at(13, 0), None);
+}
+
+#[test]
+fn a_url_in_the_text_is_a_link_even_when_it_wraps() {
+    let (session, _) = detached(20, 4);
+    session.feed(b"go to https://example.com/a/long/path. ok");
+    let link = session.link_at(2, 1).unwrap();
+    assert_eq!(link.url, "https://example.com/a/long/path");
+    assert_eq!(
+        link.spans,
+        [
+            LinkSpan {
+                row: 0,
+                start: 6,
+                end: 20
+            },
+            LinkSpan {
+                row: 1,
+                start: 0,
+                end: 17
+            },
+        ]
+    );
+    assert_eq!(session.link_at(7, 0), Some(link));
+    assert_eq!(session.link_at(19, 1), None, "past the full stop");
 }
