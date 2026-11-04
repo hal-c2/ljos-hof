@@ -1,0 +1,10 @@
+# Tooling for Ljós Hof. `mise install` installs it; tasks live in mise-tasks/.
+[tools]
+rust = { version = "1.98.1", components = "rustfmt,clippy" }
+# libghostty-vt is built from Ghostty's source by its build script.
+zig = "0.17.1"
+
+[env]
+CARGO_TERM_COLOR = "always"
+# Where the Ljós UI checkout lives; `mise run setup` links it into third_party/.
+LJOS_UI_DIR = "{{env.HOME}}/dev/ljos-ui"

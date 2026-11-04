@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Stress test: a fire, parsed headless, painted offscreen, then drawn in this terminal (fire SECONDS)"
+set -euo pipefail
+cargo build --release --offline -p hof_vt --example fire -p hof_qml --example paint_fire
+echo "== the parser and the grid"
+./target/release/examples/fire headless
+echo "== painted"
+./target/release/examples/paint_fire
+# Last, as it takes the screen.
+if [ -t 1 ]; then ./target/release/examples/fire "${1:-5}"; fi

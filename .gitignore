@@ -1,0 +1,3 @@
+/target
+# A link to the Ljós UI checkout (`mise run setup`).
+/third_party/ljos-ui
