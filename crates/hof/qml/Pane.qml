@@ -61,10 +61,19 @@ Item {
         search.open();
     }
 
-    onFocusedChanged: if (root.focused && root.shown)
-        terminal.forceActiveFocus()
-    onShownChanged: if (root.focused && root.shown)
-        terminal.forceActiveFocus()
+    function giveFocus() {
+        if (!root.focused || !root.shown)
+            return;
+        if (clipboardPermit.visible)
+            clipboardPermit.forceActiveFocus();
+        else if (openPermit.visible)
+            openPermit.forceActiveFocus();
+        else
+            terminal.forceActiveFocus();
+    }
+
+    onFocusedChanged: root.giveFocus()
+    onShownChanged: root.giveFocus()
 
     Terminal {
         id: terminal
@@ -146,8 +155,7 @@ Item {
 
         Component.onCompleted: {
             root.terminalReady(terminal, root);
-            if (root.focused && root.shown)
-                terminal.forceActiveFocus();
+            root.giveFocus();
         }
         Component.onDestruction: root.terminalGone()
 
@@ -213,6 +221,7 @@ Item {
         border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
         fontFamily: Settings.fontFamily
         fontSize: root.fontSize
+        active: root.focused && root.shown
 
         onAnswered: (allow, always) => terminal.answerClipboard(allow, always)
     }
@@ -228,6 +237,7 @@ Item {
         border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
         fontFamily: Settings.fontFamily
         fontSize: root.fontSize
+        active: root.focused && root.shown
 
         onAnswered: (allow, always) => terminal.answerOpen(allow, always)
     }

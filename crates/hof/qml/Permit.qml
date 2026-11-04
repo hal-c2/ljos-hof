@@ -2,11 +2,13 @@ import QtQuick
 import Hof
 
 // Asks whether the program may do something: read the clipboard, open a
-// URL. Enter lets it this once, A always (for this pane), Escape not.
+// URL. Ctrl+Enter lets it this once, Ctrl+Shift+A always (for this pane),
+// Escape not. Approval needs an intentional chord or click, never a stray key.
 Rectangle {
     id: root
 
     required property Terminal terminal
+    property bool active: true
     property color background
     property color foreground
     property color border
@@ -15,19 +17,29 @@ Rectangle {
 
     property string question
     property string detail
+    property Item previousFocus: null
 
     signal answered(bool allow, bool always)
 
     function ask(question, detail) {
         root.question = question;
         root.detail = detail;
+        if (root.active) {
+            root.previousFocus = root.Window.window.activeFocusItem;
+            root.forceActiveFocus();
+        }
         root.visible = true;
-        root.forceActiveFocus();
     }
 
     function answer(allow, always) {
         root.visible = false;
-        root.terminal.forceActiveFocus();
+        if (root.active) {
+            if (root.previousFocus !== null)
+                root.previousFocus.forceActiveFocus();
+            else
+                root.terminal.forceActiveFocus();
+        }
+        root.previousFocus = null;
         root.answered(allow, always);
     }
 
@@ -40,10 +52,10 @@ Rectangle {
     focus: root.visible
 
     Keys.onPressed: event => {
-        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+        if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && event.modifiers === Qt.ControlModifier) {
             root.answer(true, false);
             event.accepted = true;
-        } else if (event.key === Qt.Key_A) {
+        } else if (event.key === Qt.Key_A && event.modifiers === (Qt.ControlModifier | Qt.ShiftModifier)) {
             root.answer(true, true);
             event.accepted = true;
         } else if (event.key === Qt.Key_Escape) {
@@ -94,12 +106,12 @@ Rectangle {
                         always: false
                     },
                     {
-                        label: "Always (A)",
+                        label: "Always (Ctrl+Shift+A)",
                         allow: true,
                         always: true
                     },
                     {
-                        label: "Allow (Enter)",
+                        label: "Allow (Ctrl+Enter)",
                         allow: true,
                         always: false
                     }

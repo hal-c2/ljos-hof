@@ -421,8 +421,44 @@ fn hof_copy_and_paste_in_a_pane_go_through_its_terminal() {
     hof.window.settle().unwrap();
     let t = hof.current().unwrap();
     hof.until("the paste to ask", |h| h.asking());
-    hof.window.key(&KeyEvent::press(KEY_RETURN));
+    hof.window
+        .key(&KeyEvent::press(KEY_RETURN).with_modifiers(Modifiers::CONTROL));
     hof.until("the paste", |h| h.screen(t).contains("got:ljós"));
+}
+
+#[test]
+fn a_background_panes_request_cannot_take_the_keys_or_consent() {
+    let mut hof = opened();
+    let first = hof.current().unwrap();
+    hof.run("new-tab");
+    let second = hof.current().unwrap();
+    hof.engine
+        .invoke_by_name(first, "write", &[Value::from("\x1b]52;c;?\x07")])
+        .unwrap();
+    hof.window.settle().unwrap();
+    assert!(
+        !hof.asking(),
+        "the hidden request is not the focused pane's"
+    );
+    assert!(hof.engine.read_by_name(second, "activeFocus").to_boolean());
+
+    hof.window.key(&KeyEvent::press(KEY_RETURN));
+    hof.window.key(&KeyEvent::press('A' as i32));
+    hof.window.settle().unwrap();
+    assert_eq!(hof.current(), Some(second), "the keys stay in this tab");
+    assert!(hof.engine.read_by_name(second, "activeFocus").to_boolean());
+
+    hof.run("previous-tab");
+    assert_eq!(hof.current(), Some(first));
+    assert!(hof.asking(), "neither stray key granted the hidden request");
+    hof.window.key(&KeyEvent::press(KEY_RETURN));
+    hof.window.settle().unwrap();
+    assert!(hof.asking(), "a plain Enter is not consent either");
+    hof.window
+        .key(&KeyEvent::press(KEY_RETURN).with_modifiers(Modifiers::CONTROL));
+    hof.window.settle().unwrap();
+    assert!(!hof.asking());
+    assert!(hof.engine.read_by_name(first, "activeFocus").to_boolean());
 }
 
 impl Hof {
