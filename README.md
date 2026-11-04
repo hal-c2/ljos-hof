@@ -23,18 +23,27 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
 - **Commands.** `[commands.<name>]` runs a program in a tab, a split or the
   background, or types text into the focused pane, at a key you choose.
 - **Hooks.** Shell snippets run on pane-opened, pane-closed,
-  command-started, command-finished, bell, notification, directory-changed
-  and title-changed.
+  command-started, command-finished, bell, notification, directory-changed,
+  title-changed and agent-changed.
+- **Panes that know their agents.** Hof sees Claude Code, Codex, Gemini,
+  Aider and opencode in a pane, and whether each is working, waiting for
+  you or idle. It tells by the program in the foreground and the bottom of
+  its screen (`[agents.<name>]` tables), or by the agent saying so with
+  `hof ctl agent-state` from its hooks. A waiting pane gets a frame, its
+  tab a dot, and a desktop notification when you can't see it
+  (`[notify]`). `next-waiting` jumps to it.
 - **Plugins.** A plugin is `plugins/<name>.toml` or
   `plugins/<name>/plugin.toml` beside the config, holding commands and
   hooks. Your own config wins any conflict.
 - **`hof ctl`** drives the running Hof: list panes, read a screen or its
   scrollback, send text, run a command and wait for its exit code, open
-  tabs and splits, and focus or close panes. Inside a pane it needs no
-  arguments, because Hof sets `HOF_SOCKET` and `HOF_PANE_ID` there.
+  tabs and splits, focus or close panes, and say or wait for an agent's
+  state. Inside a pane it needs no arguments, because Hof sets
+  `HOF_SOCKET` and `HOF_PANE_ID` there.
 - **MCP.** `hof mcp` is a stdio MCP server for the running Hof. Agents can
-  read panes always; typing into panes and opening or closing them are
-  separate opt-ins in `[mcp]`.
+  read panes and agents' states, and say or wait for those states, always;
+  typing into panes and opening or closing them are separate opt-ins in
+  `[mcp]`.
 - **Optional session restore.** `[session] restore = true` reopens the
   windows, tabs, splits and directories, and optionally the scrollback.
 - **Themes.** Nine are built in, and you can add your own as
@@ -105,8 +114,7 @@ profiles. Keep it off.
 
 Remote panes on any machine, mixed in tabs and splits. They survive
 dropped connections the way mosh sessions do, and bring X11 apps, sound,
-the clipboard and files across. Panes also know the agents running in
-them. See [`docs/remote.md`](docs/remote.md).
+the clipboard and files across. See [`docs/remote.md`](docs/remote.md).
 
 Remote panes work now. Name a machine under `[hosts]`:
 

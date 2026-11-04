@@ -207,21 +207,32 @@ The idea comes from herdr. What follows is Hof's own design.
     agent shows it.
 - **Telling the states, by three means:**
   1. **The foreground process.** `tcgetpgrp` on the pty, then
-     `/proc/<pid>/comm` and the arguments, gives the agent's name. The
-     agent daemon does this for remote panes.
+     `/proc/<pid>/comm` and the arguments, gives the agent's name. For
+     remote panes the agent daemon should send it; until it does, a
+     remote agent is known only by what it says.
   2. **The screen.** A plugin can add an `[agents.<name>]` table with the
      process it matches and the text that means waiting or working. The
      screen is already parsed, and only its bottom rows need reading when
      it changes. Hof ships tables for the common agents.
-  3. **The agent saying so.** An OSC sequence it writes (to be chosen), or
-     its own hooks calling `hof ctl agent-state`. Claude Code's hooks can.
+  3. **The agent saying so.** `ESC ] 7701 ; <state> [; <name>] BEL`, which
+     `hof ctl agent-state` writes to the terminal, so it reaches Hof from
+     a remote pane too; MCP `set_agent_state`; or the `reportAgent`
+     method from QML. What is said holds while the program that was in
+     the foreground then still is, and wins over the screen. With no
+     foreground to see, as for a remote pane, it holds until the next
+     report. Claude Code's hooks can call `hof ctl agent-state`.
 - **Using them:**
   - A hook, `agent-changed`, with `HOF_AGENT` and `HOF_AGENT_STATE`.
   - A desktop notification when an agent starts waiting and its pane is
     out of sight.
-  - `hof ctl wait --state idle`, so scripts can chain agents.
+  - `hof ctl wait-agent --state idle`, and MCP `wait_for_agent`, so
+    scripts and agents can chain agents.
   - The states in MCP `list_panes`.
-  - A key that jumps to the next waiting agent, on any machine.
+  - A key, `next-waiting`, that jumps to the next waiting agent, on any
+    machine.
+- **Looking costs little.** A pane looks a moment (300 ms) after its
+  screen changes, and only reads the screen when a table's process is in
+  the foreground. A quiet pane costs nothing.
 
 ## Order of work
 
@@ -242,7 +253,13 @@ The idea comes from herdr. What follows is Hof's own design.
 
    Still to do: bootstrapping, and a key that opens a tab on a chosen
    host.
-5. **Agent awareness**, locally first, then through the agent channel.
+5. **Agent awareness.** Done locally: the foreground process, the
+   tables, the escape sequence, the frame, badge and tab dot, the hook,
+   notifications, `next-waiting`, `hof ctl agent-state` and `wait-agent`,
+   and the MCP tools. Remote panes carry the escape sequence already.
+
+   Still to do: the agent daemon sending a remote pane's foreground
+   process, so tables work there too.
 6. **Clipboard and open-here.** These come with the OSC 52 permission
    prompt, which local panes need anyway.
 7. **The X11 tunnel**, then **sound**.
