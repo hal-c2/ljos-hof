@@ -191,6 +191,10 @@ Window {
         return false;
     }
 
+    function notificationCommand(title, where) {
+        return JSON.stringify(["notify-send", "--app-name=Hof", "--icon=utilities-terminal", "--", title, where]);
+    }
+
     // Tells the desktop that the agent in `pane` waits, unless the user
     // can see it already: the pane has the keys of the window they are in.
     function notifyWaiting(pane, shown, focused) {
@@ -202,7 +206,7 @@ Window {
         const host = window.hostOf(pane);
         const where = t.title.length > 0 ? t.title : window.directoryOf(pane);
         const title = t.agent + " is waiting" + (host.length > 0 ? " on " + host : "");
-        App.spawn(["notify-send", "--app-name=Hof", "--icon=utilities-terminal", title, where], [], "");
+        App.spawn(JSON.parse(window.notificationCommand(title, where)), [], "");
     }
 
     function newTab(directory, command, environment, host) {

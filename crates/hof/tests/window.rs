@@ -566,3 +566,20 @@ fn a_link_under_the_pointer_is_named_until_the_screen_moves_it_away() {
     hof.window.settle().unwrap();
     assert_eq!(hovered(&hof), "", "the screen was cleared under it");
 }
+
+#[test]
+fn notification_text_cannot_become_an_option() {
+    let hof = opened();
+    let args = hof
+        .engine
+        .invoke_by_name(
+            hof.root,
+            "notificationCommand",
+            &[Value::from("--wait"), Value::from("--replace-id=7")],
+        )
+        .unwrap();
+    let args: Vec<String> = serde_json::from_str(args.to_js_string().as_str()).unwrap();
+    assert_eq!(args[3], "--");
+    assert_eq!(args[4], "--wait");
+    assert_eq!(args[5], "--replace-id=7");
+}
