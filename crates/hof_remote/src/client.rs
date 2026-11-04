@@ -109,6 +109,32 @@ impl Default for Options {
     }
 }
 
+/// How much decoded input may wait for the driver. Only the reader thread
+/// waits for room; the UI and driver never block on this budget.
+const EVENT_MEMORY: usize = 32 * 1024 * 1024;
+
+#[derive(Default)]
+struct Budget {
+    used: Mutex<usize>,
+    room: std::sync::Condvar,
+}
+
+impl Budget {
+    fn take(&self, weight: usize) {
+        let mut used = self.used.lock().unwrap_or_else(|e| e.into_inner());
+        while *used + weight > EVENT_MEMORY {
+            used = self.room.wait(used).unwrap_or_else(|e| e.into_inner());
+        }
+        *used += weight;
+    }
+
+    fn give(&self, weight: usize) {
+        let mut used = self.used.lock().unwrap_or_else(|e| e.into_inner());
+        *used = used.saturating_sub(weight);
+        self.room.notify_all();
+    }
+}
+
 /// How to reach the agent: `ssh`, mostly.
 pub trait Transport: Send + 'static {
     fn connect(&mut self) -> io::Result<Connection>;
@@ -243,7 +269,8 @@ pub struct Pane {
 impl Host {
     pub fn new(transport: impl Transport, options: Options) -> Self {
         let (to, events) = mpsc::channel();
-        let driver = Driver::new(Box::new(transport), options, to.clone(), events);
+        let incoming = Arc::new(Budget::default());
+        let driver = Driver::new(Box::new(transport), options, to.clone(), events, incoming);
         // Not joined: it waits for panes for as long as the process lives.
         let _ = thread::Builder::new()
             .name("hof-remote".into())
@@ -376,7 +403,7 @@ struct Slot {
 /// The connection that is up.
 struct Live {
     generation: u64,
-    frames: mpsc::Sender<Vec<u8>>,
+    frames: mpsc::SyncSender<Vec<u8>>,
     /// Says when the writer has written all it was given, or can't.
     written: mpsc::Receiver<()>,
     end: Option<Box<dyn FnOnce() -> Option<String> + Send>>,
@@ -393,6 +420,7 @@ struct Driver {
     options: Options,
     to: mpsc::Sender<Event>,
     events: mpsc::Receiver<Event>,
+    incoming: Arc<Budget>,
     live: Option<Live>,
     generation: u64,
     /// The agent's, once one said hello: another means it started again.
@@ -415,6 +443,7 @@ impl Driver {
         options: Options,
         to: mpsc::Sender<Event>,
         events: mpsc::Receiver<Event>,
+        incoming: Arc<Budget>,
     ) -> Self {
         Self {
             transport,
@@ -422,6 +451,7 @@ impl Driver {
             options,
             to,
             events,
+            incoming,
             live: None,
             generation: 0,
             instance: None,
@@ -456,14 +486,17 @@ impl Driver {
                     return;
                 }
                 Some(Event::Pane(id, command)) => self.command(id, command),
-                // What an old connection says comes too late to matter.
-                Some(Event::Heard(generation, message)) if self.is_live(generation) => {
-                    self.heard(message);
+                Some(Event::Heard(generation, message)) => {
+                    self.incoming.give(message_weight(&message));
+                    // What an old connection says comes too late to matter.
+                    if self.is_live(generation) {
+                        self.heard(message);
+                    }
                 }
                 Some(Event::Ended(generation, why)) if self.is_live(generation) => {
                     self.lost(why);
                 }
-                Some(Event::Heard(..) | Event::Ended(..)) | None => {}
+                Some(Event::Ended(..)) | None => {}
             }
             self.tick();
         }
@@ -532,7 +565,7 @@ impl Driver {
             writer,
             end,
         } = connection;
-        let (frames, out) = mpsc::channel::<Vec<u8>>();
+        let (frames, out) = mpsc::sync_channel::<Vec<u8>>(16);
         let (wrote, written) = mpsc::channel();
         let to = self.to.clone();
         let started = thread::Builder::new()
@@ -543,9 +576,10 @@ impl Driver {
             })
             .and_then(|_| {
                 let to = self.to.clone();
+                let incoming = self.incoming.clone();
                 thread::Builder::new()
                     .name("hof-remote-read".into())
-                    .spawn(move || read_frames(reader, &to, generation))
+                    .spawn(move || read_frames(reader, &to, generation, incoming))
             });
         let now = Instant::now();
         let to_relay = frames.clone();
@@ -633,11 +667,20 @@ impl Driver {
     }
 
     fn send(&mut self, message: Message) {
-        let Some(live) = &self.live else { return };
-        let mut frame = Vec::new();
-        message.encode(&mut frame);
-        // A writer gone says so itself, as the connection's end.
-        let _ = live.frames.send(frame);
+        let full = {
+            let Some(live) = &self.live else { return };
+            let mut frame = Vec::new();
+            message.encode(&mut frame);
+            match live.frames.try_send(frame) {
+                Ok(()) => false,
+                Err(mpsc::TrySendError::Full(_)) => true,
+                // A writer gone says so itself, as the connection's end.
+                Err(mpsc::TrySendError::Disconnected(_)) => false,
+            }
+        };
+        if full {
+            self.lost(Some("the agent is not reading".into()));
+        }
     }
 
     fn greeted(&self) -> bool {
@@ -1022,7 +1065,12 @@ impl Slot {
     }
 }
 
-fn read_frames(mut reader: Box<dyn Read + Send>, to: &mpsc::Sender<Event>, generation: u64) {
+fn read_frames(
+    mut reader: Box<dyn Read + Send>,
+    to: &mpsc::Sender<Event>,
+    generation: u64,
+    incoming: Arc<Budget>,
+) {
     let mut decoder = Decoder::new();
     let mut buf = vec![0; 64 * 1024];
     let why = loop {
@@ -1037,6 +1085,7 @@ fn read_frames(mut reader: Box<dyn Read + Send>, to: &mpsc::Sender<Event>, gener
             match decoder.next_message() {
                 None => break,
                 Some(Ok(message)) => {
+                    incoming.take(message_weight(&message));
                     if to.send(Event::Heard(generation, message)).is_err() {
                         return;
                     }
@@ -1052,6 +1101,40 @@ fn read_frames(mut reader: Box<dyn Read + Send>, to: &mpsc::Sender<Event>, gener
         }
     };
     let _ = to.send(Event::Ended(generation, why));
+}
+
+/// An approximation of the memory a decoded message and its heap data hold.
+fn message_weight(message: &Message) -> usize {
+    const BASE: usize = 256;
+    fn strings(values: &[String]) -> usize {
+        values.iter().map(|s| s.len() + 24).sum::<usize>()
+    }
+    BASE + match message {
+        Message::Hello { name, .. } => name.len(),
+        Message::Open {
+            command,
+            directory,
+            environment,
+            ..
+        } => strings(command) + directory.len() + strings(environment),
+        Message::Refused { reason, .. } => reason.len(),
+        Message::Output { bytes, .. }
+        | Message::Snapshot { bytes, .. }
+        | Message::Input { bytes, .. }
+        | Message::Data { bytes, .. } => bytes.len(),
+        Message::Panes { panes } => panes
+            .iter()
+            .map(|pane| 40 + strings(&pane.command))
+            .sum::<usize>(),
+        Message::Foreground { process, .. } => process
+            .as_ref()
+            .map_or(0, |process| process.name.len() + strings(&process.args)),
+        Message::Offer { services } => strings(services),
+        Message::Connect {
+            service, opening, ..
+        } => service.len() + opening.len(),
+        _ => 0,
+    }
 }
 
 fn write_frames(
@@ -1071,5 +1154,35 @@ fn write_frames(
             let _ = to.send(Event::Ended(generation, Some(e.to_string())));
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_incoming_budget_blocks_the_reader_until_the_driver_catches_up() {
+        let budget = Arc::new(Budget::default());
+        budget.take(EVENT_MEMORY);
+        let waiting = {
+            let budget = budget.clone();
+            thread::spawn(move || budget.take(1))
+        };
+        thread::sleep(Duration::from_millis(20));
+        assert!(
+            !waiting.is_finished(),
+            "the full budget applies backpressure"
+        );
+        budget.give(EVENT_MEMORY);
+        waiting.join().unwrap();
+        assert_eq!(message_weight(&Message::List), 256);
+        assert_eq!(
+            message_weight(&Message::Data {
+                channel: 1,
+                bytes: vec![0; 100],
+            }),
+            356
+        );
     }
 }
