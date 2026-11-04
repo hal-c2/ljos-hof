@@ -73,9 +73,11 @@ pub enum Action {
     ToggleDropdown,
     /// Enter or leave fullscreen.
     ToggleFullscreen,
+    /// Go to the next pane whose agent is waiting for you, in any tab.
+    NextWaiting,
 }
 
-const ACTION_NAMES: [(Action, &str); 33] = [
+const ACTION_NAMES: [(Action, &str); 34] = [
     (Action::NewTab, "new-tab"),
     (Action::CloseTab, "close-tab"),
     (Action::NextTab, "next-tab"),
@@ -109,6 +111,7 @@ const ACTION_NAMES: [(Action, &str); 33] = [
     (Action::ReloadConfig, "reload-config"),
     (Action::ToggleDropdown, "toggle-dropdown"),
     (Action::ToggleFullscreen, "toggle-fullscreen"),
+    (Action::NextWaiting, "next-waiting"),
 ];
 
 impl Action {
@@ -353,6 +356,7 @@ const DEFAULTS: &[(Action, &[&str])] = &[
     (Action::Search, &["ctrl+shift+f"]),
     (Action::ReloadConfig, &["ctrl+shift+r"]),
     (Action::ToggleFullscreen, &["f11"]),
+    (Action::NextWaiting, &["ctrl+shift+a"]),
 ];
 
 /// The `[keys]` section: the user's changes to the default bindings.

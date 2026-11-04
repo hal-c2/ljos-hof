@@ -91,10 +91,15 @@ animation-ms = 150            # length of the slide in milliseconds; 0 for none
 # reload-config = "ctrl+shift+r"
 # toggle-dropdown = "none"
 # toggle-fullscreen = "f11"
+# next-waiting = "ctrl+shift+a"
 
 [session]
 restore = false               # reopen the last session's windows, tabs and panes
 save-scrollback = true        # keep each pane's scrollback with the saved session
+
+# Desktop notifications, by `notify-send`.
+[notify]
+agent-waiting = true          # an agent you can't see starts waiting for you
 
 # The Model Context Protocol server for agents. Give an agent `hof mcp` as
 # the command of a stdio server: it speaks for the running Hof.
@@ -125,7 +130,8 @@ allow-spawn = false           # let agents open and close tabs and panes
 # a string or a list of them. Each gets HOF_EVENT, HOF_PANE_ID, HOF_SOCKET
 # (so it can drive Hof with `hof ctl`) and HOF_DIRECTORY, and what the
 # event says: HOF_EXIT_CODE and HOF_COMMAND for commands (with shell
-# integration), HOF_TITLE and HOF_BODY for titles and notifications.
+# integration), HOF_TITLE and HOF_BODY for titles and notifications,
+# HOF_AGENT and HOF_AGENT_STATE for agents.
 #
 # [hooks]
 # pane-opened = []
@@ -136,11 +142,12 @@ allow-spawn = false           # let agents open and close tabs and panes
 # notification = 'notify-send "$HOF_TITLE" "$HOF_BODY"'
 # directory-changed = []
 # title-changed = []
+# agent-changed = '[ "$HOF_AGENT_STATE" = idle ] && notify-send "$HOF_AGENT is done"'
 
 # Plugins are files in a `plugins` directory beside this one, with
-# [commands.<name>] and [hooks] as above: `plugins/<name>.toml`, or
-# `plugins/<name>/plugin.toml` for one that keeps scripts beside it, which
-# its programs find in HOF_PLUGIN_DIR. Your own commands win over a
+# [commands.<name>], [hooks] and [agents.<name>] as here:
+# `plugins/<name>.toml`, or `plugins/<name>/plugin.toml` for one that keeps
+# scripts beside it, which its programs find in HOF_PLUGIN_DIR. Your own commands win over a
 # plugin's; a [commands.<name>] here with only `keys` rebinds a plugin's.
 [plugins]
 disabled = []                 # plugins, by name, to leave unloaded
@@ -158,3 +165,16 @@ disabled = []                 # plugins, by name, to leave unloaded
 # files = false               # show that machine's files here
 # clipboard = "ask"           # programs there reading your clipboard:
 #                             # "ask", "allow" or "deny"
+
+# AI agents in panes. Hof tells one runs by the program in the foreground,
+# and how it is by the text on the bottom rows of its screen: "waiting"
+# for you, "working", or else "idle". The tab shows it, a hook hears it,
+# and a waiting agent out of sight sends a notification. Hof ships tables
+# for claude, codex, gemini, aider and opencode; one here replaces Hof's
+# of the same name. An agent can also say how it is itself, from its own
+# hooks: `hof ctl agent-state waiting`.
+#
+# [agents.claude]
+# process = ["claude"]        # its program's names; empty means the table's
+# waiting = ["Do you want to"]
+# working = ["esc to interrupt"]

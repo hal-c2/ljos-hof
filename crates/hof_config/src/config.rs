@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::agents::Agent;
 use crate::error::{Error, Warning, WarningKind};
 use crate::keys::Keys;
 use crate::scripts::{Command, Hooks, Plugins};
@@ -32,6 +33,8 @@ pub struct Config {
     pub session: Session,
     /// `[mcp]`
     pub mcp: Mcp,
+    /// `[notify]`
+    pub notify: Notify,
     /// `[commands.<name>]`, the user's and the plugins'.
     pub commands: BTreeMap<String, Command>,
     /// `[hooks]`, the user's and then the plugins'.
@@ -40,6 +43,9 @@ pub struct Config {
     pub plugins: Plugins,
     /// `[hosts.<name>]`: other machines panes can run on.
     pub hosts: BTreeMap<String, Host>,
+    /// `[agents.<name>]`, the user's and then the plugins'; see
+    /// [`Config::agents`] for the ones in effect.
+    pub agents: BTreeMap<String, Agent>,
 }
 
 /// `[font]`
@@ -280,6 +286,24 @@ impl Default for Session {
     }
 }
 
+/// `[notify]`: what Hof tells the desktop of, as a notification.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct Notify {
+    /// An agent the user cannot see starts waiting for them: its pane is
+    /// in another tab, does not have the keys, or the window is not the
+    /// one in front.
+    pub agent_waiting: bool,
+}
+
+impl Default for Notify {
+    fn default() -> Self {
+        Self {
+            agent_waiting: true,
+        }
+    }
+}
+
 /// `[mcp]`: the Model Context Protocol server that lets agents drive Hof.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
@@ -363,6 +387,12 @@ pub enum Permission {
 }
 
 impl Config {
+    /// Every `[agents]` table in effect: the ones Hof ships, replaced by
+    /// name with the config's and the plugins'.
+    pub fn agents(&self) -> BTreeMap<String, Agent> {
+        crate::agents::in_effect(&self.agents)
+    }
+
     /// The theme to draw with: `theme.name` looked up first as
     /// `<themes_dir>/<name>.toml`, then among the built-in themes, with the
     /// `[theme]` overrides applied on top.

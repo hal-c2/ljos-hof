@@ -132,11 +132,16 @@ pub struct Hooks {
     /// The program set the title: `HOF_TITLE`.
     #[serde(deserialize_with = "snippets")]
     pub title_changed: Vec<Hook>,
+    /// An agent in the pane started or stopped working or waiting:
+    /// `HOF_AGENT`, its name, and `HOF_AGENT_STATE`, how it is now
+    /// (`working`, `waiting`, `idle`, or `none` once it is gone).
+    #[serde(deserialize_with = "snippets")]
+    pub agent_changed: Vec<Hook>,
 }
 
 impl Hooks {
     /// Every event, by the name the file uses.
-    pub const EVENTS: [&str; 8] = [
+    pub const EVENTS: [&str; 9] = [
         "pane-opened",
         "pane-closed",
         "command-started",
@@ -145,6 +150,7 @@ impl Hooks {
         "notification",
         "directory-changed",
         "title-changed",
+        "agent-changed",
     ];
 
     /// The hooks for `event`, by the name the file uses; none for a name
@@ -159,6 +165,7 @@ impl Hooks {
             "notification" => &self.notification,
             "directory-changed" => &self.directory_changed,
             "title-changed" => &self.title_changed,
+            "agent-changed" => &self.agent_changed,
             _ => &[],
         }
     }
@@ -173,6 +180,7 @@ impl Hooks {
             "notification" => &mut self.notification,
             "directory-changed" => &mut self.directory_changed,
             "title-changed" => &mut self.title_changed,
+            "agent-changed" => &mut self.agent_changed,
             _ => return None,
         })
     }
@@ -321,6 +329,7 @@ pub(crate) struct PluginFile {
     pub description: String,
     pub commands: BTreeMap<String, Command>,
     pub hooks: Hooks,
+    pub agents: BTreeMap<String, crate::Agent>,
 }
 
 /// Adds `plugin`'s commands and hooks to `config`. A command the user or
@@ -359,6 +368,10 @@ pub(crate) fn add_plugin(
         }
     }
     config.hooks.extend(file.hooks.brought_by(plugin));
+    // The user's table of a name, or an earlier plugin's, stays.
+    for (name, agent) in file.agents {
+        config.agents.entry(name).or_insert(agent);
+    }
 }
 
 impl Command {

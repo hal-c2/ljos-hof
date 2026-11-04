@@ -85,6 +85,7 @@ fn the_defaults_are_the_promised_ones() {
     assert_eq!(c.dropdown.animation_ms, 150);
     assert!(!c.session.restore && c.session.save_scrollback);
     assert!(!c.mcp.enabled && c.mcp.socket.is_none());
+    assert!(c.notify.agent_waiting);
 }
 
 #[test]
@@ -176,6 +177,9 @@ fn every_key_is_read_into_its_field() {
         restore = true
         save-scrollback = false
 
+        [notify]
+        agent-waiting = false
+
         [mcp]
         enabled = true
         socket = "/run/hof.sock"
@@ -251,6 +255,7 @@ fn every_key_is_read_into_its_field() {
     assert_eq!(c.dropdown.animation_ms, 0);
     assert_eq!(c.keys.overrides[&Action::NewTab], [chord("ctrl+t")]);
     assert!(c.session.restore && !c.session.save_scrollback);
+    assert!(!c.notify.agent_waiting);
     assert!(c.mcp.enabled);
     assert_eq!(c.mcp.socket.as_deref(), Some(Path::new("/run/hof.sock")));
     assert!(c.mcp.allow_input && !c.mcp.allow_spawn);
@@ -906,4 +911,39 @@ fn a_disabled_plugin_is_not_read_and_a_broken_one_is_a_warning() {
         loaded.warnings[0].kind,
         WarningKind::BadPlugin { .. }
     ));
+}
+
+#[test]
+fn hof_knows_the_common_agents_and_a_table_of_the_user_s_adds_one() {
+    let c = ok("[agents.goose]\nwaiting = [\"Proceed?\"]\n").config;
+    let agents = c.agents();
+    assert!(agents.contains_key("claude"));
+    let goose = &agents["goose"];
+    assert_eq!(goose.processes("goose"), ["goose"]);
+    assert_eq!(goose.waiting, ["Proceed?"]);
+}
+
+#[test]
+fn a_plugin_brings_an_agent_table_but_the_user_s_of_its_name_stays() {
+    let dir = Scratch::new();
+    let config = dir.write("hof.toml", "[agents.claude]\nworking = [\"mine\"]\n");
+    dir.write(
+        "plugins/agents.toml",
+        "[agents.claude]\nworking = [\"theirs\"]\n[agents.goose]\nprocess = [\"goose-cli\"]\n",
+    );
+    let c = load(&config).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(c.warnings, vec![]);
+    let agents = c.config.agents();
+    assert_eq!(agents["claude"].working, ["mine"]);
+    assert_eq!(agents["goose"].processes("goose"), ["goose-cli"]);
+}
+
+#[test]
+fn an_agent_hook_and_the_key_to_the_next_waiting_agent_are_there() {
+    let c = ok("[hooks]\nagent-changed = \"echo $HOF_AGENT_STATE\"\n").config;
+    assert_eq!(c.hooks.of("agent-changed").len(), 1);
+    assert_eq!(
+        Keys::default().action_for(&chord("ctrl+shift+a")),
+        Some(Action::NextWaiting)
+    );
 }

@@ -8,6 +8,7 @@
 //! `hof.example.toml` next to this crate's manifest lists every key with its
 //! default.
 
+mod agents;
 mod config;
 mod error;
 mod keys;
@@ -18,9 +19,10 @@ mod theme;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+pub use agents::Agent;
 pub use config::{
-    Config, CursorShape, Dropdown, Font, Host, Mcp, Permission, Position, Session, Terminal,
-    ThemeConfig, Window,
+    Config, CursorShape, Dropdown, Font, Host, Mcp, Notify, Permission, Position, Session,
+    Terminal, ThemeConfig, Window,
 };
 pub use error::{Error, Warning, WarningKind};
 pub use keys::{Action, BadChord, Chord, Keys, UnknownAction};

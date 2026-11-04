@@ -97,6 +97,7 @@ const CONFIG_KEYS: &[(&str, Node)] = &[
         "session",
         Table(&[("restore", Value), ("save-scrollback", Value)]),
     ),
+    ("notify", Table(&[("agent-waiting", Value)])),
     (
         "mcp",
         Table(&[
@@ -121,7 +122,10 @@ const CONFIG_KEYS: &[(&str, Node)] = &[
             ("clipboard", Value),
         ]),
     ),
+    ("agents", Each(AGENT_KEYS)),
 ];
+
+const AGENT_KEYS: &[(&str, Node)] = &[("process", Value), ("waiting", Value), ("working", Value)];
 
 const COMMAND_KEYS: &[(&str, Node)] = &[
     ("run", Value),
@@ -140,12 +144,14 @@ const HOOK_KEYS: &[(&str, Node)] = &[
     ("notification", Value),
     ("directory-changed", Value),
     ("title-changed", Value),
+    ("agent-changed", Value),
 ];
 
 const PLUGIN_KEYS: &[(&str, Node)] = &[
     ("description", Value),
     ("commands", Each(COMMAND_KEYS)),
     ("hooks", Table(HOOK_KEYS)),
+    ("agents", Each(AGENT_KEYS)),
 ];
 
 const THEME_FILE_KEYS: &[(&str, Node)] = &[
