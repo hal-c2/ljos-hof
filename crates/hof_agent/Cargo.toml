@@ -1,0 +1,20 @@
+[package]
+name = "hof_agent"
+description = "`hof agent`: runs remote panes' programs on their own machine, and keeps them running between connections"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+hof_vt.workspace = true
+hof_remote.workspace = true
+rustix.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

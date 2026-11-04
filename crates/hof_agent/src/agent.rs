@@ -1,0 +1,531 @@
+//! The panes, and what the agent says to each connection about them.
+//!
+//! Each connection has two threads. The reader acts on what the client
+//! sends. The writer sends what the client should get: answers, and the
+//! output of the panes it is attached to. A pane's output goes into its
+//! backlog as the program writes it, and wakes the writer of the
+//! connection attached to it, which sends whatever that connection lacks.
+//! A connection that falls behind further than the backlog reaches gets a
+//! snapshot of the screen in place of what it missed, so a slow client
+//! costs the agent no more memory than a fast one.
+
+use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsString;
+use std::io::{self, Read, Write};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, Weak, mpsc};
+use std::thread;
+
+use hof_remote::wire::{self, Decoder, Message, PaneId, PaneInfo, VERSION};
+use hof_remote::{Backlog, Received, Resume};
+use hof_vt::{Event, Session, Size, Spawn};
+
+/// The most output one message carries; more goes in several, so one
+/// pane's flood doesn't hold up the others' for long.
+const CHUNK: usize = 256 * 1024;
+
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// Bytes of each pane's newest output kept for a client that comes
+    /// back. Past that, it gets a snapshot of the screen instead.
+    pub backlog: usize,
+    /// Lines of history each pane keeps above its screen.
+    pub scrollback: usize,
+    /// What the agent says it is: the machine's name.
+    pub name: String,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            backlog: 4 * 1024 * 1024,
+            scrollback: 10_000,
+            name: host_name(),
+        }
+    }
+}
+
+fn host_name() -> String {
+    rustix::system::uname()
+        .nodename()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The panes on this machine, and the protocol for reaching them. Clones
+/// share the panes.
+#[derive(Clone)]
+pub struct Agent {
+    inner: Arc<Inner>,
+}
+
+struct Inner {
+    options: Options,
+    instance: u64,
+    panes: Mutex<BTreeMap<PaneId, Arc<Pane>>>,
+    next_pane: AtomicU32,
+    next_connection: AtomicU64,
+    connections: AtomicUsize,
+    /// Where a pane's session says it has news (its end, mostly).
+    changed: mpsc::Sender<PaneId>,
+}
+
+struct Pane {
+    command: Vec<String>,
+    session: Session,
+    /// Shared with the session's tap, which fills it.
+    stream: Arc<Mutex<Stream>>,
+    /// How much of the client's input reached the program.
+    input: Mutex<Received>,
+    /// How it ended, once it has.
+    exited: Mutex<Option<Option<i32>>>,
+}
+
+struct Stream {
+    backlog: Backlog,
+    /// The connection the output goes to, if one is attached.
+    watcher: Option<Watcher>,
+    /// A wake is on its way to the watcher; another would say nothing new.
+    woken: bool,
+}
+
+impl Stream {
+    fn wake(&mut self, pane: PaneId) {
+        if let Some(w) = &self.watcher
+            && !self.woken
+        {
+            self.woken = w.wake.send(Wake::Pane(pane)).is_ok();
+        }
+    }
+}
+
+struct Watcher {
+    connection: u64,
+    wake: mpsc::Sender<Wake>,
+}
+
+/// What a connection's writer is asked to do.
+enum Wake {
+    Send(Message),
+    /// Send the pane's output from `have` on, and keep sending it.
+    Attach {
+        pane: PaneId,
+        have: u64,
+    },
+    /// Stop sending the pane's output.
+    Detach(PaneId),
+    /// The pane has news: output, or its end.
+    Pane(PaneId),
+}
+
+/// How far a writer got with one attached pane.
+struct Sent {
+    at: u64,
+    told_exit: bool,
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    // A panic elsewhere left the data as it was; the agent keeps serving.
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+impl Agent {
+    pub fn new(options: Options) -> Self {
+        let (changed, news) = mpsc::channel();
+        let instance = instance();
+        let inner = Arc::new(Inner {
+            options,
+            instance,
+            panes: Mutex::default(),
+            // Not from 1: a saved session names panes by number, and an
+            // agent started again must not have the same numbers for other
+            // programs. Small enough for QML's numbers to hold exactly.
+            next_pane: AtomicU32::new(1000 + (instance % 1_000_000_000) as u32),
+            next_connection: AtomicU64::new(1),
+            connections: AtomicUsize::new(0),
+            changed,
+        });
+        let weak = Arc::downgrade(&inner);
+        thread::Builder::new()
+            .name("hof-agent-news".into())
+            .spawn(move || watch_news(&weak, &news))
+            .expect("a thread for the panes' news");
+        Self { inner }
+    }
+
+    /// Different for every agent: what tells a client its panes are gone.
+    pub fn instance(&self) -> u64 {
+        self.inner.instance
+    }
+
+    /// No connection is open and no pane is left: nothing to stay for.
+    pub fn is_idle(&self) -> bool {
+        self.inner.connections.load(Ordering::Acquire) == 0 && lock(&self.inner.panes).is_empty()
+    }
+
+    /// Speaks the protocol to one client, until it hangs up. Its panes
+    /// carry on.
+    pub fn serve<R, W>(&self, mut reader: R, writer: W) -> io::Result<()>
+    where
+        R: Read,
+        W: Write + Send + 'static,
+    {
+        let me = self.inner.next_connection.fetch_add(1, Ordering::Relaxed);
+        self.inner.connections.fetch_add(1, Ordering::AcqRel);
+        let (wake, wakes) = mpsc::channel();
+        let inner = self.inner.clone();
+        let writing = thread::Builder::new()
+            .name("hof-agent-write".into())
+            .spawn(move || write_loop(&inner, &wakes, writer))?;
+
+        let result = self.read_loop(me, &wake, &mut reader);
+
+        // Stop the output, so that the writer's last sender is ours.
+        for pane in lock(&self.inner.panes).values() {
+            let mut stream = lock(&pane.stream);
+            if stream.watcher.as_ref().is_some_and(|w| w.connection == me) {
+                stream.watcher = None;
+            }
+        }
+        drop(wake);
+        let _ = writing.join();
+        self.inner.connections.fetch_sub(1, Ordering::AcqRel);
+        result
+    }
+
+    fn read_loop(
+        &self,
+        me: u64,
+        wake: &mpsc::Sender<Wake>,
+        reader: &mut impl Read,
+    ) -> io::Result<()> {
+        let mut decoder = Decoder::new();
+        let mut buf = vec![0; 64 * 1024];
+        loop {
+            let n = match reader.read(&mut buf) {
+                Ok(0) => return Ok(()),
+                Ok(n) => n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            };
+            decoder.push(&buf[..n]);
+            while let Some(message) = decoder.next_message() {
+                match message {
+                    Ok(message) => self.handle(me, wake, message),
+                    Err(e @ wire::Error::TooLarge(_)) => {
+                        return Err(io::Error::new(io::ErrorKind::InvalidData, e));
+                    }
+                    // That frame only; the next is fine.
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+
+    fn handle(&self, me: u64, wake: &mpsc::Sender<Wake>, message: Message) {
+        let send = |m: Message| {
+            let _ = wake.send(Wake::Send(m));
+        };
+        let pane = |id: PaneId| {
+            let found = self.pane(id);
+            if found.is_none() {
+                send(Message::Gone { pane: id });
+            }
+            found
+        };
+        match message {
+            Message::Hello { .. } => send(Message::Hello {
+                version: VERSION,
+                name: self.inner.options.name.clone(),
+                instance: self.inner.instance,
+            }),
+            Message::Open {
+                request,
+                command,
+                directory,
+                environment,
+                cols,
+                rows,
+            } => send(
+                match self.open(command, &directory, &environment, cols, rows) {
+                    Ok(pane) => Message::Opened { request, pane },
+                    Err(reason) => Message::Refused { request, reason },
+                },
+            ),
+            Message::Attach { pane: id, have } => {
+                let Some(p) = pane(id) else { return };
+                let taken = lock(&p.stream).watcher.replace(Watcher {
+                    connection: me,
+                    wake: wake.clone(),
+                });
+                // Whoever watched it before has lost it: a client that came
+                // back before the agent saw it go, or another machine.
+                if let Some(old) = taken
+                    && old.connection != me
+                {
+                    let _ = old.wake.send(Wake::Detach(id));
+                    let _ = old.wake.send(Wake::Send(Message::Detach { pane: id }));
+                }
+                let _ = wake.send(Wake::Attach { pane: id, have });
+            }
+            Message::Detach { pane: id } => {
+                let Some(p) = pane(id) else { return };
+                let mut stream = lock(&p.stream);
+                if stream.watcher.as_ref().is_some_and(|w| w.connection == me) {
+                    stream.watcher = None;
+                }
+                drop(stream);
+                let _ = wake.send(Wake::Detach(id));
+            }
+            Message::Input {
+                pane: id,
+                at,
+                bytes,
+            } => {
+                let Some(p) = pane(id) else { return };
+                let mut input = lock(&p.input);
+                // Sent again after a reconnect: only what is new is typed.
+                if let Ok(new) = input.take(at, &bytes) {
+                    p.session.write(new);
+                }
+            }
+            Message::Resize {
+                pane: id,
+                cols,
+                rows,
+            } => {
+                if let Some(p) = pane(id) {
+                    let _ = p.session.resize(Size::new(cols, rows));
+                }
+            }
+            Message::Close { pane: id } => {
+                // Dropped outside the lock: that hangs up on the program.
+                let gone = lock(&self.inner.panes).remove(&id);
+                drop(gone);
+            }
+            Message::List => send(Message::Panes {
+                panes: lock(&self.inner.panes)
+                    .iter()
+                    .map(|(&id, p)| {
+                        let size = p.session.size();
+                        PaneInfo {
+                            pane: id,
+                            command: p.command.clone(),
+                            cols: size.cols,
+                            rows: size.rows,
+                            exited: *lock(&p.exited),
+                        }
+                    })
+                    .collect(),
+            }),
+            Message::Ping { nonce } => send(Message::Pong { nonce }),
+            // What the agent sends, not what it is sent, and what it can't
+            // read: nothing to do.
+            Message::Opened { .. }
+            | Message::Refused { .. }
+            | Message::Attached { .. }
+            | Message::Output { .. }
+            | Message::Snapshot { .. }
+            | Message::Exited { .. }
+            | Message::Panes { .. }
+            | Message::Pong { .. }
+            | Message::Gone { .. }
+            | Message::Unknown { .. } => {}
+        }
+    }
+
+    fn pane(&self, id: PaneId) -> Option<Arc<Pane>> {
+        lock(&self.inner.panes).get(&id).cloned()
+    }
+
+    fn open(
+        &self,
+        command: Vec<String>,
+        directory: &str,
+        environment: &[String],
+        cols: u16,
+        rows: u16,
+    ) -> Result<PaneId, String> {
+        let id = self.inner.next_pane.fetch_add(1, Ordering::Relaxed);
+        let mut spawn = match command.split_first() {
+            None => Spawn::shell(),
+            Some((program, args)) => Spawn::command(program, args),
+        };
+        spawn.cwd = if directory.is_empty() {
+            std::env::var_os("HOME").map(PathBuf::from)
+        } else {
+            Some(PathBuf::from(directory))
+        };
+        spawn.env = environment
+            .iter()
+            .filter_map(|v| v.split_once('='))
+            .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+            .collect();
+
+        let stream = Arc::new(Mutex::new(Stream {
+            backlog: Backlog::new(self.inner.options.backlog),
+            watcher: None,
+            woken: false,
+        }));
+        let tapped = stream.clone();
+        let tap: hof_vt::Tap = Box::new(move |bytes| {
+            let mut stream = lock(&tapped);
+            stream.backlog.push(bytes);
+            stream.wake(id);
+        });
+        let changed = self.inner.changed.clone();
+        let options = hof_vt::Options {
+            size: Size::new(cols, rows),
+            scrollback: self.inner.options.scrollback,
+            ..hof_vt::Options::default()
+        };
+        let session = Session::spawn_tapped(
+            &spawn,
+            options,
+            move || {
+                let _ = changed.send(id);
+            },
+            Some(tap),
+        )
+        .map_err(|e| e.to_string())?;
+        lock(&self.inner.panes).insert(
+            id,
+            Arc::new(Pane {
+                command,
+                session,
+                stream,
+                input: Mutex::default(),
+                exited: Mutex::new(None),
+            }),
+        );
+        Ok(id)
+    }
+}
+
+/// A number no other agent is likely to have picked.
+fn instance() -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or_default();
+    nanos ^ (u64::from(std::process::id()) << 32)
+}
+
+/// Takes each pane's news as its session posts it. The session wakes again
+/// only once its news is taken, and its end is news a client needs.
+fn watch_news(inner: &Weak<Inner>, news: &mpsc::Receiver<PaneId>) {
+    for id in news {
+        let Some(inner) = inner.upgrade() else { return };
+        let Some(pane) = lock(&inner.panes).get(&id).cloned() else {
+            continue;
+        };
+        pane.session.take_changes();
+        for event in pane.session.take_events() {
+            if let Event::Exited(code) = event {
+                // Before the wake, which the writer answers by reading it.
+                *lock(&pane.exited) = Some(code);
+                lock(&pane.stream).wake(id);
+            }
+        }
+    }
+}
+
+fn write_loop(inner: &Inner, wakes: &mpsc::Receiver<Wake>, mut out: impl Write) {
+    let mut sent: HashMap<PaneId, Sent> = HashMap::new();
+    let mut frames = Vec::new();
+    while let Ok(first) = wakes.recv() {
+        // Whatever else is waiting goes in the same write.
+        let mut next = Some(first);
+        while let Some(wake) = next {
+            serve_wake(inner, &mut sent, wake, &mut frames);
+            next = wakes.try_recv().ok();
+        }
+        if out.write_all(&frames).and_then(|()| out.flush()).is_err() {
+            return;
+        }
+        frames.clear();
+    }
+}
+
+fn serve_wake(inner: &Inner, sent: &mut HashMap<PaneId, Sent>, wake: Wake, out: &mut Vec<u8>) {
+    let pane = |id| lock(&inner.panes).get(&id).cloned();
+    match wake {
+        Wake::Send(message) => message.encode(out),
+        Wake::Attach { pane: id, have } => {
+            let Some(p) = pane(id) else {
+                Message::Gone { pane: id }.encode(out);
+                return;
+            };
+            let size = p.session.size();
+            Message::Attached {
+                pane: id,
+                input: lock(&p.input).end(),
+                cols: size.cols,
+                rows: size.rows,
+            }
+            .encode(out);
+            let at = sent.entry(id).insert_entry(Sent {
+                at: have,
+                told_exit: false,
+            });
+            catch_up(id, &p, at.into_mut(), out);
+        }
+        Wake::Detach(id) => {
+            sent.remove(&id);
+        }
+        Wake::Pane(id) => match (pane(id), sent.get_mut(&id)) {
+            (Some(p), Some(at)) => catch_up(id, &p, at, out),
+            // Closed since.
+            (None, _) => drop(sent.remove(&id)),
+            // Not attached here (any more): nothing to send.
+            (Some(_), None) => {}
+        },
+    }
+}
+
+/// Sends the client what it lacks of `pane`'s output, and its end once
+/// that is all sent.
+fn catch_up(id: PaneId, pane: &Pane, sent: &mut Sent, out: &mut Vec<u8>) {
+    // In this order. Cleared first, so news from here on wakes again. The
+    // end read before the output: once the program has ended, all of its
+    // output is in, so the end is never sent ahead of any of it.
+    lock(&pane.stream).woken = false;
+    let exited = *lock(&pane.exited);
+    let resume = lock(&pane.stream).backlog.resume(sent.at);
+    match resume {
+        Resume::Rest(bytes) => {
+            for chunk in bytes.chunks(CHUNK) {
+                Message::Output {
+                    pane: id,
+                    at: sent.at,
+                    bytes: chunk.to_vec(),
+                }
+                .encode(out);
+                sent.at += chunk.len() as u64;
+            }
+        }
+        // Missed more than is kept, or has a stream that is not this one:
+        // the screen as it is stands for all of it.
+        Resume::Lost | Resume::Ahead => {
+            let snapshot = pane
+                .session
+                .snapshot_with(|| lock(&pane.stream).backlog.end());
+            if let Ok((bytes, at)) = snapshot {
+                Message::Snapshot {
+                    pane: id,
+                    at,
+                    bytes,
+                }
+                .encode(out);
+                sent.at = at;
+            }
+        }
+    }
+    if let Some(code) = exited
+        && !sent.told_exit
+    {
+        Message::Exited { pane: id, code }.encode(out);
+        sent.told_exit = true;
+    }
+}
