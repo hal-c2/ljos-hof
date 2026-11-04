@@ -6,5 +6,5 @@ zig = "0.17.1"
 
 [env]
 CARGO_TERM_COLOR = "always"
-# Where the Ljós UI checkout lives; `mise run setup` links it into third_party/.
+# Where the Ljós UI checkout lives; `mise setup` links it into third_party/.
 LJOS_UI_DIR = "{{env.HOME}}/dev/ljos-ui"

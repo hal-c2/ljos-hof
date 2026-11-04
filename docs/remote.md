@@ -320,7 +320,7 @@ The idea comes from herdr. What follows is Hof's own design.
    - the host picker, for a tab or a split;
    - bootstrapping: copying the agent to a machine with no Hof. Tested
      in containers of Debian, Ubuntu and Alpine with
-     `mise run remote-test [image]`.
+     `mise remote-test [image]`.
 5. **Agent awareness.** Done locally: the foreground process, the
    tables, the escape sequence, the frame, badge and tab dot, the hook,
    notifications, `next-waiting`, `hof ctl agent-state` and `wait-agent`,
@@ -346,7 +346,7 @@ The idea comes from herdr. What follows is Hof's own design.
   client's theme, and a theme change should be sent on.
 - **Large snapshots.** A snapshot is one frame, and a big scrollback can
   pass the frame limit. It should be sent in pieces, or cut to fit.
-- **Agents for other machines.** `mise run agents` builds one for each
+- **Agents for other machines.** `mise agents` builds one for each
   musl target rustup has, which is x86_64 here. aarch64 needs
   `rustup target add aarch64-unknown-linux-musl`, and macOS needs a
   build on a Mac.

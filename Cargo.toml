@@ -16,7 +16,7 @@ publish = false
 # The VT engine: Ghostty's libghostty-vt through its Rust bindings, pinned
 # for the semantic-prompt, notification and progress callbacks.
 libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "575ed6b8ceb79ffaf247ecf7e34333876b0d5be4" }
-# The UI toolkit, through its facade only (`mise run setup` makes the link).
+# The UI toolkit, through its facade only (`mise setup` makes the link).
 ljos = { path = "third_party/ljos-ui/crates/ljos", default-features = false }
 hof_vt = { path = "crates/hof_vt" }
 hof_qml = { path = "crates/hof_qml" }

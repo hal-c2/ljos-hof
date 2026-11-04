@@ -64,27 +64,29 @@ libghostty-vt's build script needs Zig to build Ghostty's parser.
 
 ```sh
 mise install          # Rust and Zig, at the versions mise.toml pins
-mise run setup        # links your Ljós UI checkout ($LJOS_UI_DIR) into third_party/,
+mise setup            # links your Ljós UI checkout ($LJOS_UI_DIR) into third_party/,
                       # and fetches the dependencies
-mise run run          # builds Hof and opens a window; `mise run run -- --dropdown`
+mise hof              # builds Hof and opens a window; `mise hof --dropdown`
 ```
 
-| task                         | what it does                                           |
-|------------------------------|--------------------------------------------------------|
-| `mise run build`             | an optimised build, `target/release/hof`               |
-| `mise run run -- ARGS`       | builds and runs Hof, with ARGS                         |
-| `mise run test [-- ARGS]`    | every test, or what ARGS pick (`-- -p hof_vt`)         |
-| `mise run check`             | what a change must pass: fmt, clippy and every test    |
-| `mise run types`             | regenerates the QML types (see below)                  |
-| `mise run fire [SECONDS]`    | the stress test (see below)                            |
-| `mise run agents`            | the static agents for remote machines                  |
-| `mise run remote-test [IMG]` | bootstrapping a container over ssh, with Docker        |
+| task                     | what it does                                        |
+|--------------------------|-----------------------------------------------------|
+| `mise hof [ARGS]`        | builds and runs Hof, with ARGS                      |
+| `mise build`             | an optimised build, `target/release/hof`            |
+| `mise test [ARGS]`       | every test, or what ARGS pick (`mise test -p hof_vt`) |
+| `mise check`             | what a change must pass: fmt, clippy and every test |
+| `mise types`             | regenerates the QML types (see below)               |
+| `mise fire [SECONDS]`    | the stress test (see below)                         |
+| `mise agents`            | the static agents for remote machines               |
+| `mise remote-test [IMG]` | bootstrapping a container over ssh, with Docker     |
+
+`mise <task>` is short for `mise run <task>`.
 
 The QML is compiled ahead of time against generated types. After changing a
 Rust type that QML can see, regenerate them:
 
 ```sh
-mise run types        # LJOS_TYPES=write cargo test -p hof --test types
+mise types            # LJOS_TYPES=write cargo test -p hof --test types
 ```
 
 Remote machines with no Hof get a static, agent-only build. Build it,
@@ -92,15 +94,15 @@ for each musl target rustup has, and try it on a container reached over
 ssh:
 
 ```sh
-mise run agents                      # target/release/hof-agent-<arch>-linux
-mise run remote-test alpine:3.22     # Docker; debian:bookworm-slim by default
+mise agents                      # target/release/hof-agent-<arch>-linux
+mise remote-test alpine:3.22     # Docker; debian:bookworm-slim by default
 ```
 
 A release of Hof ships those agents beside `hof`, or in `../lib/hof`.
 
 ## The stress test
 
-`mise run fire` builds a fire animation: 200×60 cells of 24-bit colour,
+`mise fire` builds a fire animation: 200×60 cells of 24-bit colour,
 about 370 kB a frame. It measures the fire in three ways:
 
 - through the parser and the grid with no window;

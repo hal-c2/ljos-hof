@@ -1,4 +1,4 @@
-# A machine with ssh and no Hof, for `mise run remote-test`. The base is
+# A machine with ssh and no Hof, for `mise remote-test`. The base is
 # a build argument, so the same test can run on other systems.
 ARG BASE=debian:bookworm-slim
 FROM ${BASE}
