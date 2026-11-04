@@ -333,3 +333,37 @@ fn going_back_to_a_tab_gives_the_keys_to_its_pane() {
         "typing goes to the tab shown"
     );
 }
+
+impl Hof {
+    fn asking_clipboard(&self) -> bool {
+        self.engine
+            .read_by_name(self.root, "askingClipboard")
+            .to_boolean()
+    }
+}
+
+#[test]
+fn a_program_reading_the_clipboard_waits_for_the_user() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    assert_eq!(
+        hof.engine
+            .read_by_name(t, "clipboardRead")
+            .to_js_string()
+            .as_str(),
+        "ask"
+    );
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from("\x1b]52;c;?\x07")])
+        .unwrap();
+    hof.window.settle().unwrap();
+    assert!(hof.asking_clipboard(), "the user is asked");
+
+    hof.window.key(&KeyEvent::press(KEY_ESCAPE));
+    hof.window.settle().unwrap();
+    assert!(!hof.asking_clipboard());
+    assert!(
+        hof.engine.read_by_name(t, "activeFocus").to_boolean(),
+        "the keys go back to the terminal"
+    );
+}

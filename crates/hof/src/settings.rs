@@ -73,6 +73,12 @@ pub struct Settings {
     pub copy_on_select: bool,
     #[qml(notify, readonly)]
     pub confirm_unsafe_paste: bool,
+    /// Whether programs here may read the clipboard: "ask", "allow" or
+    /// "deny".
+    #[qml(notify, readonly)]
+    pub clipboard_read: String,
+    #[qml(notify, readonly)]
+    pub clipboard_write: bool,
 
     /// Of the screen, 0 to 1.
     #[qml(notify, readonly)]
@@ -110,6 +116,10 @@ pub struct Settings {
     /// `[hosts]`: the names of the machines panes can run on.
     #[qml(notify, readonly)]
     pub hosts: Vec<String>,
+    /// Whether programs on each of `hosts`, in its order, may read the
+    /// clipboard here: as `clipboardRead`.
+    #[qml(notify, readonly)]
+    pub host_clipboards: Vec<String>,
 
     /// What was wrong with the file, a line each; empty when nothing was.
     #[qml(notify, readonly)]
@@ -255,6 +265,8 @@ impl Settings {
             cursor_shape: format!("{:?}", terminal.cursor_shape).to_lowercase(),
             copy_on_select: terminal.copy_on_select,
             confirm_unsafe_paste: terminal.confirm_unsafe_paste,
+            clipboard_read: permission(terminal.clipboard_read),
+            clipboard_write: terminal.clipboard_write,
             dropdown_width: dropdown.width,
             dropdown_height: dropdown.height,
             dropdown_bottom: dropdown.position == Position::Bottom,
@@ -268,6 +280,11 @@ impl Settings {
             commands: crate::scripts::commands(&config),
             hooks: crate::scripts::hooks(&config.hooks),
             hosts: config.hosts.keys().cloned().collect(),
+            host_clipboards: config
+                .hosts
+                .values()
+                .map(|h| permission(h.clipboard))
+                .collect(),
             problems,
             transports: config
                 .hosts
@@ -295,6 +312,16 @@ impl Default for Settings {
         hof_qml::agents::set_tables(settings.agents.clone());
         settings
     }
+}
+
+/// A permission as the terminals take it.
+fn permission(p: hof_config::Permission) -> String {
+    match p {
+        hof_config::Permission::Ask => "ask",
+        hof_config::Permission::Allow => "allow",
+        hof_config::Permission::Deny => "deny",
+    }
+    .into()
 }
 
 /// Sets every property of the singleton `me` to `new`'s; only those that
@@ -330,6 +357,8 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
         cursor_shape => CURSOR_SHAPE,
         copy_on_select => COPY_ON_SELECT,
         confirm_unsafe_paste => CONFIRM_UNSAFE_PASTE,
+        clipboard_read => CLIPBOARD_READ,
+        clipboard_write => CLIPBOARD_WRITE,
         dropdown_width => DROPDOWN_WIDTH,
         dropdown_height => DROPDOWN_HEIGHT,
         dropdown_bottom => DROPDOWN_BOTTOM,
@@ -343,6 +372,7 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
         commands => COMMANDS,
         hooks => HOOKS,
         hosts => HOSTS,
+        host_clipboards => HOST_CLIPBOARDS,
         problems => PROBLEMS,
     );
 }

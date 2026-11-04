@@ -23,6 +23,7 @@ Item {
     readonly property bool searching: search.visible
     // A paste is waiting for the user to say yes.
     readonly property bool confirmingPaste: confirm.visible
+    readonly property bool askingClipboard: clipboardConfirm.visible
     // The AI agent the pane runs, if any, and how it is: "working",
     // "waiting" for the user, "idle", or "none".
     readonly property string agent: terminal.agent
@@ -82,6 +83,14 @@ Item {
         scrollback: Settings.scrollback
         copyOnSelect: Settings.copyOnSelect
         confirmPaste: Settings.confirmUnsafePaste
+        // A program on another machine reads as its host lets it.
+        clipboardRead: {
+            if (!root.remote)
+                return Settings.clipboardRead;
+            const i = Settings.hosts.indexOf(root.host);
+            return i >= 0 ? Settings.hostClipboards[i] : "ask";
+        }
+        clipboardWrite: Settings.clipboardWrite
         // Main's shortcuts own the keys the config binds.
         shortcuts: false
         program: {
@@ -114,6 +123,7 @@ Item {
             root.terminalReady(terminal, root)
         onExited: root.finished()
         onPasteBlocked: text => confirm.ask(text)
+        onClipboardRequested: clipboard => clipboardConfirm.ask(clipboard)
         onBell: root.hook("bell", [])
         onCommandStarted: command => {
             root.command = command;
@@ -175,6 +185,20 @@ Item {
         anchors.centerIn: parent
         z: 3
         terminal: terminal
+        background: root.background
+        foreground: root.foreground
+        border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+        fontFamily: Settings.fontFamily
+        fontSize: root.fontSize
+    }
+
+    ClipboardConfirm {
+        id: clipboardConfirm
+
+        anchors.centerIn: parent
+        z: 3
+        terminal: terminal
+        host: root.host
         background: root.background
         foreground: root.foreground
         border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)

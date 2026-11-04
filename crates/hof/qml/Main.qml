@@ -48,6 +48,11 @@ Window {
         const item = window.paneItems[workspace.focusedPane];
         return item !== undefined && item.confirmingPaste;
     }
+    readonly property bool askingClipboard: {
+        void window.terminalsRevision;
+        const item = window.paneItems[workspace.focusedPane];
+        return item !== undefined && item.askingClipboard;
+    }
     readonly property bool searchShown: {
         void window.terminalsRevision;
         const item = window.paneItems[workspace.focusedPane];

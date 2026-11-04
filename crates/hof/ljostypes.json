@@ -223,6 +223,30 @@
               "notify": "confirmPasteChanged"
             },
             {
+              "name": "clipboardRead",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "clipboardReadChanged"
+            },
+            {
+              "name": "clipboardWrite",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "clipboardWriteChanged"
+            },
+            {
               "name": "program",
               "type": "string",
               "kind": "value",
@@ -743,6 +767,15 @@
                   "type": "string"
                 }
               ]
+            },
+            {
+              "name": "clipboardRequested",
+              "parameters": [
+                {
+                  "name": "clipboard",
+                  "type": "string"
+                }
+              ]
             }
           ],
           "methods": [
@@ -815,6 +848,20 @@
                 }
               ],
               "returnType": "bool"
+            },
+            {
+              "name": "answerClipboard",
+              "parameters": [
+                {
+                  "name": "allow",
+                  "type": "bool"
+                },
+                {
+                  "name": "always",
+                  "type": "bool"
+                }
+              ],
+              "returnType": "void"
             },
             {
               "name": "forcePaste",
@@ -1645,6 +1692,30 @@
               "notify": "confirmUnsafePasteChanged"
             },
             {
+              "name": "clipboardRead",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "clipboardReadChanged"
+            },
+            {
+              "name": "clipboardWrite",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "clipboardWriteChanged"
+            },
+            {
               "name": "dropdownWidth",
               "type": "real",
               "kind": "value",
@@ -1787,6 +1858,18 @@
               "constant": false,
               "group": false,
               "notify": "hostsChanged"
+            },
+            {
+              "name": "hostClipboards",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "hostClipboardsChanged"
             },
             {
               "name": "problems",
