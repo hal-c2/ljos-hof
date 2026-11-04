@@ -153,13 +153,21 @@ fn color(c: Rgba) -> Color {
 }
 
 /// `chord` as Qt writes a key sequence: `Ctrl+Shift+PgUp`.
-pub(crate) fn sequence(chord: &Chord) -> String {
+///
+/// On a Mac, Qt's `Ctrl` is the Command key and its `Meta` the Control
+/// key, so a chord's `super` (Command) is written `Ctrl` there.
+pub(crate) fn sequence(chord: &Chord, mac: bool) -> String {
+    let (ctrl, super_) = if mac {
+        (chord.super_, chord.ctrl)
+    } else {
+        (chord.ctrl, chord.super_)
+    };
     let mut out = String::new();
     for (held, name) in [
-        (chord.ctrl, "Ctrl+"),
+        (ctrl, "Ctrl+"),
         (chord.alt, "Alt+"),
         (chord.shift, "Shift+"),
-        (chord.super_, "Meta+"),
+        (super_, "Meta+"),
     ] {
         if held {
             out.push_str(name);
@@ -227,7 +235,10 @@ impl Settings {
         let (binding_actions, binding_sequences) = config
             .bindings()
             .iter()
-            .map(|(chord, binding)| (binding.name(), sequence(chord)))
+            .map(|(chord, binding)| {
+                let mac = config.keys.platform == hof_config::Platform::MacOs;
+                (binding.name(), sequence(chord, mac))
+            })
             .unzip();
         let (font, window, terminal, dropdown) = (
             &config.font,
@@ -485,12 +496,22 @@ mod tests {
 
     #[test]
     fn chords_are_written_as_qt_writes_key_sequences() {
-        assert_eq!(sequence(&chord("ctrl+shift+t")), "Ctrl+Shift+T");
-        assert_eq!(sequence(&chord("shift+pageup")), "Shift+PgUp");
-        assert_eq!(sequence(&chord("ctrl+shift+enter")), "Ctrl+Shift+Return");
-        assert_eq!(sequence(&chord("ctrl+plus")), "Ctrl++");
-        assert_eq!(sequence(&chord("ctrl+shift+minus")), "Ctrl+Shift+-");
-        assert_eq!(sequence(&chord("super+alt+f11")), "Alt+Meta+F11");
+        let sequence = |text| sequence(&chord(text), false);
+        assert_eq!(sequence("ctrl+shift+t"), "Ctrl+Shift+T");
+        assert_eq!(sequence("shift+pageup"), "Shift+PgUp");
+        assert_eq!(sequence("ctrl+shift+enter"), "Ctrl+Shift+Return");
+        assert_eq!(sequence("ctrl+plus"), "Ctrl++");
+        assert_eq!(sequence("ctrl+shift+minus"), "Ctrl+Shift+-");
+        assert_eq!(sequence("super+alt+f11"), "Alt+Meta+F11");
+    }
+
+    #[test]
+    fn on_a_mac_command_is_qt_s_ctrl_and_control_its_meta() {
+        let sequence = |text| sequence(&chord(text), true);
+        assert_eq!(sequence("cmd+t"), "Ctrl+T");
+        assert_eq!(sequence("cmd+shift+d"), "Ctrl+Shift+D");
+        assert_eq!(sequence("ctrl+tab"), "Meta+Tab");
+        assert_eq!(sequence("cmd+ctrl+f"), "Ctrl+Meta+F");
     }
 
     #[test]
