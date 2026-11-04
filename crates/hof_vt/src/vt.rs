@@ -85,6 +85,10 @@ pub(crate) struct Vt {
     pub size: Size,
     pub anchor: Option<Anchor>,
     pub out: Vec<u8>,
+    /// Picks Hof's agent reports out of the output, which libghostty
+    /// passes over.
+    reports: crate::report::Scanner,
+    signals: Arc<Signals>,
 }
 
 // SAFETY: libghostty's objects are not `Send` only because they hold raw
@@ -128,7 +132,7 @@ impl Vt {
         term.set_scrollback_max_lines(Some(scrollback))?;
         term.set_terminfo_name(term_name)?;
         term.resize(size.cols, size.rows, size.cell_width, size.cell_height)?;
-        install_callbacks(&mut term, sink, signals, identity)?;
+        install_callbacks(&mut term, sink, signals.clone(), identity)?;
         Ok(Self {
             tap: None,
             finder: None,
@@ -142,7 +146,17 @@ impl Vt {
             size,
             anchor: None,
             out: Vec::with_capacity(64),
+            reports: crate::report::Scanner::default(),
+            signals,
         })
+    }
+
+    /// Parses the program's output, and hears what it reports of its agent.
+    pub fn output(&mut self, bytes: &[u8]) {
+        self.term.vt_write(bytes);
+        let signals = &self.signals;
+        self.reports
+            .scan(bytes, |report| signals.push(Event::Agent(report)));
     }
 
     pub fn resize(&mut self, size: Size) -> Result<(), Error> {

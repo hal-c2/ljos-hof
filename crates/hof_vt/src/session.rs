@@ -346,11 +346,18 @@ impl Session {
         self.child.as_ref().map(|c| c.pid)
     }
 
+    /// What runs in the foreground now: the shell's command, if it is
+    /// running one, else the shell. `None` for a session with no program
+    /// here, or when the system won't say.
+    pub fn foreground(&self) -> Option<crate::Process> {
+        crate::process::foreground(&*self.child.as_ref()?.master)
+    }
+
     // ---- Output -----------------------------------------------------------
 
     /// Parse output as if the program had written it.
     pub fn feed(&self, bytes: &[u8]) {
-        self.shared.lock().term.vt_write(bytes);
+        self.shared.lock().output(bytes);
         self.changed(Changes::SCREEN);
     }
 
@@ -990,7 +997,7 @@ fn read_loop(io: &Shared, fd: &OwnedFd) {
             Ok(0) => return,
             Ok(n) => {
                 let mut vt = io.lock();
-                vt.term.vt_write(&buf[..n]);
+                vt.output(&buf[..n]);
                 if let Some(tap) = &mut vt.tap {
                     tap(&buf[..n]);
                 }

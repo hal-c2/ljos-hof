@@ -42,6 +42,8 @@ pub enum Event {
     Exited(Option<i32>),
     /// A remote session's connection changed.
     Link(crate::remote::Link),
+    /// The program said how its agent is, in Hof's own sequence.
+    Agent(crate::report::Report),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

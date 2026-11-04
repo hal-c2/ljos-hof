@@ -51,7 +51,7 @@ impl Feed {
         let Some(io) = self.shared.upgrade() else {
             return;
         };
-        io.lock().term.vt_write(bytes);
+        io.lock().output(bytes);
         io.signals.mark(Changes::SCREEN);
         io.signals.kick();
     }

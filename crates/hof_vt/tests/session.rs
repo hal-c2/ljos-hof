@@ -603,3 +603,56 @@ fn the_configured_cursor_is_the_one_programs_start_with_and_reset_to() {
     assert_eq!(grid.cursor.shape, CursorShape::Underline);
     assert!(!grid.cursor.blinking);
 }
+
+#[test]
+fn the_foreground_is_the_command_the_shell_runs_and_then_the_shell_again() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx = std::sync::Mutex::new(tx);
+    // Job control on, as in a shell at a prompt: each command gets a
+    // process group of its own, and the terminal.
+    let spawn = Spawn::command(
+        "/bin/sh",
+        ["-c", "set -m; echo ready; sleep 2; echo after; read x"],
+    );
+    let session = Session::spawn(&spawn, Options::default(), move || {
+        let _ = tx.lock().unwrap().send(());
+    })
+    .unwrap();
+    wait_for(&session, &rx, |s| s.text().contains("ready"));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let fg = session
+            .foreground()
+            .expect("a pty session has a foreground");
+        if fg.is("sleep") {
+            assert_ne!(Some(fg.pid), session.pid(), "the command's own group");
+            break;
+        }
+        assert!(Instant::now() < deadline, "never saw sleep: {fg:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    wait_for(&session, &rx, |s| s.text().contains("after"));
+    let fg = session.foreground().unwrap();
+    assert_eq!(Some(fg.pid), session.pid(), "the shell has it back: {fg:?}");
+}
+
+#[test]
+fn a_session_with_no_program_here_has_no_foreground() {
+    let (session, _) = detached(20, 4);
+    assert_eq!(session.foreground(), None);
+}
+
+#[test]
+fn what_a_program_reports_of_its_agent_is_an_event_and_draws_nothing() {
+    let (session, _) = detached(30, 3);
+    session.feed(b"before\x1b]7701;waiting;claude\x07after");
+    let events = session.take_events();
+    assert_eq!(
+        events,
+        [Event::Agent(hof_vt::Report {
+            state: "waiting".into(),
+            name: "claude".into(),
+        })]
+    );
+    assert_eq!(session.screen_text().trim_end(), "beforeafter");
+}
