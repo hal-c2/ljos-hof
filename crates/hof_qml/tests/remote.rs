@@ -134,3 +134,36 @@ fn a_program_on_a_host_reads_and_writes_the_clipboard_here() {
         Some("ljós")
     );
 }
+
+#[test]
+fn a_remote_program_cannot_open_a_local_file() {
+    use ljos::prelude::*;
+    let (_agent, _) = host("opens");
+    let mut s = shown("opens", "read x", -1);
+    let urls = RecordedUrls::default();
+    Platform::of(&s.engine).set_open_url(std::rc::Rc::new(urls.clone()));
+    s.engine
+        .set(s.t, Terminal::OPEN_URLS, "allow".to_owned())
+        .unwrap();
+    for url in [
+        "/etc/passwd",
+        "relative.desktop",
+        "file:///etc/passwd",
+        "FILE:///etc/passwd",
+        "File:/etc/passwd",
+    ] {
+        let request = String::from_utf8(hof_vt::open_request(url)).unwrap();
+        s.engine
+            .invoke_by_name(s.t, "write", &[Value::from(request.as_str())])
+            .unwrap();
+    }
+    s.window.settle().unwrap();
+    assert!(urls.urls().is_empty(), "{:?}", urls.urls());
+
+    let request = String::from_utf8(hof_vt::open_request("https://a.example")).unwrap();
+    s.engine
+        .invoke_by_name(s.t, "write", &[Value::from(request.as_str())])
+        .unwrap();
+    s.window.settle().unwrap();
+    assert_eq!(urls.urls(), ["https://a.example"]);
+}

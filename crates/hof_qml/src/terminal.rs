@@ -1322,12 +1322,29 @@ fn path_of(url: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Whether `url` could name a file on this machine rather than a resource
+/// with a scheme. Scheme names are ASCII case-insensitive.
+fn names_a_file(url: &str) -> bool {
+    let url = url.trim_start();
+    match url.split_once(':') {
+        Some((scheme, _))
+            if scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c)) =>
+        {
+            scheme.eq_ignore_ascii_case("file")
+        }
+        _ => true,
+    }
+}
+
 /// The program asked to open `url`: opens it, or asks the user.
 fn open_asked(engine: &Engine, me: ObjectId, url: String) {
     let Some(shared) = shared_of(engine, me) else {
         return;
     };
-    if url.starts_with("file:") && shared.remote.borrow().is_some() {
+    if names_a_file(&url) && shared.remote.borrow().is_some() {
         // A file on the other machine; until its files can be reached
         // from here, there is nothing to open.
         return;
@@ -1383,7 +1400,7 @@ pub(crate) fn show_link(engine: &Engine, me: ObjectId) {
 /// on that machine, which can't be opened here yet.
 pub(crate) fn open_link(engine: &Engine, me: ObjectId, url: &str) {
     let remote = shared_of(engine, me).is_some_and(|s| s.remote.borrow().is_some());
-    if url.starts_with("file:") && remote {
+    if names_a_file(url) && remote {
         return;
     }
     open_url(engine, url);
@@ -1626,5 +1643,24 @@ mod tests {
         assert_eq!(path_of("file://host/home/me/a%20b"), "/home/me/a b");
         assert_eq!(path_of("file:///tmp"), "/tmp");
         assert_eq!(path_of("/already"), "/already");
+    }
+
+    #[test]
+    fn local_files_are_known_whatever_their_scheme_case() {
+        for url in [
+            "/etc/passwd",
+            "~/a",
+            "relative.desktop",
+            " file:///tmp/x",
+            "file:///tmp/x",
+            "FILE:///tmp/x",
+            "File:/tmp/x",
+            ":bad",
+        ] {
+            assert!(names_a_file(url), "{url}");
+        }
+        for url in ["https://a.example", "mailto:me@example.com", "a1+b.c:x"] {
+            assert!(!names_a_file(url), "{url}");
+        }
     }
 }
