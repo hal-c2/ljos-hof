@@ -6,13 +6,13 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
-pub(crate) fn fallback_dir(temp_dir: &Path, uid: u32) -> PathBuf {
+pub fn fallback_dir(temp_dir: &Path, uid: u32) -> PathBuf {
     temp_dir.join(format!("hof-{uid}"))
 }
 
 /// Makes the shared-temporary fallback directory, when `path` uses it. An
 /// explicitly configured socket keeps whatever directory its user chose.
-pub(crate) fn prepare_parent(path: &Path) -> io::Result<()> {
+pub fn prepare_parent(path: &Path) -> io::Result<()> {
     let uid = rustix::process::getuid().as_raw();
     let fallback = fallback_dir(&std::env::temp_dir(), uid);
     if path.parent() == Some(fallback.as_path()) {
@@ -46,7 +46,7 @@ fn ensure_private_dir(path: &Path, uid: u32) -> io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn connect(path: &Path) -> io::Result<UnixStream> {
+pub fn connect(path: &Path) -> io::Result<UnixStream> {
     connect_as(path, rustix::process::getuid().as_raw())
 }
 
@@ -56,7 +56,7 @@ fn connect_as(path: &Path, expected_uid: u32) -> io::Result<UnixStream> {
     Ok(stream)
 }
 
-pub(crate) fn same_user(stream: &UnixStream) -> io::Result<()> {
+pub fn same_user(stream: &UnixStream) -> io::Result<()> {
     same_user_as(stream, rustix::process::getuid().as_raw())
 }
 

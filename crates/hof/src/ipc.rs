@@ -6,7 +6,7 @@
 //! connection of its own and ended by closing it.
 
 use std::io::{self, Read, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 
 use ljos::prelude::*;
@@ -49,38 +49,39 @@ impl Request {
     }
 }
 
-/// Where the dropdown listens: the command line's, else in the user's
-/// runtime directory.
+/// Where the dropdown listens: the command line's, else beside the MCP
+/// socket in the user's runtime directory or private temporary directory.
 pub fn socket_path() -> PathBuf {
     if let Some(p) = &crate::launch().socket {
         return p.clone();
     }
-    let dir = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    dir.join("hof-dropdown.sock")
+    hof_mcp::socket_path().with_file_name("hof-dropdown.sock")
 }
 
 /// Sends `request` to the dropdown at `path`. `Err` when none listens.
 pub fn send(path: &Path, request: &Request) -> io::Result<()> {
-    let mut stream = UnixStream::connect(path)?;
+    let mut stream = hof_mcp::connect_unix(path)?;
     stream.write_all(&request.encode())?;
     stream.shutdown(std::net::Shutdown::Write)
 }
 
 fn bind(path: &Path) -> io::Result<UnixListener> {
-    match UnixListener::bind(path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    hof_mcp::prepare_socket_parent(path)?;
+    let listener = match UnixListener::bind(path) {
         Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
             // A socket left by a dropdown that died; one that answers is
             // alive, and keeps it.
-            if UnixStream::connect(path).is_ok() {
+            if hof_mcp::connect_unix(path).is_ok() {
                 return Err(e);
             }
             std::fs::remove_file(path)?;
-            UnixListener::bind(path)
+            UnixListener::bind(path)?
         }
-        other => other,
-    }
+        other => other?,
+    };
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(listener)
 }
 
 /// Listens for requests to the [`App`] singleton `me`.
@@ -99,6 +100,9 @@ pub(crate) fn listen(engine: &Engine, me: ObjectId) {
         .spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
+                if hof_mcp::peer_is_same_user(&stream).is_err() {
+                    continue;
+                }
                 let mut bytes = Vec::new();
                 if stream.read_to_end(&mut bytes).is_err() {
                     continue;
@@ -125,6 +129,21 @@ pub(crate) fn listen(engine: &Engine, me: ObjectId) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_dropdown_socket_is_private_and_a_dead_one_is_replaced() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dropdown.sock");
+        let listener = bind(&path).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        drop(listener);
+        assert!(path.exists(), "a dead listener leaves its socket behind");
+        let _live = bind(&path).unwrap();
+    }
 
     #[test]
     fn requests_survive_the_wire() {

@@ -32,6 +32,8 @@ pub use host::{
 pub use protocol::{PROTOCOL_VERSION, handle};
 pub use server::{Server, serve_unix};
 pub use tools::Policy;
+pub use unix::same_user as peer_is_same_user;
+pub use unix::{connect as connect_unix, prepare_parent as prepare_socket_parent};
 
 /// Where the app listens unless configured otherwise:
 /// `$XDG_RUNTIME_DIR/hof-mcp.sock`, else `mcp.sock` in a private directory
