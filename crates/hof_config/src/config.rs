@@ -141,6 +141,8 @@ pub struct Terminal {
     pub clipboard_read: Permission,
     /// Let programs put text on the clipboard (OSC 52).
     pub clipboard_write: bool,
+    /// Whether programs may have URLs opened here, as `hof open` asks.
+    pub open_urls: Permission,
     /// Directory new terminals start in, with a leading `~` already
     /// expanded; `None` means Hof's own working directory.
     pub working_directory: Option<PathBuf>,
@@ -160,6 +162,7 @@ impl Default for Terminal {
             confirm_unsafe_paste: true,
             clipboard_read: Permission::Ask,
             clipboard_write: true,
+            open_urls: Permission::Ask,
             working_directory: None,
             env: BTreeMap::new(),
         }

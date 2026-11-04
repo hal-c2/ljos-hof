@@ -30,6 +30,8 @@ confirm-unsafe-paste = true   # ask before pasting newlines or control codes
 clipboard-read = "ask"        # programs reading the clipboard (OSC 52):
                               # "ask", "allow" or "deny"
 clipboard-write = true        # let programs put text on the clipboard
+open-urls = "ask"             # programs opening URLs and files here, as
+                              # `hof open` does: "ask", "allow" or "deny"
 # working-directory = "~/src" # where new terminals start; unset means Hof's own
                               # working directory
 

@@ -69,6 +69,7 @@ const CONFIG_KEYS: &[(&str, Node)] = &[
             ("confirm-unsafe-paste", Value),
             ("clipboard-read", Value),
             ("clipboard-write", Value),
+            ("open-urls", Value),
             ("working-directory", Value),
             ("env", Open),
         ]),
