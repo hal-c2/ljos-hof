@@ -28,10 +28,13 @@ Rectangle {
             root.previousFocus = root.Window.window.activeFocusItem;
             root.forceActiveFocus();
         }
+        // The prompt with the keys must be the one the user can read.
+        root.z = 4;
         root.visible = true;
     }
 
     function answer(allow, always) {
+        root.z = 3;
         root.visible = false;
         if (root.active) {
             if (root.previousFocus !== null && root.previousFocus.visible)

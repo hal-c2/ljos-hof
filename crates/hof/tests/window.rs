@@ -493,6 +493,14 @@ fn a_prompt_closed_by_another_cannot_take_focus_back() {
         .invoke_by_name(t, "write", &[Value::from("\x1b]52;c;?\x07")])
         .unwrap();
     hof.window.settle().unwrap();
+    let clipboard = hof.find("clipboardPermit").unwrap();
+    let open = hof.find("openPermit").unwrap();
+    assert!(
+        hof.engine
+            .read_by_name(clipboard, "activeFocus")
+            .to_boolean()
+    );
+    assert!(hof.number(clipboard, "z") > hof.number(open, "z"));
     hof.window
         .key(&KeyEvent::press(KEY_RETURN).with_modifiers(Modifiers::CONTROL));
     hof.window.settle().unwrap();

@@ -136,8 +136,14 @@ Item {
             root.terminalReady(terminal, root)
         onExited: root.finished()
         onPasteBlocked: text => confirm.ask(text)
-        onClipboardRequested: clipboard => clipboardPermit.ask(root.programName + " wants to read the " + clipboard + ".", "It would see whatever was copied last, here or in any other program.")
-        onOpenRequested: url => openPermit.ask(root.programName + " wants to open:", url.length > 300 ? url.slice(0, 300) + "…" : url)
+        onClipboardRequested: clipboard => {
+            openPermit.z = 3;
+            clipboardPermit.ask(root.programName + " wants to read the " + clipboard + ".", "It would see whatever was copied last, here or in any other program.");
+        }
+        onOpenRequested: url => {
+            clipboardPermit.z = 3;
+            openPermit.ask(root.programName + " wants to open:", url.length > 300 ? url.slice(0, 300) + "…" : url);
+        }
         onBell: root.hook("bell", [])
         onCommandStarted: command => {
             root.command = command;
@@ -212,6 +218,7 @@ Item {
 
     Permit {
         id: clipboardPermit
+        objectName: "clipboardPermit"
 
         anchors.centerIn: parent
         z: 3
@@ -228,6 +235,7 @@ Item {
 
     Permit {
         id: openPermit
+        objectName: "openPermit"
 
         anchors.centerIn: parent
         z: 3
