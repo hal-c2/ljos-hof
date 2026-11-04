@@ -1,0 +1,18 @@
+[package]
+name = "hof_vt"
+description = "A terminal session: a program on a pseudo-terminal, its output parsed by libghostty-vt on a thread of its own, and what the UI reads to draw it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+libghostty-vt.workspace = true
+rustix.workspace = true
+thiserror.workspace = true
+bitflags.workspace = true
+
+[lints]
+workspace = true
