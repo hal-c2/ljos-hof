@@ -16,11 +16,66 @@ use libghostty_vt::terminal::{
 use crate::signals::{Changes, Event, Progress, PromptMark, Signals};
 use crate::{Error, Size};
 
+/// The most query replies waiting for the program to read. Its own input
+/// always passes; only replies a hostile program can request are bounded.
+const MOST_REPLIES: usize = 64 * 1024;
+
+#[derive(Default)]
+struct Queue {
+    chunks: std::collections::VecDeque<Vec<u8>>,
+    replies: usize,
+    closed: bool,
+}
+
+#[derive(Default)]
+pub(crate) struct PtyInput {
+    queue: Mutex<Queue>,
+    wake: std::sync::Condvar,
+}
+
+impl PtyInput {
+    fn write(&self, bytes: &[u8]) {
+        let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        queue.chunks.push_back(bytes.to_vec());
+        self.wake.notify_one();
+    }
+
+    fn reply(&self, bytes: &[u8]) {
+        let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        if queue.replies + bytes.len() > MOST_REPLIES {
+            return;
+        }
+        queue.replies += bytes.len();
+        queue.chunks.push_back(bytes.to_vec());
+        self.wake.notify_one();
+    }
+
+    pub(crate) fn read(&self) -> Option<Vec<u8>> {
+        let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if let Some(chunk) = queue.chunks.pop_front() {
+                queue.replies = queue.replies.saturating_sub(chunk.len());
+                return Some(chunk);
+            }
+            if queue.closed {
+                return None;
+            }
+            queue = self.wake.wait(queue).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    fn close(&self) {
+        let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        queue.closed = true;
+        self.wake.notify_all();
+    }
+}
+
 /// Where the terminal's replies go: the program's input, or a buffer for a
 /// detached session.
 #[derive(Clone)]
 pub(crate) enum Sink {
-    Pty(std::sync::mpsc::Sender<Vec<u8>>),
+    Pty(Arc<PtyInput>),
     Buffer(Arc<Mutex<Vec<u8>>>),
     /// A remote session's connection, once it has one.
     Outlet(Arc<crate::remote::Slot>),
@@ -32,8 +87,7 @@ impl Sink {
             return;
         }
         match self {
-            // A closed channel means the program is gone; its input with it.
-            Sink::Pty(tx) => drop(tx.send(bytes.to_vec())),
+            Sink::Pty(input) => input.write(bytes),
             Sink::Buffer(buf) => buf
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -43,6 +97,22 @@ impl Sink {
                     outlet.input(bytes);
                 }
             }
+        }
+    }
+
+    pub fn reply(&self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        match self {
+            Sink::Pty(input) => input.reply(bytes),
+            _ => self.write(bytes),
+        }
+    }
+
+    pub fn close(&self) {
+        if let Sink::Pty(input) = self {
+            input.close();
         }
     }
 }
@@ -265,7 +335,7 @@ fn install_callbacks(
     let replies = identity.replies.clone();
     term.on_pty_write(move |_, bytes| {
         if replies.load(std::sync::atomic::Ordering::Relaxed) {
-            sink.write(bytes);
+            sink.reply(bytes);
         }
     })?;
 
@@ -394,4 +464,28 @@ fn install_callbacks(
         })
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replies_are_bounded_without_losing_user_input() {
+        let input = PtyInput::default();
+        let chunk = vec![b'x'; 1024];
+        for _ in 0..MOST_REPLIES / chunk.len() {
+            input.reply(&chunk);
+        }
+        input.reply(b"too much");
+        input.write(b"keys");
+        let mut received = Vec::new();
+        for _ in 0..MOST_REPLIES / chunk.len() + 1 {
+            received.extend(input.read().unwrap());
+        }
+        assert_eq!(received.len(), MOST_REPLIES + 4);
+        assert_eq!(&received[received.len() - 4..], b"keys");
+        input.close();
+        assert!(input.read().is_none());
+    }
 }

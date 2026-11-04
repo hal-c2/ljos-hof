@@ -4,7 +4,7 @@
 use std::io::Write as _;
 use std::os::fd::OwnedFd;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use libghostty_vt::fmt::{Format, Formatter, FormatterOptions};
@@ -169,8 +169,8 @@ impl Session {
         waker: impl Fn() + Send + Sync + 'static,
         tap: Option<Tap>,
     ) -> Result<Self, Error> {
-        let (tx, rx) = mpsc::channel::<Vec<u8>>();
-        let sink = Sink::Pty(tx);
+        let input = Arc::new(crate::vt::PtyInput::default());
+        let sink = Sink::Pty(input.clone());
         let identity = Identity::of(&options);
         let shared = Self::shared(
             &options,
@@ -192,9 +192,9 @@ impl Session {
             .name("hof-pty-write".into())
             .spawn(move || {
                 let mut out = std::fs::File::from(writer);
-                // Ends when every sender is gone, which is when the session
-                // and its terminal are, or when the program stops reading.
-                for bytes in rx {
+                // Ends when the session closes the input, or the program
+                // stops reading and its pty goes away.
+                while let Some(bytes) = input.read() {
                     if out.write_all(&bytes).is_err() {
                         break;
                     }
@@ -934,6 +934,7 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
+        self.sink.close();
         if let Some(child) = &self.child
             && self.is_alive()
         {
