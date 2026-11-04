@@ -1,0 +1,160 @@
+# Ljós Hof configuration.
+#
+# Copy this to ~/.config/hof/hof.toml (or $XDG_CONFIG_HOME/hof/hof.toml, or
+# wherever $HOF_CONFIG points). Every key is optional and every value below
+# is the default, so delete whatever you do not change. Keys this version of
+# Hof does not know are reported and ignored.
+
+[font]
+family = "monospace"          # font family, as fontconfig names it
+size = 11.0                   # size in points
+line-height = 1.0             # line height as a multiple of the font's own
+bold-is-bright = false        # draw bold text in the bright ANSI colour
+
+[window]
+padding = 6.0                 # space around the cells, in logical pixels
+opacity = 1.0                 # background opacity, 0 (clear) to 1 (opaque)
+decorations = true            # ask for a title bar and borders
+width = 100                   # initial width, in cells
+height = 30                   # initial height, in cells
+title = "Hof"                 # title until the running program sets one
+
+[terminal]
+# shell = "/usr/bin/fish"     # program to run; unset means $SHELL, then /bin/sh
+args = []                     # arguments for the program
+scrollback = 10000            # lines of scrollback per pane
+cursor-blink = true           # blink the cursor
+cursor-shape = "block"        # block, bar or underline
+copy-on-select = true         # copy to the clipboard as soon as text is selected
+confirm-unsafe-paste = true   # ask before pasting newlines or control codes
+# working-directory = "~/src" # where new terminals start; unset means Hof's own
+                              # working directory
+
+[terminal.env]                # extra environment variables for the program
+# EDITOR = "nvim"
+
+[theme]
+name = "hof-dark"             # hof-dark, hof-light, solarized-dark, solarized-light,
+                              # gruvbox-dark, nord, dracula, tokyo-night,
+                              # catppuccin-mocha, or <name> for themes/<name>.toml
+                              # beside this file (same colour keys as below)
+# foreground = "#e8e2d4"      # override the text colour (#rrggbb or #rrggbbaa)
+# background = "#0e1219"      # override the background colour
+# cursor = "#f2a93b"          # override the cursor colour
+# selection = "#2a3446"       # override the selection colour
+# palette = ["#1b212c", "#e0625a"] # override the first ANSI colours, up to 16
+
+[dropdown]                    # the window that slides in from a screen edge
+height = 0.4                  # fraction of the screen height, above 0 up to 1
+width = 1.0                   # fraction of the screen width, above 0 up to 1
+position = "top"              # top or bottom
+hide-on-focus-loss = true     # hide when another window takes focus
+animation-ms = 150            # length of the slide in milliseconds; 0 for none
+
+[keys]
+# action = "chord", an array of chords, or "none" to unbind. Modifiers are
+# ctrl, shift, alt and super; keys are single characters or enter, tab,
+# space, escape, backspace, delete, insert, home, end, pageup, pagedown,
+# up, down, left, right, plus, minus, menu, print, pause and f1 to f35.
+# Setting an action replaces all of its default chords. The defaults:
+#
+# new-tab = "ctrl+shift+t"
+# close-tab = "none"
+# next-tab = ["ctrl+tab", "ctrl+pagedown"]
+# previous-tab = ["ctrl+shift+tab", "ctrl+pageup"]
+# split-right = "ctrl+shift+enter"
+# split-down = "ctrl+shift+minus"
+# close-pane = "ctrl+shift+w"
+# focus-left = "ctrl+shift+left"
+# focus-right = "ctrl+shift+right"
+# focus-up = "ctrl+shift+up"
+# focus-down = "ctrl+shift+down"
+# grow-left = "ctrl+alt+shift+left"
+# grow-right = "ctrl+alt+shift+right"
+# grow-up = "ctrl+alt+shift+up"
+# grow-down = "ctrl+alt+shift+down"
+# zoom-pane = "ctrl+shift+m"
+# copy = "ctrl+shift+c"
+# paste = ["ctrl+shift+v", "shift+insert"]
+# select-all = "none"
+# scroll-page-up = "shift+pageup"
+# scroll-page-down = "shift+pagedown"
+# scroll-top = "shift+home"
+# scroll-bottom = "shift+end"
+# previous-prompt = "ctrl+shift+z"
+# next-prompt = "ctrl+shift+x"
+# font-bigger = ["ctrl+plus", "ctrl+="]
+# font-smaller = "ctrl+minus"
+# font-reset = "ctrl+0"
+# search = "ctrl+shift+f"
+# reset = "none"
+# reload-config = "ctrl+shift+r"
+# toggle-dropdown = "none"
+# toggle-fullscreen = "f11"
+
+[session]
+restore = false               # reopen the last session's windows, tabs and panes
+save-scrollback = true        # keep each pane's scrollback with the saved session
+
+# The Model Context Protocol server for agents. Give an agent `hof mcp` as
+# the command of a stdio server: it speaks for the running Hof.
+[mcp]
+enabled = false               # run the server
+# socket = "~/.hof.sock"      # socket to listen on; unset means one in
+                              # $XDG_RUNTIME_DIR
+allow-input = false           # let agents type and run commands in panes
+allow-spawn = false           # let agents open and close tabs and panes
+
+# Your own commands, each run at a key. `run` is a shell snippet (run by
+# `sh -c`) or a list, the program and its arguments; `in` is where it runs:
+# "tab", "split-right", "split-down" or "background". Or `send` types text
+# into the focused pane instead. A command's keys take the place of a
+# default binding with the same chord, but not of one in [keys].
+#
+# [commands.top]
+# run = ["htop"]
+# in = "split-down"
+# keys = "ctrl+alt+t"
+# description = "What is running"
+#
+# [commands.status]
+# send = "git status\n"
+# keys = "ctrl+alt+g"
+
+# Shell snippets run in the background when something happens in a pane,
+# a string or a list of them. Each gets HOF_EVENT, HOF_PANE_ID, HOF_SOCKET
+# (so it can drive Hof with `hof ctl`) and HOF_DIRECTORY, and what the
+# event says: HOF_EXIT_CODE and HOF_COMMAND for commands (with shell
+# integration), HOF_TITLE and HOF_BODY for titles and notifications.
+#
+# [hooks]
+# pane-opened = []
+# pane-closed = []
+# command-started = []
+# command-finished = '[ "$HOF_EXIT_CODE" = 0 ] || notify-send "failed: $HOF_COMMAND"'
+# bell = []
+# notification = 'notify-send "$HOF_TITLE" "$HOF_BODY"'
+# directory-changed = []
+# title-changed = []
+
+# Plugins are files in a `plugins` directory beside this one, with
+# [commands.<name>] and [hooks] as above: `plugins/<name>.toml`, or
+# `plugins/<name>/plugin.toml` for one that keeps scripts beside it, which
+# its programs find in HOF_PLUGIN_DIR. Your own commands win over a
+# plugin's; a [commands.<name>] here with only `keys` rebinds a plugin's.
+[plugins]
+disabled = []                 # plugins, by name, to leave unloaded
+
+# Other machines panes can run on. Hof reaches each through `ssh`, which
+# runs `hof agent --stdio` there; the agent keeps the panes running when
+# the connection drops, and Hof picks them up again when it comes back.
+#
+# [hosts.dev]
+# ssh = "dev.example.com"     # anything ssh takes; empty means the name
+# command = []                # reach the agent with this instead of ssh
+# hof = "hof"                 # the Hof to run there
+# x11 = false                 # let programs there open X11 windows here
+# sound = false               # let programs there play sound here
+# files = false               # show that machine's files here
+# clipboard = "ask"           # programs there reading your clipboard:
+#                             # "ask", "allow" or "deny"
