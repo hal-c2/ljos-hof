@@ -99,7 +99,19 @@ fn the_window_opens_with_one_terminal() {
     assert_eq!(hof.panes(), 1);
     let t = hof.current().expect("a terminal has the keys");
     assert!(hof.number(t, "columns") > 0.0);
-    assert!(!hof.shows_tabs(), "one tab needs no tab bar");
+    // Off macOS the window's menu is a button in the tab bar, which is
+    // there for it with one tab; on a Mac it is the system's menu bar.
+    let button = !cfg!(target_os = "macos");
+    assert_eq!(
+        hof.shows_tabs(),
+        button,
+        "the tab bar is there for the menu"
+    );
+    let menu = hof.find("menuButton").unwrap();
+    assert_eq!(
+        hof.engine.read_by_name(menu, "visible").to_boolean(),
+        button
+    );
 }
 
 #[test]
@@ -166,6 +178,7 @@ fn a_split_and_a_new_tab_start_where_the_focused_pane_is() {
 fn a_terminal_outlives_the_splits_around_it() {
     let mut hof = opened();
     let first = hof.current().unwrap();
+    let height = hof.number(first, "height");
     hof.run("split-down");
     hof.run("split-right");
     assert_eq!(hof.panes(), 3);
@@ -177,7 +190,7 @@ fn a_terminal_outlives_the_splits_around_it() {
         Some(first),
         "the same terminal, not a new one"
     );
-    assert_eq!(hof.number(first, "height"), hof.size().1);
+    assert_eq!(hof.number(first, "height"), height);
 }
 
 #[test]
@@ -845,4 +858,119 @@ fn a_remote_directory_is_not_a_local_process_working_directory() {
             .as_str(),
         ""
     );
+}
+
+impl Hof {
+    /// A press and release in the middle of `item`, with `button`.
+    fn click(&mut self, item: ObjectId, button: ljos::item::MouseButtons) {
+        // As large as the window made itself, so the pointer can reach
+        // all of it.
+        let (width, height) = self.size();
+        self.window.resize(width, height).unwrap();
+        let at = ljos::item::scene_rect(&self.engine, item).center();
+        let now = self.window.now();
+        self.window
+            .pointer(&ljos::item::PointerEvent::press(at.x, at.y, now).with_button(button));
+        self.window
+            .pointer(&ljos::item::PointerEvent::release(at.x, at.y, now).with_button(button));
+        self.window.settle().unwrap();
+    }
+
+    fn flag(&self, name: &str) -> bool {
+        self.engine.read_by_name(self.root, name).to_boolean()
+    }
+
+    fn has_keys(&self, item: ObjectId) -> bool {
+        self.engine.read_by_name(item, "activeFocus").to_boolean()
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn the_menu_button_opens_the_windows_menu_whose_items_do_their_actions() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    let button = hof.find("menuButton").unwrap();
+    hof.click(button, ljos::item::MouseButtons::LEFT);
+    assert!(hof.flag("windowMenuShown"), "the button opens the menu");
+
+    let item = hof.find("menuItem:new-tab").unwrap();
+    assert_eq!(
+        hof.engine.read_by_name(item, "key").to_js_string().as_str(),
+        "Ctrl+Shift+T",
+        "the item shows its chord"
+    );
+    hof.click(item, ljos::item::MouseButtons::LEFT);
+    assert!(!hof.flag("windowMenuShown"), "choosing closes it");
+    assert_eq!(hof.number(hof.layout(), "tabCount"), 2.0);
+    assert_ne!(hof.current(), Some(t));
+    assert!(
+        hof.has_keys(hof.current().unwrap()),
+        "the new tab's pane has the keys"
+    );
+}
+
+#[test]
+fn a_right_click_in_a_pane_opens_its_menu() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    let area = hof.find("paneMenuArea").unwrap();
+    hof.click(area, ljos::item::MouseButtons::RIGHT);
+    let menu = hof.find("paneMenu").unwrap();
+    assert!(hof.engine.read_by_name(menu, "opened").to_boolean());
+    let copy = hof
+        .names("menuItem:")
+        .iter()
+        .filter(|n| *n == "menuItem:copy")
+        .count();
+    assert!(copy >= 1);
+
+    hof.window.key(&KeyEvent::press(KEY_ESCAPE));
+    hof.window.settle().unwrap();
+    assert!(!hof.engine.read_by_name(menu, "opened").to_boolean());
+    assert!(hof.has_keys(t), "the keys go back to the terminal");
+}
+
+#[test]
+fn a_right_click_goes_to_a_program_that_asked_for_the_mouse() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    // Any-event mouse tracking, as a full-screen program asks for it.
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from("\x1b[?1003h\x1b[?1006h")])
+        .unwrap();
+    hof.window.settle().unwrap();
+    assert!(hof.engine.read_by_name(t, "mouseTracking").to_boolean());
+    let area = hof.find("paneMenuArea").unwrap();
+    hof.click(area, ljos::item::MouseButtons::RIGHT);
+    let menu = hof.find("paneMenu").unwrap();
+    assert!(
+        !hof.engine.read_by_name(menu, "opened").to_boolean(),
+        "the program has the click"
+    );
+}
+
+#[test]
+fn the_settings_open_in_the_window_and_escape_puts_them_away() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    hof.run("settings");
+    assert!(hof.flag("settingsShown"));
+    let theme = hof.find("settingTheme").expect("the controls are made");
+    assert!(
+        hof.engine.read_by_name(theme, "count").to_number() >= 2.0,
+        "every theme is offered"
+    );
+    assert_eq!(
+        hof.engine
+            .read_by_name(theme, "currentText")
+            .to_js_string()
+            .as_str(),
+        "hof-dark"
+    );
+
+    hof.window.key(&KeyEvent::press(KEY_ESCAPE));
+    hof.window.settle().unwrap();
+    assert!(!hof.flag("settingsShown"));
+    assert!(hof.has_keys(t), "the keys go back to the terminal");
 }

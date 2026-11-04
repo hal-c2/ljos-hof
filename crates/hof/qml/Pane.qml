@@ -18,9 +18,13 @@ Item {
     property real fontSize: 11
     property color background
     property color foreground
+    // The chord bound to an action, for the right-click menu to show.
+    property var keyOf: name => ""
 
     // The find bar is showing.
     readonly property bool searching: search.visible
+    // The right-click menu is open.
+    readonly property bool menuOpen: menu.opened
     // A paste is waiting for the user to say yes.
     readonly property bool confirmingPaste: confirm.visible
     // Asking whether the program may read the clipboard or open a URL.
@@ -177,6 +181,42 @@ Item {
         HoverHandler {
             cursorShape: terminal.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.IBeamCursor
         }
+    }
+
+    // A right click opens the pane's menu, unless the program asked for
+    // the mouse, which Shift takes back as it does for selecting.
+    MouseArea {
+        objectName: "paneMenuArea"
+
+        anchors.fill: parent
+        acceptedButtons: Qt.RightButton
+        enabled: !root.asking && !root.confirmingPaste
+        onPressed: mouse => {
+            if (terminal.mouseTracking && !(mouse.modifiers & Qt.ShiftModifier)) {
+                mouse.accepted = false;
+                return;
+            }
+            terminal.forceActiveFocus();
+            root.openMenu(mouse.x, mouse.y);
+        }
+    }
+
+    function openMenu(x, y) {
+        menu.popup(x, y);
+    }
+
+    PaneMenu {
+        id: menu
+
+        canCopy: terminal.hasSelection
+        keyOf: root.keyOf
+        baseColor: root.background
+        textColor: root.foreground
+        fontFamily: Settings.fontFamily
+        fontSize: Math.max(8, Settings.fontSize - 1)
+
+        onChose: name => root.action(name)
+        onClosed: root.giveFocus()
     }
 
     // A dimmer over the panes that do not have the keys, when there are

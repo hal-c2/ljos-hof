@@ -38,6 +38,20 @@ pub struct Settings {
     pub columns: i32,
     #[qml(notify, readonly)]
     pub rows: i32,
+    /// Where the menu of actions is: "bar", "button" or "none", with
+    /// `auto` made one of them for this system.
+    #[qml(notify, readonly)]
+    pub menu: String,
+    /// `[window] menu` as written: "auto", "bar", "button" or "none".
+    #[qml(notify, readonly)]
+    pub menu_choice: String,
+
+    /// `[theme] name`, and every name it may have: the built-in themes
+    /// and the files in the themes directory.
+    #[qml(notify, readonly)]
+    pub theme_name: String,
+    #[qml(notify, readonly)]
+    pub theme_names: Vec<String>,
 
     #[qml(notify, readonly)]
     pub foreground: Color,
@@ -257,6 +271,21 @@ impl Settings {
             title: window.title.clone(),
             columns: i32::from(window.width),
             rows: i32::from(window.height),
+            menu: match window.menu.resolved() {
+                hof_config::Menu::Bar => "bar",
+                hof_config::Menu::None => "none",
+                _ => "button",
+            }
+            .into(),
+            menu_choice: match window.menu {
+                hof_config::Menu::Auto => "auto",
+                hof_config::Menu::Bar => "bar",
+                hof_config::Menu::Button => "button",
+                hof_config::Menu::None => "none",
+            }
+            .into(),
+            theme_name: config.theme.name.clone(),
+            theme_names: hof_config::theme_names(&themes),
             foreground: color(theme.foreground),
             background: color(theme.background),
             cursor: theme.cursor.map_or(Color::INVALID, color),
@@ -369,6 +398,10 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
         title => TITLE,
         columns => COLUMNS,
         rows => ROWS,
+        menu => MENU,
+        menu_choice => MENU_CHOICE,
+        theme_name => THEME_NAME,
+        theme_names => THEME_NAMES,
         foreground => FOREGROUND,
         background => BACKGROUND,
         cursor => CURSOR,
@@ -474,6 +507,29 @@ impl Settings {
     #[qml(invokable)]
     fn reload(cx: &Cx) {
         reload_now(cx);
+    }
+
+    /// Writes `section.key` (`"font"`, `"size"`) into the file as `value`,
+    /// a bool, number or string, or takes it out with `null` or
+    /// `undefined`, and reads the file again. Returns what went wrong,
+    /// empty when nothing did.
+    #[qml(invokable)]
+    fn set(cx: &Cx, section: String, key: String, value: Value) -> String {
+        use hof_config::edit::Setting;
+        let setting = match value {
+            Value::Undefined | Value::Null => None,
+            Value::Bool(b) => Some(Setting::Bool(b)),
+            Value::Int(n) => Some(Setting::Number(f64::from(n))),
+            Value::Real(n) => Some(Setting::Number(n)),
+            Value::String(s) => Some(Setting::Text(s.to_string())),
+            other => return format!("{section}.{key} cannot be {other:?}"),
+        };
+        let path = PathBuf::from(cx.get(Settings::PATH).unwrap_or_default());
+        if let Err(e) = hof_config::edit::set(&path, &section, &key, setting) {
+            return e.to_string();
+        }
+        reload_now(cx);
+        String::new()
     }
 
     #[qml(on_complete)]

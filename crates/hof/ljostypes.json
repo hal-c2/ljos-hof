@@ -1576,6 +1576,54 @@
               "notify": "rowsChanged"
             },
             {
+              "name": "menu",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "menuChanged"
+            },
+            {
+              "name": "menuChoice",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "menuChoiceChanged"
+            },
+            {
+              "name": "themeName",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "themeNameChanged"
+            },
+            {
+              "name": "themeNames",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "themeNamesChanged"
+            },
+            {
               "name": "foreground",
               "type": "color",
               "kind": "value",
@@ -1971,6 +2019,24 @@
               "name": "reload",
               "parameters": [],
               "returnType": "void"
+            },
+            {
+              "name": "set",
+              "parameters": [
+                {
+                  "name": "section",
+                  "type": "string"
+                },
+                {
+                  "name": "key",
+                  "type": "string"
+                },
+                {
+                  "name": "value",
+                  "type": "var"
+                }
+              ],
+              "returnType": "string"
             }
           ]
         }

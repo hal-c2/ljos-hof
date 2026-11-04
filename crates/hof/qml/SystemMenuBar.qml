@@ -23,7 +23,8 @@ MenuBar {
         MenuAction { name: "close-pane"; text: "Close Pane"; runner: bar.runner }
         MenuAction { name: "close-tab"; text: "Close Tab"; runner: bar.runner }
         MenuSeparator {}
-        MenuAction { name: "edit-config"; text: "Settings…"; runner: bar.runner }
+        MenuAction { name: "settings"; text: "Settings…"; runner: bar.runner }
+        MenuAction { name: "edit-config"; text: "Open Config File…"; runner: bar.runner }
         MenuAction { name: "reload-config"; text: "Reload Settings"; runner: bar.runner }
         MenuAction { name: "quit"; text: "Quit"; runner: bar.runner }
     }

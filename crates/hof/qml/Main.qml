@@ -35,11 +35,13 @@ Window {
     // place): its new panes wait for their starts before they are made.
     property bool holding: false
 
-    // The menu bar, where the system has one of its own (macOS). Elsewhere
-    // the keys are enough, and a bar in the window would take its room.
-    property bool menuBarShown: Qt.platform.os === "osx"
+    // Where the menu of actions is, as `[window] menu` says: the menu bar
+    // (the system's own on macOS, else across the top of the window), a
+    // button at the right of the tab bar, or nowhere but the keys.
+    property bool menuBarShown: Settings.menu === "bar"
+    readonly property bool menuButtonShown: Settings.menu === "button"
     // The actions the menu bar has, each shown with its first chord.
-    readonly property list<string> menuActions: ["new-tab", "new-tab-on-host", "split-right", "split-down", "split-right-on-host", "split-down-on-host", "close-pane", "close-tab", "edit-config", "reload-config", "quit", "copy", "paste", "select-all", "search", "reset", "font-bigger", "font-smaller", "font-reset", "zoom-pane", "toggle-fullscreen", "previous-prompt", "next-prompt", "scroll-top", "scroll-bottom", "previous-tab", "next-tab", "focus-previous", "focus-next", "focus-left", "focus-right", "focus-up", "focus-down", "grow-left", "grow-right", "grow-up", "grow-down", "next-waiting"]
+    readonly property list<string> menuActions: ["new-tab", "new-tab-on-host", "split-right", "split-down", "split-right-on-host", "split-down-on-host", "close-pane", "close-tab", "settings", "edit-config", "reload-config", "quit", "copy", "paste", "select-all", "search", "reset", "font-bigger", "font-smaller", "font-reset", "zoom-pane", "toggle-fullscreen", "previous-prompt", "next-prompt", "scroll-top", "scroll-bottom", "previous-tab", "next-tab", "focus-previous", "focus-next", "focus-left", "focus-right", "focus-up", "focus-down", "grow-left", "grow-right", "grow-up", "grow-down", "next-waiting"]
 
     // `[commands]` and `[hooks]`, as `Settings` gives them.
     readonly property var commands: JSON.parse(Settings.commands)
@@ -49,6 +51,8 @@ Window {
     readonly property Workspace layout: workspace
     readonly property int paneCount: paneModel.count
     readonly property bool tabsShown: tabBar.visible
+    readonly property bool settingsShown: settingsDialog.opened
+    readonly property bool windowMenuShown: windowMenu.opened
     readonly property bool confirmingPaste: {
         void window.terminalsRevision;
         const item = window.paneItems[workspace.focusedPane];
@@ -414,7 +418,7 @@ Window {
         // Both: the cell's width is known a moment before its height.
         if (!window.sized && terminal.cellWidth > 0 && terminal.cellHeight > 0) {
             window.sized = true;
-            const chrome = tabBar.visible ? tabBar.height : 0;
+            const chrome = (tabBar.visible ? tabBar.height : 0) + menuBar.height;
             window.width = Math.round(Settings.columns * terminal.cellWidth + 2 * terminal.padding);
             window.height = Math.round(Settings.rows * terminal.cellHeight + 2 * terminal.padding + chrome);
         }
@@ -438,6 +442,30 @@ Window {
     function menuKey(action) {
         const i = Settings.bindingActions.indexOf(action);
         return i >= 0 ? Settings.bindingSequences[i] : "";
+    }
+
+    // The same chord as a menu in the window writes it: as the keys are
+    // marked on a Mac, else as Qt writes it.
+    function menuKeyText(action) {
+        const key = window.menuKey(action);
+        if (Qt.platform.os !== "osx" || key.length === 0)
+            return key;
+        const marks = { "Meta": "⌃", "Ctrl": "⌘", "Alt": "⌥", "Shift": "⇧" };
+        const parts = key.split("+");
+        // `Ctrl++`: the last part is the key, even when it is a plus.
+        const last = key.endsWith("++") ? "+" : parts[parts.length - 1];
+        const mods = parts.slice(0, key.endsWith("++") ? -2 : -1);
+        return mods.map(m => marks[m] ?? m).join("") + last;
+    }
+
+    // Gives the keys back to the focused pane, once a menu or the
+    // settings close, unless something else was opened meanwhile.
+    function refocus() {
+        if (settingsDialog.opened || windowMenu.opened || hostPicker.visible)
+            return;
+        const item = window.paneItems[workspace.focusedPane];
+        if (item !== undefined)
+            item.giveFocus();
     }
 
     // An action a key binding or the menu names.
@@ -584,6 +612,9 @@ Window {
         case "edit-config":
             App.editConfig();
             break;
+        case "settings":
+            settingsDialog.open();
+            break;
         case "quit":
             // As the window manager's close: the session is saved first.
             window.close();
@@ -678,10 +709,11 @@ Window {
 
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.top: parent.top
-            visible: workspace.tabCount > 1
+            anchors.top: menuBar.bottom
+            visible: workspace.tabCount > 1 || window.menuButtonShown
             height: visible ? implicitHeight : 0
             workspace: workspace
+            menuButton: window.menuButtonShown
             background: window.background
             foreground: window.foreground
             border: window.border
@@ -700,6 +732,12 @@ Window {
             workingColor: Settings.palette.length > 4 ? Settings.palette[4] : "steelblue"
             idleColor: Settings.palette.length > 2 ? Settings.palette[2] : "seagreen"
             onNewTab: window.newTab()
+            onMenuRequested: from => {
+                if (windowMenu.opened)
+                    windowMenu.close();
+                else
+                    windowMenu.popup(from, from.width - windowMenu.width, from.height);
+            }
             onCloseTab: index => {
                 for (const pane of workspace.tabPanes(index))
                     window.closePane(pane);
@@ -737,6 +775,7 @@ Window {
                     fontSize: window.fontSize
                     background: window.background
                     foreground: window.foreground
+                    keyOf: window.menuKeyText
                     onTerminalReady: (terminal, item) => window.register(slot.pane, terminal, item)
                     onTerminalGone: window.unregister(slot.pane)
                     onFocusTaken: workspace.focusPane(slot.pane)
@@ -758,10 +797,17 @@ Window {
             }
         }
 
-        // The system's menu bar, on macOS; not made elsewhere. In a file
-        // of its own: QtQuick.Controls has a Pane and a TabBar, which would
+        // The menu bar: the system's own on macOS, where it takes no room
+        // in the window, and across the top of it elsewhere. In a file of
+        // its own: QtQuick.Controls has a Pane and a TabBar, which would
         // take the place of Hof's here.
         Loader {
+            id: menuBar
+
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: item !== null ? item.height : 0
             active: window.menuBarShown
 
             sourceComponent: SystemMenuBar {
@@ -815,6 +861,31 @@ Window {
             }
             onClosed: if (window.current !== null)
                 window.current.forceActiveFocus()
+        }
+
+        // The menu the tab bar's button opens.
+        WindowMenu {
+            id: windowMenu
+
+            keyOf: window.menuKeyText
+            baseColor: window.background
+            textColor: window.foreground
+            fontFamily: Settings.fontFamily
+            fontSize: Math.max(8, Settings.fontSize - 1)
+
+            onChose: name => window.run(name)
+            onClosed: Qt.callLater(window.refocus)
+        }
+
+        SettingsDialog {
+            id: settingsDialog
+
+            baseColor: window.background
+            textColor: window.foreground
+            accent: Settings.palette.length > 4 ? Settings.palette[4] : "steelblue"
+            danger: Settings.palette.length > 1 ? Settings.palette[1] : "firebrick"
+
+            onClosed: Qt.callLater(window.refocus)
         }
 
         // What was wrong with the config file, until dismissed.

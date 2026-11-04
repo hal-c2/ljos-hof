@@ -1,8 +1,9 @@
 import QtQuick
 import Hof
 
-// The tabs, shown when there are two or more: click to select, middle
-// click or × to close, + for a new one.
+// The tabs, shown when there are two or more or when the menu is here:
+// click to select, middle click or × to close, + for a new one, and the
+// button at the right for the window's menu.
 Item {
     id: root
 
@@ -19,9 +20,13 @@ Item {
     property color waitingColor: "orange"
     property color workingColor: "steelblue"
     property color idleColor: "seagreen"
+    // Whether the window's menu opens from a button here.
+    property bool menuButton: false
 
     signal newTab
     signal closeTab(int index)
+    // The menu button was pressed: open the menu under `from`.
+    signal menuRequested(Item from)
 
     implicitHeight: 30
 
@@ -54,7 +59,7 @@ Item {
                     return root.agentStateOf(tab.index);
                 }
 
-                width: Math.min(220, (root.width - add.width) / Math.max(1, root.workspace.tabCount))
+                width: Math.min(220, (root.width - add.width - menu.width) / Math.max(1, root.workspace.tabCount))
                 height: tabs.height
 
                 Rectangle {
@@ -146,6 +151,52 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             onClicked: root.newTab()
+        }
+    }
+
+    // Three bars, the usual sign of a menu where a window has no menu
+    // bar.
+    Item {
+        id: menu
+        objectName: "menuButton"
+
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: root.menuButton ? 36 : 0
+        visible: root.menuButton
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 3
+            radius: 4
+            color: root.foreground
+            opacity: menuArea.pressed ? 0.18 : menuArea.containsMouse ? 0.1 : 0
+        }
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 3
+
+            Repeater {
+                model: 3
+
+                delegate: Rectangle {
+                    width: 14
+                    height: 2
+                    radius: 1
+                    color: root.foreground
+                    opacity: menuArea.containsMouse ? 0.9 : 0.6
+                }
+            }
+        }
+
+        MouseArea {
+            id: menuArea
+
+            anchors.fill: parent
+            hoverEnabled: true
+            onPressed: root.menuRequested(menu)
         }
     }
 
