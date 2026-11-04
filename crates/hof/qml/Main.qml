@@ -35,6 +35,12 @@ Window {
     // place): its new panes wait for their starts before they are made.
     property bool holding: false
 
+    // The menu bar, where the system has one of its own (macOS). Elsewhere
+    // the keys are enough, and a bar in the window would take its room.
+    property bool menuBarShown: Qt.platform.os === "osx"
+    // The actions the menu bar has, each shown with its first chord.
+    readonly property list<string> menuActions: ["new-tab", "new-tab-on-host", "split-right", "split-down", "split-right-on-host", "split-down-on-host", "close-pane", "close-tab", "edit-config", "reload-config", "quit", "copy", "paste", "select-all", "search", "reset", "font-bigger", "font-smaller", "font-reset", "zoom-pane", "toggle-fullscreen", "previous-prompt", "next-prompt", "scroll-top", "scroll-bottom", "previous-tab", "next-tab", "focus-previous", "focus-next", "focus-left", "focus-right", "focus-up", "focus-down", "grow-left", "grow-right", "grow-up", "grow-down", "next-waiting"]
+
     // `[commands]` and `[hooks]`, as `Settings` gives them.
     readonly property var commands: JSON.parse(Settings.commands)
     readonly property var hooks: JSON.parse(Settings.hooks)
@@ -428,6 +434,12 @@ Window {
         return window.terminals[pane] ?? null;
     }
 
+    // The chord the menu bar shows for `action`: the first one bound.
+    function menuKey(action) {
+        const i = Settings.bindingActions.indexOf(action);
+        return i >= 0 ? Settings.bindingSequences[i] : "";
+    }
+
     // An action a key binding or the menu names.
     function run(action) {
         const t = window.current;
@@ -746,6 +758,17 @@ Window {
             }
         }
 
+        // The system's menu bar, on macOS; not made elsewhere. In a file
+        // of its own: QtQuick.Controls has a Pane and a TabBar, which would
+        // take the place of Hof's here.
+        Loader {
+            active: window.menuBarShown
+
+            sourceComponent: SystemMenuBar {
+                runner: window
+            }
+        }
+
         // Every binding the config file names, as a window-wide shortcut:
         // it wins over the terminal, which never claims a key first.
         Repeater {
@@ -758,6 +781,12 @@ Window {
 
                 Shortcut {
                     sequence: Settings.bindingSequences[binding.index]
+                    // The menu bar's item has this chord, and the system
+                    // gives the key to it; two of a chord would cancel out.
+                    enabled: {
+                        const action = Settings.bindingActions[binding.index];
+                        return !(window.menuBarShown && window.menuActions.includes(action) && Settings.bindingActions.indexOf(action) === binding.index);
+                    }
                     context: Qt.WindowShortcut
                     onActivated: window.run(Settings.bindingActions[binding.index])
                 }

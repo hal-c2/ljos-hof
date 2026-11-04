@@ -2598,6 +2598,7 @@ dependencies = [
  "qml_front",
  "qml_syntax",
  "qt_types",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -2611,11 +2612,13 @@ dependencies = [
  "ljos_engine",
  "ljos_i18n",
  "ljos_ir",
+ "ljos_platform",
  "ljos_quick",
  "ljos_render",
  "ljos_runtime",
  "ljos_studio",
  "qt_types",
+ "slotmap",
  "thiserror 2.0.21",
 ]
 
@@ -2915,7 +2918,9 @@ dependencies = [
  "ljos_runtime",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
+ "objc2-core-graphics",
  "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
  "pollster 1.0.1",
  "softbuffer",
  "thiserror 2.0.21",
@@ -2942,6 +2947,7 @@ name = "ljos_text"
 version = "0.0.0"
 dependencies = [
  "harfrust",
+ "icu_properties",
  "icu_segmenter",
  "ljos_render",
  "ljos_runtime",
@@ -2951,6 +2957,7 @@ dependencies = [
  "parley_engine",
  "pulldown-cmark",
  "rustc-hash 2.1.3",
+ "skrifa",
  "thiserror 2.0.21",
  "unicode-segmentation",
  "yeslogic-fontconfig-sys",
@@ -3291,6 +3298,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
+ "objc2-quartz-core 0.3.2",
 ]
 
 [[package]]

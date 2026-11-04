@@ -193,6 +193,87 @@ fn a_second_tab_shows_the_tab_bar_and_hides_the_first_tab() {
     assert_eq!(hof.current(), Some(first));
 }
 
+impl Hof {
+    /// The objectNames of every object below the window that start with
+    /// `prefix`.
+    fn names(&self, prefix: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        let mut items = vec![self.root];
+        while let Some(item) = items.pop() {
+            let name = self.engine.read_by_name(item, "objectName").to_js_string();
+            if name.as_str().starts_with(prefix) {
+                found.push(name.as_str().to_owned());
+            }
+            items.extend(self.engine.children(item));
+        }
+        found
+    }
+}
+
+#[test]
+fn the_menu_bar_has_each_action_it_lists_with_its_key() {
+    let mut hof = opened();
+    let shown = cfg!(target_os = "macos");
+    assert_eq!(hof.find("menu:new-tab").is_some(), shown);
+    hof.engine
+        .write_by_name(hof.root, "menuBarShown", Value::from(true))
+        .unwrap();
+    hof.window.settle().unwrap();
+    let listed = hof.engine.read_by_name(hof.root, "menuActions");
+    let listed: Vec<String> = listed
+        .as_list()
+        .expect("a list")
+        .iter()
+        .map(|a| a.to_js_string().as_str().to_owned())
+        .collect();
+    let mut made = hof.names("menu:");
+    made.sort();
+    let mut want: Vec<String> = listed.iter().map(|a| format!("menu:{a}")).collect();
+    want.sort();
+    assert_eq!(
+        made, want,
+        "the bar and `menuActions` name the same actions"
+    );
+
+    let new_tab = hof.find("menu:new-tab").unwrap();
+    let key = if cfg!(target_os = "macos") {
+        "Ctrl+T"
+    } else {
+        "Ctrl+Shift+T"
+    };
+    assert_eq!(
+        hof.engine
+            .read_by_name(new_tab, "shortcut")
+            .to_js_string()
+            .as_str(),
+        key
+    );
+    hof.engine.invoke_by_name(new_tab, "trigger", &[]).unwrap();
+    hof.window.settle().unwrap();
+    assert_eq!(hof.number(hof.layout(), "tabCount"), 2.0);
+}
+
+#[test]
+fn a_key_the_menu_bar_shows_does_its_action_once() {
+    let mut hof = opened();
+    hof.engine
+        .write_by_name(hof.root, "menuBarShown", Value::from(true))
+        .unwrap();
+    hof.window.settle().unwrap();
+    let chord = if cfg!(target_os = "macos") {
+        KeyEvent::press(KEY_T)
+            .with_modifiers(Modifiers::CONTROL)
+            .with_text("t")
+    } else {
+        KeyEvent::press(KEY_T)
+            .with_modifiers(Modifiers::CONTROL | Modifiers::SHIFT)
+            .with_text("T")
+    };
+    hof.window.key(&chord);
+    hof.window.settle().unwrap();
+    assert_eq!(hof.number(hof.layout(), "tabCount"), 2.0);
+}
+
 #[test]
 fn a_tab_can_be_gone_to_by_its_number_or_as_the_last() {
     let mut hof = opened();
