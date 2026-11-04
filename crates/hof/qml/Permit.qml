@@ -17,17 +17,14 @@ Rectangle {
 
     property string question
     property string detail
-    property Item previousFocus: null
 
     signal answered(bool allow, bool always)
 
     function ask(question, detail) {
         root.question = question;
         root.detail = detail;
-        if (root.active) {
-            root.previousFocus = root.Window.window.activeFocusItem;
+        if (root.active)
             root.forceActiveFocus();
-        }
         // The prompt with the keys must be the one the user can read.
         root.z = 4;
         root.visible = true;
@@ -36,13 +33,7 @@ Rectangle {
     function answer(allow, always) {
         root.z = 3;
         root.visible = false;
-        if (root.active) {
-            if (root.previousFocus !== null && root.previousFocus.visible)
-                root.previousFocus.forceActiveFocus();
-            else
-                root.terminal.forceActiveFocus();
-        }
-        root.previousFocus = null;
+        root.parent.giveFocus();
         root.answered(allow, always);
     }
 

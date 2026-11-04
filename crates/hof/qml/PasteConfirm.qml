@@ -14,12 +14,10 @@ Rectangle {
     property real fontSize: 11
 
     property string pending: ""
-    property Item previousFocus: null
     readonly property int lineCount: root.pending.split("\n").length
 
     function ask(text) {
         root.pending = text;
-        root.previousFocus = root.Window.window.activeFocusItem;
         root.z = 4;
         root.visible = true;
         root.forceActiveFocus();
@@ -30,11 +28,7 @@ Rectangle {
         root.pending = "";
         root.z = 3;
         root.visible = false;
-        if (root.previousFocus !== null && root.previousFocus.visible)
-            root.previousFocus.forceActiveFocus();
-        else
-            root.terminal.forceActiveFocus();
-        root.previousFocus = null;
+        root.parent.giveFocus();
         if (paste)
             root.terminal.forcePaste(text);
     }

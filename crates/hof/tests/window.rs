@@ -564,6 +564,11 @@ fn the_prompt_drawn_last_wins_a_z_tie() {
     let clipboard = hof.find("clipboardPermit").unwrap();
     let paste = hof.find("pasteConfirm").unwrap();
     assert_eq!(hof.number(clipboard, "z"), hof.number(paste, "z"));
+    assert!(
+        hof.engine
+            .read_by_name(clipboard, "activeFocus")
+            .to_boolean()
+    );
     hof.run("new-tab");
     hof.run("previous-tab");
     assert!(
