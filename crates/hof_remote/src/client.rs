@@ -130,37 +130,50 @@ pub struct Spawned {
 
 impl Transport for Spawned {
     fn connect(&mut self) -> io::Result<Connection> {
-        let (program, args) = self
-            .argv
-            .split_first()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no command to run"))?;
-        let mut child = process::Command::new(program)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| io::Error::new(e.kind(), format!("{program}: {e}")))?;
-        let (Some(writer), Some(reader), Some(stderr)) =
-            (child.stdin.take(), child.stdout.take(), child.stderr.take())
-        else {
-            return Err(io::Error::other("no pipes to the transport"));
-        };
-        let said = Arc::new(Mutex::new(VecDeque::new()));
-        let (done, finished) = mpsc::channel();
-        let keep = said.clone();
-        thread::Builder::new()
-            .name("hof-remote-stderr".into())
-            .spawn(move || {
-                keep_last_lines(stderr, &keep);
-                let _ = done.send(());
-            })?;
-        Ok(Connection {
-            reader: Box::new(reader),
-            writer: Box::new(writer),
-            end: Box::new(move || end_child(child, &said, &finished)),
-        })
+        spawn(&self.argv, None)
     }
+}
+
+/// How a spawned transport ended: its exit code and the last lines it
+/// wrote to stderr.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Ended {
+    pub code: Option<i32>,
+    pub said: Vec<String>,
+}
+
+/// Runs `argv` as the connection; once it ends, how it did goes in
+/// `noted`, if given.
+pub fn spawn(argv: &[String], noted: Option<Arc<Mutex<Ended>>>) -> io::Result<Connection> {
+    let (program, args) = argv
+        .split_first()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no command to run"))?;
+    let mut child = process::Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| io::Error::new(e.kind(), format!("{program}: {e}")))?;
+    let (Some(writer), Some(reader), Some(stderr)) =
+        (child.stdin.take(), child.stdout.take(), child.stderr.take())
+    else {
+        return Err(io::Error::other("no pipes to the transport"));
+    };
+    let said = Arc::new(Mutex::new(VecDeque::new()));
+    let (done, finished) = mpsc::channel();
+    let keep = said.clone();
+    thread::Builder::new()
+        .name("hof-remote-stderr".into())
+        .spawn(move || {
+            keep_last_lines(stderr, &keep);
+            let _ = done.send(());
+        })?;
+    Ok(Connection {
+        reader: Box::new(reader),
+        writer: Box::new(writer),
+        end: Box::new(move || end_child(child, &said, &finished, noted.as_deref())),
+    })
 }
 
 /// The last few lines a program wrote, for saying why it failed.
@@ -184,13 +197,26 @@ fn end_child(
     mut child: Child,
     said: &Mutex<VecDeque<String>>,
     finished: &mpsc::Receiver<()>,
+    noted: Option<&Mutex<Ended>>,
 ) -> Option<String> {
+    // A connection that closed from the far end is a program about to
+    // exit: a moment for it to, so its exit code says why.
+    let deadline = Instant::now() + Duration::from_millis(200);
+    while matches!(child.try_wait(), Ok(None)) && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
     let _ = child.kill();
     let status = child.wait().ok();
     // Not forever: a process it left behind (an ssh control master) may
     // hold its stderr open.
     let _ = finished.recv_timeout(Duration::from_millis(500));
     let lines = said.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(noted) = noted {
+        *noted.lock().unwrap_or_else(|e| e.into_inner()) = Ended {
+            code: status.and_then(|s| s.code()),
+            said: lines.iter().cloned().collect(),
+        };
+    }
     if !lines.is_empty() {
         return Some(lines.iter().cloned().collect::<Vec<_>>().join("; "));
     }

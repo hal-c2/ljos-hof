@@ -15,6 +15,7 @@
 //! sound clients on the agent's machine, passed on to the servers on
 //! Hof's ([`relay`], [`x11`], [`pulse`]).
 
+pub mod bootstrap;
 pub mod client;
 pub mod pulse;
 pub mod relay;
