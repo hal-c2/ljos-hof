@@ -10,6 +10,7 @@
 //! types leaves through the `input` signal. That is the shape hal-c2's
 //! terminal had, and what a remote session or a replayed one needs.
 
+pub mod agents;
 mod keys;
 pub mod layout;
 mod paint;

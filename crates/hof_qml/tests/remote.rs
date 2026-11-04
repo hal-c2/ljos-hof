@@ -67,3 +67,17 @@ fn a_host_no_one_named_is_said() {
     let error = s.engine.get(s.t, Terminal::ERROR).unwrap();
     assert!(error.contains("nowhere"), "{error:?}");
 }
+
+#[test]
+fn what_an_agent_on_a_host_says_of_itself_is_shown_here() {
+    let (_agent, _) = host("says");
+    let mut s = shown(
+        "says",
+        "echo ready; printf '\\033]7701;waiting;codex\\007'; read x",
+        -1,
+    );
+    s.until("its report", |s| {
+        s.engine.get(s.t, Terminal::AGENT_STATE).unwrap() == "waiting"
+    });
+    assert_eq!(s.engine.get(s.t, Terminal::AGENT).unwrap(), "codex");
+}

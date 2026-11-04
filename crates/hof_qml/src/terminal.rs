@@ -18,6 +18,7 @@ use hof_vt::{
 use ljos::item::{self, Font, KeyEvent, Surrounding, TextInputClient, kurbo};
 use ljos::prelude::*;
 
+use crate::agents::{self, Said, State};
 use crate::keys;
 use crate::paint::{Metrics, View};
 use crate::pointer::PointerState;
@@ -194,6 +195,13 @@ pub struct Terminal {
     pub search_total: i32,
     #[qml(notify, readonly)]
     pub search_current: i32,
+    /// The AI agent the terminal runs, by its `[agents]` table's name or
+    /// the name it gave; empty when there is none.
+    #[qml(notify, readonly)]
+    pub agent: String,
+    /// How it is: "working", "waiting" (for the user), "idle", or "none".
+    #[qml(notify, readonly)]
+    pub agent_state: String,
 
     #[qml(skip)]
     pub(crate) shared: Rc<Shared>,
@@ -258,6 +266,8 @@ impl Default for Terminal {
             searching: false,
             search_total: 0,
             search_current: 0,
+            agent: String::new(),
+            agent_state: "none".into(),
             shared: Rc::default(),
         }
     }
@@ -290,6 +300,7 @@ pub(crate) struct Shared {
     /// The session began by attaching to a pane that ran already, and has
     /// not reached it yet: should that pane be gone, a new one starts.
     pub attaching: Cell<bool>,
+    pub agent: RefCell<agents::Watch>,
 }
 
 /// How long a blinking cursor stays shown, and hidden.
@@ -368,6 +379,11 @@ impl Terminal {
     /// `forcePaste` once the user agrees.
     #[qml(signal)]
     fn paste_blocked(text: String);
+
+    /// The agent, or how it is, changed: `agent` and `agentState` as they
+    /// are now.
+    #[qml(signal)]
+    fn agent_status(agent: String, state: String);
 
     #[qml(on_complete)]
     fn completed(cx: &Cx) -> Result<(), EngineError> {
@@ -592,6 +608,20 @@ impl Terminal {
         }
         let spawn = spawn_of(e, me);
         open(e, me, Some(spawn))
+    }
+
+    /// Says how the terminal's agent is, as the agent would with Hof's
+    /// escape sequence: `state` is "working", "waiting", "idle" or "none",
+    /// and `name` the agent's, or empty to let the terminal tell. It holds
+    /// while the program in the foreground now is. Returns whether `state`
+    /// is one of those.
+    #[qml(invokable)]
+    fn report_agent(cx: &Cx, state: String, name: String) -> bool {
+        let Some(state) = State::parse(state.trim()) else {
+            return false;
+        };
+        said(cx.engine, cx.this, state, name.trim().to_owned());
+        true
     }
 
     /// Hangs up on the program.
@@ -968,6 +998,7 @@ fn drain(engine: &Engine, me: ObjectId) {
     if changes.contains(Changes::SCREEN) {
         item::repaint(engine, me);
         update_scroll(engine, me);
+        look_soon(engine, me);
     }
     if let Some(found) = found {
         show_found(engine, me, found);
@@ -1016,8 +1047,15 @@ fn drain(engine: &Engine, me: ObjectId) {
                 }
             }
             Event::Link(link) => linked(engine, me, link),
+            Event::Agent(report) => {
+                // A state Hof does not know, from a newer agent, says nothing.
+                if let Some(state) = State::parse(&report.state) {
+                    said(engine, me, state, report.name);
+                }
+            }
             Event::Exited(code) => {
                 let code = code.unwrap_or(-1);
+                forget_agent(engine, me);
                 let _ = engine.set_internal(me, Terminal::RUNNING, false);
                 if shared_of(engine, me).is_some_and(|s| s.remote.borrow().is_some()) {
                     // Its pane there is gone with it.
@@ -1029,6 +1067,85 @@ fn drain(engine: &Engine, me: ObjectId) {
         }
     }
     flush_input(engine, me);
+}
+
+/// Takes what the terminal's agent said of itself, and looks at once.
+fn said(engine: &Engine, me: ObjectId, state: State, name: String) {
+    let Some(shared) = shared_of(engine, me) else {
+        return;
+    };
+    let group = shared
+        .session
+        .borrow()
+        .as_ref()
+        .and_then(Session::foreground)
+        .map(|p| p.pid);
+    shared.agent.borrow_mut().said = Some(Said { name, state, group });
+    look(engine, me);
+}
+
+/// Looks at the agent a moment from now, unless a look is coming already.
+fn look_soon(engine: &Engine, me: ObjectId) {
+    let Some(shared) = shared_of(engine, me) else {
+        return;
+    };
+    let mut watch = shared.agent.borrow_mut();
+    if watch.due.is_some() {
+        return;
+    }
+    watch.due = Some(engine.call_at(engine.now() + agents::LOOK_AFTER, move |e| {
+        if let Some(shared) = shared_of(e, me) {
+            shared.agent.borrow_mut().due = None;
+        }
+        look(e, me);
+    }));
+}
+
+/// Tells which agent the terminal runs and how it is, now.
+fn look(engine: &Engine, me: ObjectId) {
+    let Some(shared) = shared_of(engine, me) else {
+        return;
+    };
+    let judged = {
+        let session = shared.session.borrow();
+        let Some(s) = session.as_ref() else {
+            return;
+        };
+        if !s.is_alive() {
+            return;
+        }
+        let fg = s.foreground();
+        let watch = shared.agent.borrow();
+        agents::judge_now(fg.as_ref(), watch.said.as_ref(), || s.screen_text())
+    };
+    show_agent(engine, me, judged);
+}
+
+/// The program is gone, and its agent with it.
+fn forget_agent(engine: &Engine, me: ObjectId) {
+    if let Some(shared) = shared_of(engine, me) {
+        let mut watch = shared.agent.borrow_mut();
+        if let Some(id) = watch.due.take() {
+            engine.cancel_call(id);
+        }
+        watch.said = None;
+    }
+    show_agent(engine, me, (String::new(), State::None));
+}
+
+fn show_agent(engine: &Engine, me: ObjectId, (name, state): (String, State)) {
+    let (was, was_state) = engine.untrack(|| {
+        (
+            item::prop(engine, me, Terminal::AGENT),
+            item::prop(engine, me, Terminal::AGENT_STATE),
+        )
+    });
+    if was == name && was_state == state.name() {
+        return;
+    }
+    let _ = engine.set_internal(me, Terminal::AGENT, name.clone());
+    let _ = engine.set_internal(me, Terminal::AGENT_STATE, state.name().to_owned());
+    let _ = Terminal::emit_agent_status(&cx(engine, me), name, state.name().to_owned());
 }
 
 fn clamp_count(n: usize) -> i32 {
