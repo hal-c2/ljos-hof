@@ -109,7 +109,7 @@ fn has_scheme(s: &str) -> bool {
 }
 
 /// `file://` and `path`, with what a URL cannot hold escaped.
-fn file_url(path: &Path) -> String {
+pub fn file_url(path: &Path) -> String {
     use std::os::unix::ffi::OsStrExt;
     let mut url = String::from("file://");
     for &b in path.as_os_str().as_bytes() {

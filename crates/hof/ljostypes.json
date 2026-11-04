@@ -1405,6 +1405,11 @@
               "returnType": "string"
             },
             {
+              "name": "editConfig",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
               "name": "clearSession",
               "parameters": [],
               "returnType": "void"

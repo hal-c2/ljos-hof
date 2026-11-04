@@ -145,6 +145,20 @@ impl App {
         }
     }
 
+    /// Opens the config file with whatever the desktop opens it with,
+    /// writing the example there first when there is no file yet.
+    #[qml(invokable)]
+    fn edit_config(cx: &Cx) {
+        let path = settings::config_path();
+        if let Err(e) = write_example(&path) {
+            eprintln!("hof: could not write {}: {e}", path.display());
+            return;
+        }
+        Platform::of(cx.engine)
+            .open_url()
+            .open(&tty::file_url(&path));
+    }
+
     /// Forgets the saved session, so the next start is a fresh one.
     #[qml(invokable)]
     fn clear_session(_cx: &Cx) {
@@ -188,6 +202,23 @@ impl App {
             ipc::listen(cx.engine, cx.this);
         }
         Ok(())
+    }
+}
+
+/// Writes the example config at `path` unless something is there already.
+fn write_example(path: &std::path::Path) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(mut file) => file.write_all(hof_config::EXAMPLE.as_bytes()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e),
     }
 }
 

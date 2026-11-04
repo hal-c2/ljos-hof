@@ -547,6 +547,35 @@ Window {
             if (App.dropdown)
                 window.toggleDropdown();
             break;
+        case "focus-next":
+        case "focus-previous": {
+            const panes = workspace.tabPanes(workspace.currentTab);
+            const at = panes.indexOf(workspace.focusedPane);
+            const by = action === "focus-next" ? 1 : -1;
+            if (panes.length > 1)
+                workspace.focusPane(panes[(at + by + panes.length) % panes.length]);
+            break;
+        }
+        case "tab-1":
+        case "tab-2":
+        case "tab-3":
+        case "tab-4":
+        case "tab-5":
+        case "tab-6":
+        case "tab-7":
+        case "tab-8":
+            workspace.selectTab(Number(action.slice(4)) - 1);
+            break;
+        case "last-tab":
+            workspace.selectTab(workspace.tabCount - 1);
+            break;
+        case "edit-config":
+            App.editConfig();
+            break;
+        case "quit":
+            // As the window manager's close: the session is saved first.
+            window.close();
+            break;
         default:
             if (action.startsWith("command:"))
                 window.runCommand(action.slice(8));

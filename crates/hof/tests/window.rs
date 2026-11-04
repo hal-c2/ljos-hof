@@ -194,6 +194,36 @@ fn a_second_tab_shows_the_tab_bar_and_hides_the_first_tab() {
 }
 
 #[test]
+fn a_tab_can_be_gone_to_by_its_number_or_as_the_last() {
+    let mut hof = opened();
+    let first = hof.current().unwrap();
+    hof.run("new-tab");
+    hof.run("new-tab");
+    let third = hof.current().unwrap();
+    hof.run("tab-1");
+    assert_eq!(hof.current(), Some(first));
+    hof.run("last-tab");
+    assert_eq!(hof.current(), Some(third));
+    // There is no fifth: nothing happens.
+    hof.run("tab-5");
+    assert_eq!(hof.current(), Some(third));
+}
+
+#[test]
+fn focus_goes_round_the_panes_of_a_tab_in_reading_order() {
+    let mut hof = opened();
+    let first = hof.current().unwrap();
+    hof.run("split-right");
+    let second = hof.current().unwrap();
+    hof.run("focus-next");
+    assert_eq!(hof.current(), Some(first));
+    hof.run("focus-next");
+    assert_eq!(hof.current(), Some(second));
+    hof.run("focus-previous");
+    assert_eq!(hof.current(), Some(first));
+}
+
+#[test]
 fn zooming_gives_one_pane_the_whole_tab() {
     let mut hof = opened();
     hof.run("split-right");
@@ -228,9 +258,17 @@ fn a_bound_key_does_its_action_and_does_not_reach_the_program() {
             sink.borrow_mut().push_str(args[0].to_js_string().as_str());
         })
         .unwrap();
-    let chord = KeyEvent::press(KEY_T)
-        .with_modifiers(Modifiers::CONTROL | Modifiers::SHIFT)
-        .with_text("T");
+    // Command+T on a Mac, which Qt calls Control there; Ctrl+Shift+T
+    // elsewhere.
+    let chord = if cfg!(target_os = "macos") {
+        KeyEvent::press(KEY_T)
+            .with_modifiers(Modifiers::CONTROL)
+            .with_text("t")
+    } else {
+        KeyEvent::press(KEY_T)
+            .with_modifiers(Modifiers::CONTROL | Modifiers::SHIFT)
+            .with_text("T")
+    };
     hof.window.key(&chord);
     hof.window.settle().unwrap();
     assert_eq!(hof.number(hof.layout(), "tabCount"), 2.0);
