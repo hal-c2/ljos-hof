@@ -207,6 +207,10 @@ pub struct Terminal {
     pub search_total: i32,
     #[qml(notify, readonly)]
     pub search_current: i32,
+    /// The link under the pointer: the program's own (OSC 8), or a URL in
+    /// the text. Ctrl+click opens it.
+    #[qml(notify, readonly)]
+    pub hovered_link: String,
     /// The AI agent the terminal runs, by its `[agents]` table's name or
     /// the name it gave; empty when there is none.
     #[qml(notify, readonly)]
@@ -281,6 +285,7 @@ impl Default for Terminal {
             searching: false,
             search_total: 0,
             search_current: 0,
+            hovered_link: String::new(),
             agent: String::new(),
             agent_state: "none".into(),
             shared: Rc::default(),
@@ -1104,6 +1109,7 @@ fn drain(engine: &Engine, me: ObjectId) {
         item::repaint(engine, me);
         update_scroll(engine, me);
         look_soon(engine, me);
+        show_link(engine, me);
     }
     if let Some(found) = found {
         show_found(engine, me, found);
@@ -1347,6 +1353,40 @@ fn open_asked(engine: &Engine, me: ObjectId, url: String) {
         }
         Some(false) => {}
     }
+}
+
+/// Underlines the link under the pointer, if there is one, and says
+/// which it is.
+pub(crate) fn show_link(engine: &Engine, me: ObjectId) {
+    let Some(shared) = shared_of(engine, me) else {
+        return;
+    };
+    let at = shared.pointer.borrow().hover_at;
+    let link =
+        at.and_then(|(col, row)| with_session(engine, me, |s| s.link_at(col, row)).flatten());
+    let changed = {
+        let mut view = shared.view.borrow_mut();
+        let changed = view.link != link;
+        if changed {
+            view.link = link.clone();
+        }
+        changed
+    };
+    if changed {
+        let url = link.map(|l| l.url).unwrap_or_default();
+        let _ = engine.set_internal(me, Terminal::HOVERED_LINK, url);
+        item::repaint(engine, me);
+    }
+}
+
+/// The user clicked a link. A remote program's `file:` link names a file
+/// on that machine, which can't be opened here yet.
+pub(crate) fn open_link(engine: &Engine, me: ObjectId, url: &str) {
+    let remote = shared_of(engine, me).is_some_and(|s| s.remote.borrow().is_some());
+    if url.starts_with("file:") && remote {
+        return;
+    }
+    open_url(engine, url);
 }
 
 fn open_url(engine: &Engine, url: &str) {

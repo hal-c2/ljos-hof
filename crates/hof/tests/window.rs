@@ -476,3 +476,36 @@ fn a_name_no_host_has_leaves_nothing_to_pick() {
         "the keys go back to the pane"
     );
 }
+
+#[test]
+fn a_link_under_the_pointer_is_named_until_the_screen_moves_it_away() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    // A link over the whole screen, so wherever the pane is, the pointer
+    // in the middle of the window is on it.
+    let row = format!("{}\r\n", "y".repeat(150));
+    let screen = format!(
+        "\x1b]8;;https://example.com/hof\x1b\\{}\x1b]8;;\x1b\\",
+        row.repeat(40)
+    );
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from(screen.as_str())])
+        .unwrap();
+    hof.window.settle().unwrap();
+    let now = hof.window.now();
+    hof.window.pointer(&ljos::item::PointerEvent::moved(
+        400.0,
+        200.0,
+        Default::default(),
+        now,
+    ));
+    hof.window.settle().unwrap();
+    let hovered = |hof: &Hof| hof.engine.read_by_name(t, "hoveredLink").to_js_string();
+    assert_eq!(hovered(&hof), "https://example.com/hof");
+
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from("\x1b[2J\x1b[H")])
+        .unwrap();
+    hof.window.settle().unwrap();
+    assert_eq!(hovered(&hof), "", "the screen was cleared under it");
+}

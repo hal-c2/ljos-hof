@@ -150,6 +150,11 @@ Item {
                 terminal.forceActiveFocus();
         }
         Component.onDestruction: root.terminalGone()
+
+        // A hand over a link, which Ctrl+click opens.
+        HoverHandler {
+            cursorShape: terminal.hoveredLink.length > 0 ? Qt.PointingHandCursor : Qt.IBeamCursor
+        }
     }
 
     // A dimmer over the panes that do not have the keys, when there are
@@ -258,6 +263,33 @@ Item {
             anchors.centerIn: parent
             text: (root.agentState === "waiting" ? "● " : root.agentState === "working" ? "◌ " : "○ ") + root.agent + " · " + root.agentState
             color: root.foreground
+            font.family: Settings.fontFamily
+            font.pointSize: Math.max(1, root.fontSize - 2)
+        }
+    }
+
+    // The link under the pointer, as a browser shows it.
+    Rectangle {
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.margins: 6
+        z: 1
+        visible: terminal.hoveredLink.length > 0
+        width: Math.min(parent.width - 12, hoveredText.implicitWidth + 14)
+        height: hoveredText.implicitHeight + 6
+        radius: 3
+        color: Qt.darker(root.background, 1.3)
+        border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+
+        Text {
+            id: hoveredText
+
+            anchors.verticalCenter: parent.verticalCenter
+            x: 7
+            width: parent.width - 14
+            text: terminal.hoveredLink + "  ·  Ctrl+click to open"
+            color: root.foreground
+            elide: Text.ElideMiddle
             font.family: Settings.fontFamily
             font.pointSize: Math.max(1, root.fontSize - 2)
         }

@@ -124,6 +124,8 @@ pub struct View {
     pub bold_is_bright: bool,
     pub metrics: Metrics,
     glyphs: Glyphs,
+    /// The link under the pointer, underlined.
+    pub link: Option<hof_vt::Hyperlink>,
 }
 
 impl fmt::Debug for View {
@@ -469,6 +471,7 @@ impl ItemPaint for Frame {
             grid,
             metrics,
             glyphs,
+            link,
             ..
         } = &mut *view;
         let Some(grid) = grid.as_ref() else {
@@ -513,6 +516,14 @@ impl ItemPaint for Frame {
                 out.glyphs(Arc::clone(run), origin, *colour, Decorations::default());
             }
             decorate(out, m, self.padding, top, line);
+            for span in link.iter().flat_map(|l| &l.spans) {
+                if usize::from(span.row) == y {
+                    let x0 = self.padding + f64::from(span.start) * m.cell.width;
+                    let x1 = self.padding + f64::from(span.end) * m.cell.width;
+                    let y0 = top + m.underline;
+                    out.fill_rect(kurbo::Rect::new(x0, y0, x1, y0 + m.thickness), rgba(fg));
+                }
+            }
         }
         self.paint_cursor(grid, m, glyphs, te, out);
     }

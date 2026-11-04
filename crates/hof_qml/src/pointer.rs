@@ -28,6 +28,8 @@ pub struct PointerState {
     clicks: u8,
     /// What the wheel has moved short of a whole line.
     wheel_rest: f64,
+    /// The cell under the pointer, while it is over the terminal.
+    pub hover_at: Option<(u16, u16)>,
 }
 
 /// The cell under `p`, clamped to the grid, and `p` in device pixels from
@@ -91,6 +93,15 @@ fn press(engine: &Engine, me: ObjectId, ev: &PointerEvent, p: kurbo::Point) -> b
         item::force_active_focus(engine, me, FocusReason::Mouse);
     }
     let (cell, (x, y)) = locate(engine, me, p);
+    // Ctrl+click opens a link, even in a program that reads the mouse:
+    // it gets Ctrl+clicks elsewhere.
+    if b == MouseButton::Left && ev.modifiers.contains(Modifiers::CONTROL) {
+        let link = with_session(engine, me, |s| s.link_at(cell.0, cell.1)).flatten();
+        if let Some(link) = link {
+            crate::terminal::open_link(engine, me, &link.url);
+            return true;
+        }
+    }
     if reports(engine, me, ev.modifiers) {
         let input = MouseInput {
             action: MouseAction::Press,
@@ -211,10 +222,16 @@ fn cancel(engine: &Engine, me: ObjectId) {
 /// A move with no button held: reported to a program that asked for every
 /// motion (mode 1003); the encoder drops it for one that didn't.
 pub fn hover_move(engine: &Engine, me: ObjectId, p: kurbo::Point) {
+    let (cell, (x, y)) = locate(engine, me, p);
+    if let Some(shared) = shared_of(engine, me) {
+        let moved = shared.pointer.borrow_mut().hover_at.replace(cell) != Some(cell);
+        if moved {
+            crate::terminal::show_link(engine, me);
+        }
+    }
     if !reports(engine, me, Modifiers::empty()) {
         return;
     }
-    let (_, (x, y)) = locate(engine, me, p);
     report(
         engine,
         me,
@@ -233,7 +250,12 @@ pub const POINTER: PointerItem = PointerItem {
     moved,
     release,
     cancel,
-    hover: |_, _, _| {},
+    hover: |engine, me, inside| {
+        if !inside && let Some(shared) = shared_of(engine, me) {
+            shared.pointer.borrow_mut().hover_at = None;
+            crate::terminal::show_link(engine, me);
+        }
+    },
 };
 
 /// The wheel scrolls the view by lines, or goes to a program that tracks

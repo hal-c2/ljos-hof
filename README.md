@@ -45,6 +45,9 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   `clipboard-read` says. `hof copy`, `hof paste` and `hof open URL|FILE` do
   the same from the shell. They speak to the pane's terminal, so they work
   in remote panes too.
+- **Links.** A program's own links (OSC 8) and URLs in the text are
+  underlined under the pointer, which names them in the pane's corner.
+  Ctrl+click opens one. A URL that wraps onto the next row opens whole.
 - **MCP.** `hof mcp` is a stdio MCP server for the running Hof. Agents can
   read panes and agents' states, and say or wait for those states, always;
   typing into panes and opening or closing them are separate opt-ins in
@@ -152,7 +155,8 @@ Hof's own connection.
 
 ## Not yet
 
-- Links: OSC 8 hyperlinks, and detecting URLs in plain text.
+- Opening a remote machine's `file:` links, which waits for its files to
+  be reached from here.
 
 ## Licence
 

@@ -667,6 +667,18 @@
               "notify": "searchCurrentChanged"
             },
             {
+              "name": "hoveredLink",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "hoveredLinkChanged"
+            },
+            {
               "name": "agent",
               "type": "string",
               "kind": "value",
