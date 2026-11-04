@@ -25,7 +25,9 @@ use std::path::PathBuf;
 
 pub use bridge::{bridge, bridge_stdio};
 pub use client::{Answer, call};
-pub use host::{CommandResult, Direction, Host, HostError, HostResult, PaneId, PaneInfo};
+pub use host::{
+    AgentState, AgentWait, CommandResult, Direction, Host, HostError, HostResult, PaneId, PaneInfo,
+};
 pub use protocol::{PROTOCOL_VERSION, handle};
 pub use server::{Server, serve_unix};
 pub use tools::Policy;

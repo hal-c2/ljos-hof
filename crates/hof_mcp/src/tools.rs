@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
-use crate::host::{Direction, Host, HostError, PaneId};
+use crate::host::{AgentState, Direction, Host, HostError, PaneId};
 
 /// What agents may do beyond looking.
 ///
@@ -49,10 +49,12 @@ pub(crate) enum Tool {
     ClosePane,
     FocusPane,
     RunCommand,
+    SetAgentState,
+    WaitForAgent,
 }
 
 impl Tool {
-    const ALL: [Tool; 9] = [
+    const ALL: [Tool; 11] = [
         Tool::ListPanes,
         Tool::ReadScreen,
         Tool::ReadScrollback,
@@ -62,6 +64,8 @@ impl Tool {
         Tool::SplitPane,
         Tool::FocusPane,
         Tool::ClosePane,
+        Tool::SetAgentState,
+        Tool::WaitForAgent,
     ];
 
     fn name(self) -> &'static str {
@@ -75,6 +79,8 @@ impl Tool {
             Tool::ClosePane => "close_pane",
             Tool::FocusPane => "focus_pane",
             Tool::RunCommand => "run_command",
+            Tool::SetAgentState => "set_agent_state",
+            Tool::WaitForAgent => "wait_for_agent",
         }
     }
 
@@ -84,7 +90,14 @@ impl Tool {
 
     fn allowed(self, policy: Policy) -> bool {
         match self {
-            Tool::ListPanes | Tool::ReadScreen | Tool::ReadScrollback | Tool::FocusPane => true,
+            // Saying how an agent is changes what Hof shows, never what
+            // runs; waiting is looking.
+            Tool::ListPanes
+            | Tool::ReadScreen
+            | Tool::ReadScrollback
+            | Tool::FocusPane
+            | Tool::SetAgentState
+            | Tool::WaitForAgent => true,
             Tool::SendInput | Tool::RunCommand | Tool::ClosePane => policy.allow_input,
             Tool::NewTab | Tool::SplitPane => policy.allow_spawn,
         }
@@ -107,8 +120,9 @@ impl Tool {
             Tool::ListPanes => (
                 "List panes",
                 "List every pane open in Hof: its id, tab, title, working directory, whether it \
-                 has focus, whether a command is running in it, and its size in cells. Every \
-                 other tool takes a pane id from here.",
+                 has focus, whether a command is running in it, its size in cells, and the AI \
+                 agent running in it, if any, with its state: working, waiting (for the user), \
+                 idle or none. Every other tool takes a pane id from here.",
                 json!({}),
                 &[][..],
                 true,
@@ -169,13 +183,7 @@ impl Tool {
                 json!({
                     "pane": pane_property(),
                     "command": { "type": "string", "description": "The command line, without a newline." },
-                    "timeout_seconds": {
-                        "type": "number",
-                        "exclusiveMinimum": 0,
-                        "maximum": MAX_TIMEOUT_SECONDS,
-                        "default": DEFAULT_TIMEOUT_SECONDS,
-                        "description": "How long to wait for the command to finish."
-                    }
+                    "timeout_seconds": timeout_property("How long to wait for the command to finish.")
                 }),
                 &["pane", "command"][..],
                 false,
@@ -231,6 +239,46 @@ impl Tool {
                 false,
                 true,
             ),
+            Tool::SetAgentState => (
+                "Set agent state",
+                "Tell Hof how the AI agent in a pane is, when Hof cannot tell by itself: \
+                 working, waiting for the user, idle, or none to say there is no agent. Hof \
+                 shows it on the pane and its tab, and tells the user when an agent they \
+                 cannot see starts waiting. It holds while the program now in the pane's \
+                 foreground runs.",
+                json!({
+                    "pane": pane_property(),
+                    "state": agent_state_property(),
+                    "agent": {
+                        "type": "string",
+                        "description": "The agent's name, when Hof does not know it."
+                    }
+                }),
+                &["pane", "state"][..],
+                false,
+                false,
+            ),
+            Tool::WaitForAgent => (
+                "Wait for agent",
+                "Wait until the AI agent in a pane is in one of the given states (by default \
+                 waiting or idle: it needs the user, or is done), and return the state it \
+                 reached. Returns at once when it is in one already. For an agent you started \
+                 in a pane with new_tab or split_pane, then read_screen to see what it says.",
+                json!({
+                    "pane": pane_property(),
+                    "states": {
+                        "type": "array",
+                        "items": agent_state_property(),
+                        "minItems": 1,
+                        "default": ["waiting", "idle"],
+                        "description": "The states to wait for."
+                    },
+                    "timeout_seconds": timeout_property("How long to wait.")
+                }),
+                &["pane"][..],
+                true,
+                false,
+            ),
         };
         json!({
             "name": self.name(),
@@ -257,6 +305,23 @@ fn pane_property() -> Value {
         "type": "integer",
         "minimum": 0,
         "description": "The pane's id, from list_panes."
+    })
+}
+
+fn agent_state_property() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["working", "waiting", "idle", "none"]
+    })
+}
+
+fn timeout_property(description: &str) -> Value {
+    json!({
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": MAX_TIMEOUT_SECONDS,
+        "default": DEFAULT_TIMEOUT_SECONDS,
+        "description": description
     })
 }
 
@@ -339,6 +404,20 @@ struct SendInputArgs {
 struct RunCommandArgs {
     pane: PaneId,
     command: String,
+    timeout_seconds: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct SetAgentStateArgs {
+    pane: PaneId,
+    state: AgentState,
+    agent: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WaitForAgentArgs {
+    pane: PaneId,
+    states: Option<Vec<AgentState>>,
     timeout_seconds: Option<f64>,
 }
 
@@ -460,6 +539,33 @@ fn run(host: &dyn Host, tool: Tool, arguments: Value) -> Result<Outcome, Outcome
             let PaneArgs { pane } = parse(tool, arguments)?;
             host.close_pane(pane)?;
             Outcome::ok(format!("closed pane {pane}"))
+        }
+        Tool::SetAgentState => {
+            let SetAgentStateArgs { pane, state, agent } = parse(tool, arguments)?;
+            let agent = agent.filter(|a| !a.trim().is_empty());
+            host.set_agent_state(pane, state, agent)?;
+            Outcome::ok(format!("the agent in pane {pane} is {}", state.name()))
+        }
+        Tool::WaitForAgent => {
+            let WaitForAgentArgs {
+                pane,
+                states,
+                timeout_seconds,
+            } = parse(tool, arguments)?;
+            let timeout = timeout(timeout_seconds)?;
+            let states = states.unwrap_or_else(|| vec![AgentState::Waiting, AgentState::Idle]);
+            if states.is_empty() {
+                return Err(Outcome::error("states must name at least one state"));
+            }
+            let wait = host.wait_for_agent(pane, states, timeout)?;
+            Outcome::ok(
+                json!({
+                    "agent": wait.agent,
+                    "state": wait.state,
+                    "timed_out": wait.timed_out,
+                })
+                .to_string(),
+            )
         }
     };
     Ok(outcome)

@@ -32,6 +32,55 @@ pub struct PaneInfo {
     pub running: bool,
     pub columns: u16,
     pub rows: u16,
+    /// The AI agent running in the pane, if Hof tells one: by its
+    /// `[agents]` table, or the name it gave.
+    pub agent: Option<String>,
+    pub agent_state: AgentState,
+}
+
+/// How a pane's agent is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentState {
+    /// There is no agent.
+    #[default]
+    None,
+    Working,
+    /// It wants an answer from the user.
+    Waiting,
+    /// It is done, and asks nothing.
+    Idle,
+}
+
+impl AgentState {
+    pub fn name(self) -> &'static str {
+        match self {
+            AgentState::None => "none",
+            AgentState::Working => "working",
+            AgentState::Waiting => "waiting",
+            AgentState::Idle => "idle",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        [
+            AgentState::None,
+            AgentState::Working,
+            AgentState::Waiting,
+            AgentState::Idle,
+        ]
+        .into_iter()
+        .find(|s| s.name() == name)
+    }
+}
+
+/// How a wait from [`Host::wait_for_agent`] ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentWait {
+    pub agent: Option<String>,
+    /// The state it reached, or the one it was in when time ran out.
+    pub state: AgentState,
+    pub timed_out: bool,
 }
 
 /// Where a split puts the new pane, next to the old one.
@@ -136,4 +185,23 @@ pub trait Host: Send + Sync {
         command: String,
         timeout: Duration,
     ) -> HostResult<CommandResult>;
+
+    /// Say how the pane's agent is, as the agent would by itself: it holds
+    /// while the program in the pane's foreground now is. `agent` names it
+    /// when the pane could not tell; `None` keeps the pane's own name.
+    fn set_agent_state(
+        &self,
+        pane: PaneId,
+        state: AgentState,
+        agent: Option<String>,
+    ) -> HostResult<()>;
+
+    /// Wait until the pane's agent is in one of `states`, or `timeout`
+    /// passes. Returns at once when it is in one already.
+    fn wait_for_agent(
+        &self,
+        pane: PaneId,
+        states: Vec<AgentState>,
+        timeout: Duration,
+    ) -> HostResult<AgentWait>;
 }

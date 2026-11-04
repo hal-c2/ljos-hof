@@ -142,7 +142,9 @@ fn every_tool_is_listed_with_an_object_input_schema_when_everything_is_allowed()
             "read_scrollback",
             "run_command",
             "send_input",
-            "split_pane"
+            "set_agent_state",
+            "split_pane",
+            "wait_for_agent"
         ]
     );
     for tool in tools {
@@ -167,7 +169,14 @@ fn a_read_only_policy_lists_only_the_tools_that_look() {
     names.sort();
     assert_eq!(
         names,
-        ["focus_pane", "list_panes", "read_screen", "read_scrollback"]
+        [
+            "focus_pane",
+            "list_panes",
+            "read_screen",
+            "read_scrollback",
+            "set_agent_state",
+            "wait_for_agent"
+        ]
     );
 }
 
@@ -224,6 +233,65 @@ fn list_panes_returns_the_panes_as_json() {
     assert_eq!(panes[0]["working_directory"], "/home/user");
     assert_eq!(panes[1]["running"], true);
     assert_eq!(panes[1]["columns"], 80);
+    assert_eq!(panes[0]["agent"], Value::Null);
+    assert_eq!(panes[0]["agent_state"], "none");
+}
+
+#[test]
+fn an_agent_says_how_it_is_with_or_without_its_name() {
+    let host = FakeHost::new();
+    let (text, is_error) = call(
+        &host,
+        "set_agent_state",
+        json!({ "pane": 1, "state": "waiting", "agent": "claude" }),
+    );
+    assert!(!is_error, "{text}");
+    assert_eq!(text, "the agent in pane 1 is waiting");
+    let (_, is_error) = call(
+        &host,
+        "set_agent_state",
+        json!({ "pane": 2, "state": "none", "agent": " " }),
+    );
+    assert!(!is_error);
+    assert_eq!(
+        host.calls(),
+        [
+            "set_agent_state 1 Waiting Some(\"claude\")",
+            "set_agent_state 2 None None"
+        ]
+    );
+    let (text, is_error) = call(
+        &host,
+        "set_agent_state",
+        json!({ "pane": 1, "state": "busy" }),
+    );
+    assert!(is_error && text.contains("bad arguments"), "{text}");
+}
+
+#[test]
+fn waiting_for_an_agent_is_for_it_to_need_the_user_or_be_done_unless_told() {
+    let host = FakeHost::new();
+    let (text, is_error) = call(&host, "wait_for_agent", json!({ "pane": 1 }));
+    assert!(!is_error, "{text}");
+    let wait: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        wait,
+        json!({ "agent": "claude", "state": "waiting", "timed_out": false })
+    );
+    call(
+        &host,
+        "wait_for_agent",
+        json!({ "pane": 1, "states": ["working"], "timeout_seconds": 2 }),
+    );
+    assert_eq!(
+        host.calls(),
+        [
+            "wait_for_agent 1 [Waiting, Idle] 30s",
+            "wait_for_agent 1 [Working] 2s"
+        ]
+    );
+    let (text, is_error) = call(&host, "wait_for_agent", json!({ "pane": 1, "states": [] }));
+    assert!(is_error && text.contains("at least one"), "{text}");
 }
 
 #[test]

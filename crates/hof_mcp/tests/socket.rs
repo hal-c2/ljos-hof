@@ -70,7 +70,7 @@ fn an_agent_can_initialize_list_tools_and_call_one_over_the_socket() {
     client.send(json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }));
     let tools = client.receive();
     assert_eq!(tools["id"], 2, "the notification got no reply");
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 9);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 11);
 
     client.send(json!({
         "jsonrpc": "2.0", "id": 3, "method": "tools/call",

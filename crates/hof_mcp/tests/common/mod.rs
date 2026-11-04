@@ -5,7 +5,9 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use hof_mcp::{CommandResult, Direction, Host, HostError, HostResult, PaneId, PaneInfo};
+use hof_mcp::{
+    AgentState, AgentWait, CommandResult, Direction, Host, HostError, HostResult, PaneId, PaneInfo,
+};
 
 pub struct FakeHost {
     pub panes: Vec<PaneInfo>,
@@ -59,6 +61,8 @@ pub fn pane(id: u64, tab: u64, title: &str, focused: bool) -> PaneInfo {
         running: false,
         columns: 80,
         rows: 24,
+        agent: None,
+        agent_state: AgentState::None,
     }
 }
 
@@ -132,6 +136,32 @@ impl Host for FakeHost {
         self.known(pane)?;
         self.record(format!("run_command {pane} {command:?} {timeout:?}"));
         Ok(self.command_result.clone())
+    }
+
+    fn set_agent_state(
+        &self,
+        pane: PaneId,
+        state: AgentState,
+        agent: Option<String>,
+    ) -> HostResult<()> {
+        self.known(pane)?;
+        self.record(format!("set_agent_state {pane} {state:?} {agent:?}"));
+        Ok(())
+    }
+
+    fn wait_for_agent(
+        &self,
+        pane: PaneId,
+        states: Vec<AgentState>,
+        timeout: Duration,
+    ) -> HostResult<AgentWait> {
+        self.known(pane)?;
+        self.record(format!("wait_for_agent {pane} {states:?} {timeout:?}"));
+        Ok(AgentWait {
+            agent: Some("claude".into()),
+            state: states[0],
+            timed_out: false,
+        })
     }
 }
 
