@@ -75,9 +75,15 @@ pub enum Action {
     ToggleFullscreen,
     /// Go to the next pane whose agent is waiting for you, in any tab.
     NextWaiting,
+    /// Pick a machine, this one or one of `[hosts]`, and open a tab there.
+    NewTabOnHost,
+    /// Pick a machine and split the pane to the right with a pane there.
+    SplitRightOnHost,
+    /// Pick a machine and split the pane downward with a pane there.
+    SplitDownOnHost,
 }
 
-const ACTION_NAMES: [(Action, &str); 34] = [
+const ACTION_NAMES: [(Action, &str); 37] = [
     (Action::NewTab, "new-tab"),
     (Action::CloseTab, "close-tab"),
     (Action::NextTab, "next-tab"),
@@ -112,6 +118,9 @@ const ACTION_NAMES: [(Action, &str); 34] = [
     (Action::ToggleDropdown, "toggle-dropdown"),
     (Action::ToggleFullscreen, "toggle-fullscreen"),
     (Action::NextWaiting, "next-waiting"),
+    (Action::NewTabOnHost, "new-tab-on-host"),
+    (Action::SplitRightOnHost, "split-right-on-host"),
+    (Action::SplitDownOnHost, "split-down-on-host"),
 ];
 
 impl Action {
@@ -357,6 +366,7 @@ const DEFAULTS: &[(Action, &[&str])] = &[
     (Action::ReloadConfig, &["ctrl+shift+r"]),
     (Action::ToggleFullscreen, &["f11"]),
     (Action::NextWaiting, &["ctrl+shift+a"]),
+    (Action::NewTabOnHost, &["ctrl+shift+h"]),
 ];
 
 /// The `[keys]` section: the user's changes to the default bindings.

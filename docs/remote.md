@@ -229,7 +229,10 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
   - Session restore saves the host, and on restore remote panes reattach to
     their agent. Their programs never stopped, unlike local ones.
 - **Doing it:**
-  - New tab on a host, and split on a host, both from the keyboard.
+  - New tab on a host, and split on a host, both from the keyboard:
+    `new-tab-on-host` (Ctrl+Shift+H), `split-right-on-host` and
+    `split-down-on-host` show a list of this machine and the `[hosts]`,
+    which typing narrows.
   - A split inherits its pane's host by default.
   - `hof ctl tab --host dev`, and `split --host`.
 - **Seeing it:**
@@ -292,10 +295,10 @@ The idea comes from herdr. What follows is Hof's own design.
    - the connection in Hof, with reconnect and backoff;
    - a remote pane as a `Terminal` with a `host`;
    - the reconnecting banner and host badges;
-   - `hof ctl tab --host` and `split --host`, and the same in MCP.
+   - `hof ctl tab --host` and `split --host`, and the same in MCP;
+   - the host picker, for a tab or a split.
 
-   Still to do: bootstrapping, and a key that opens a tab on a chosen
-   host.
+   Still to do: bootstrapping.
 5. **Agent awareness.** Done locally: the foreground process, the
    tables, the escape sequence, the frame, badge and tab dot, the hook,
    notifications, `next-waiting`, `hof ctl agent-state` and `wait-agent`,

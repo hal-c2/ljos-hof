@@ -424,3 +424,55 @@ fn hof_copy_and_paste_in_a_pane_go_through_its_terminal() {
     hof.window.key(&KeyEvent::press(KEY_RETURN));
     hof.until("the paste", |h| h.screen(t).contains("got:ljós"));
 }
+
+impl Hof {
+    fn picking_host(&self) -> bool {
+        self.engine
+            .read_by_name(self.root, "pickingHost")
+            .to_boolean()
+    }
+
+    fn host_choices(&self) -> usize {
+        self.number(self.root, "hostChoices") as usize
+    }
+}
+
+#[test]
+fn picking_this_machine_opens_a_tab_here() {
+    let mut hof = opened();
+    hof.run("new-tab-on-host");
+    assert!(hof.picking_host(), "the picker shows");
+    assert_eq!(hof.host_choices(), 1, "no [hosts], so only this machine");
+
+    hof.window.key(&KeyEvent::press(KEY_RETURN));
+    hof.window.settle().unwrap();
+    assert!(!hof.picking_host());
+    assert_eq!(hof.number(hof.layout(), "tabCount"), 2.0);
+    let t = hof.current().unwrap();
+    assert!(
+        hof.engine.read_by_name(t, "activeFocus").to_boolean(),
+        "the new pane has the keys"
+    );
+}
+
+#[test]
+fn a_name_no_host_has_leaves_nothing_to_pick() {
+    let mut hof = opened();
+    hof.run("split-right-on-host");
+    hof.type_text("zqx");
+    assert_eq!(hof.host_choices(), 0);
+    hof.window.key(&KeyEvent::press(KEY_RETURN));
+    hof.window.settle().unwrap();
+    assert!(hof.picking_host(), "still open: there was nothing to pick");
+    assert_eq!(hof.panes(), 1);
+
+    hof.window.key(&KeyEvent::press(KEY_ESCAPE));
+    hof.window.settle().unwrap();
+    assert!(!hof.picking_host());
+    assert_eq!(hof.panes(), 1, "escape opens nothing");
+    let t = hof.current().unwrap();
+    assert!(
+        hof.engine.read_by_name(t, "activeFocus").to_boolean(),
+        "the keys go back to the pane"
+    );
+}

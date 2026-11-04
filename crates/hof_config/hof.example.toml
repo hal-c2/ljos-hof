@@ -97,6 +97,9 @@ animation-ms = 150            # length of the slide in milliseconds; 0 for none
 # toggle-dropdown = "none"
 # toggle-fullscreen = "f11"
 # next-waiting = "ctrl+shift+a"
+# new-tab-on-host = "ctrl+shift+h"
+# split-right-on-host = "none"
+# split-down-on-host = "none"
 
 [session]
 restore = false               # reopen the last session's windows, tabs and panes

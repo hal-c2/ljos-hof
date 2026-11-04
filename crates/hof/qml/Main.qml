@@ -54,6 +54,8 @@ Window {
         const item = window.paneItems[workspace.focusedPane];
         return item !== undefined && item.asking;
     }
+    readonly property bool pickingHost: hostPicker.visible
+    readonly property int hostChoices: hostPicker.shown.length
     readonly property bool searchShown: {
         void window.terminalsRevision;
         const item = window.paneItems[workspace.focusedPane];
@@ -516,6 +518,15 @@ Window {
         case "next-waiting":
             window.focusNextWaiting();
             break;
+        case "new-tab-on-host":
+            hostPicker.open("tab");
+            break;
+        case "split-right-on-host":
+            hostPicker.open("right");
+            break;
+        case "split-down-on-host":
+            hostPicker.open("down");
+            break;
         case "reload-config":
             Settings.reload();
             break;
@@ -712,6 +723,30 @@ Window {
                     onActivated: window.run(Settings.bindingActions[binding.index])
                 }
             }
+        }
+
+        // Where a new tab or split runs, for the `...-on-host` keys.
+        HostPicker {
+            id: hostPicker
+
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: Math.round(parent.height / 5)
+            z: 5
+            hosts: Settings.hosts
+            background: window.background
+            foreground: window.foreground
+            border: Qt.rgba(window.foreground.r, window.foreground.g, window.foreground.b, 0.25)
+            fontFamily: Settings.fontFamily
+            fontSize: window.fontSize
+
+            onPicked: (host, purpose) => {
+                if (purpose === "tab")
+                    window.newTab(undefined, undefined, undefined, host);
+                else
+                    window.split(purpose, undefined, undefined, host);
+            }
+            onClosed: if (window.current !== null)
+                window.current.forceActiveFocus()
         }
 
         // What was wrong with the config file, until dismissed.

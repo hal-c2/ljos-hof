@@ -128,8 +128,8 @@ Remote panes work now. Name a machine under `[hosts]`:
 ssh = "dev.example.com"
 ```
 
-Then `hof ctl tab --host dev` opens a tab there, and a split of that tab
-stays on `dev`. The machine needs `hof` on its `PATH`; Hof doesn't copy
+Then Ctrl+Shift+H, or `hof ctl tab --host dev`, opens a tab there, and a
+split of that tab stays on `dev`. The machine needs `hof` on its `PATH`; Hof doesn't copy
 itself over yet. When the connection drops, the pane says it is
 reconnecting and picks up where it was. When Hof quits with
 `session.restore` on, the remote programs keep running and are attached
