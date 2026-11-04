@@ -78,6 +78,17 @@ Rust type that QML can see, regenerate them:
 LJOS_TYPES=write cargo test -p hof --test types
 ```
 
+Remote machines with no Hof get a static, agent-only build. Build it,
+for each musl target rustup has, and try it on a container reached over
+ssh:
+
+```sh
+mise run agents                      # target/release/hof-agent-<arch>-linux
+mise run remote-test alpine:3.22     # Docker; debian:bookworm-slim by default
+```
+
+A release of Hof ships those agents beside `hof`, or in `../lib/hof`.
+
 ## The stress test
 
 `mise run fire` builds a fire animation: 200×60 cells of 24-bit colour,
@@ -129,8 +140,8 @@ ssh = "dev.example.com"
 ```
 
 Then Ctrl+Shift+H, or `hof ctl tab --host dev`, opens a tab there, and a
-split of that tab stays on `dev`. The machine needs `hof` on its `PATH`; Hof doesn't copy
-itself over yet. When the connection drops, the pane says it is
+split of that tab stays on `dev`. A machine with no Hof gets a small,
+static `hof` agent, copied over ssh the first time. When the connection drops, the pane says it is
 reconnecting and picks up where it was. When Hof quits with
 `session.restore` on, the remote programs keep running and are attached
 again at the next start. `hof copy`, `hof paste` and `hof open URL` there

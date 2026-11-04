@@ -50,9 +50,26 @@ Where Hof is going. Two goals:
   mean nothing now; a pane the agent doesn't have is answered with `Gone`.
 - **One connection watches a pane at a time.** Attaching from another
   takes it over, and the first is sent `Detach`.
-- **Bootstrapping:** if the remote machine has no `hof`, or one of another
-  protocol version, Hof copies a static build of itself over the same ssh
-  connection into `~/.local/share/hof/bin/`.
+- **Bootstrapping.** A machine with no Hof gets one, copied over ssh:
+  - The command ssh runs there is one `sh -c '...'`, with no quote or
+    backslash inside, so any login shell runs it. It runs the agent Hof
+    copied for this version and wire, in
+    `${XDG_DATA_HOME:-~/.local/share}/hof/<version>-<wire>/hof`, else the
+    host's own `hof`. With neither, it says
+    `Hof is not on this machine (Linux x86_64)` and exits 127.
+  - The connection after that copies `hof-agent-<arch>-<os>` there,
+    through a second ssh command. The copy is a static, agent-only build
+    of a few MiB: `hof agent`, `copy`, `paste` and `open`, with no GUI
+    libraries. Hof finds it in `$HOF_AGENT_DIR`, beside `hof`, in
+    `../lib/hof`, or in `~/.local/share/hof/agents`.
+  - The copy runs `--version` there before it takes its place, so one
+    that can't run there never does. After three failures Hof stops
+    copying and says why.
+  - The agent puts its own directory last on its panes' `PATH`, so they
+    find `hof copy` and the rest. A login shell's profile may set a
+    `PATH` of its own, so the copy also links `~/.local/bin/hof` to
+    itself, unless something else is there.
+  - `bootstrap = false` on a host turns this off, and `command` does too.
 
 ### The local side of a remote pane
 
@@ -81,10 +98,12 @@ same code a local pane runs.
 ### Reaching a host
 
 A host is reached through any command whose stdin and stdout speak the
-protocol. By default that is `ssh -T <ssh> -- <hof> agent --stdio`, where
-`ssh` is the host's `ssh` key (or its name) and `hof` is the remote
-`hof`'s path. `command` replaces the whole thing, for a container, a
-serial line, or a test:
+protocol. By default that is `ssh -T <ssh-options> <ssh>`, then the
+script that runs the agent there (see bootstrapping, above). `ssh` is the
+host's `ssh` key (or its name), `ssh-options` are more words for ssh,
+and `hof` is the remote `hof`'s path, if it has one. `command` replaces
+the whole thing, for a container, a serial line, or a test, and copies
+nothing:
 
 ```toml
 [hosts.box]
@@ -151,6 +170,8 @@ need a prompt:
 [hosts.dev]
 ssh = "dev.example.com"        # anything `ssh` takes; empty means the name
 hof = "~/.local/bin/hof"       # the remote `hof`, if it is not on the PATH
+ssh-options = ["-p", "2222"]   # more for ssh, before the destination
+bootstrap = true               # with no Hof there, copy Hof's agent over
 x11 = true
 sound = true
 files = true
@@ -296,9 +317,10 @@ The idea comes from herdr. What follows is Hof's own design.
    - a remote pane as a `Terminal` with a `host`;
    - the reconnecting banner and host badges;
    - `hof ctl tab --host` and `split --host`, and the same in MCP;
-   - the host picker, for a tab or a split.
-
-   Still to do: bootstrapping.
+   - the host picker, for a tab or a split;
+   - bootstrapping: copying the agent to a machine with no Hof. Tested
+     in containers of Debian, Ubuntu and Alpine with
+     `mise run remote-test [image]`.
 5. **Agent awareness.** Done locally: the foreground process, the
    tables, the escape sequence, the frame, badge and tab dot, the hook,
    notifications, `next-waiting`, `hof ctl agent-state` and `wait-agent`,
@@ -324,8 +346,14 @@ The idea comes from herdr. What follows is Hof's own design.
   client's theme, and a theme change should be sent on.
 - **Large snapshots.** A snapshot is one frame, and a big scrollback can
   pass the frame limit. It should be sent in pieces, or cut to fit.
-- **The remote binary.** `hof` links the GUI libraries, which a server may
-  not have. Bootstrapping a static, agent-only build answers that.
+- **Agents for other machines.** `mise run agents` builds one for each
+  musl target rustup has, which is x86_64 here. aarch64 needs
+  `rustup target add aarch64-unknown-linux-musl`, and macOS needs a
+  build on a Mac.
+- **Login shells on Alpine** and others whose profile neither keeps the
+  agent's `PATH` nor has `~/.local/bin` on it don't find `hof` by name.
+- **Old copies stay.** A new version copies itself beside the old one,
+  which nothing removes.
 - **Probing for a running agent** connects to it. That connection counts
   as one while it lasts, which is why the agent waits a while before it
   goes, rather than going the moment it is idle.
