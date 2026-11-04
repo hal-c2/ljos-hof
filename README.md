@@ -21,11 +21,19 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   Cmd+D, Cmd+1 to 9, Cmd+C and Cmd+V, and every Ctrl and Option chord is
   the terminal's. Elsewhere Ctrl+Shift: Ctrl+Shift+T, Ctrl+Shift+W, Alt+1
   to 9, Ctrl+Shift+C, so plain Ctrl chords (fzf's Ctrl+T, say) reach the
-  shell. Any of it can be rebound in `[keys]`. On a Mac the menu bar
-  lists the actions with their keys, rebound or not.
+  shell. Any of it can be rebound in `[keys]`.
+- **Menus with the keys beside them.** On a Mac the actions are in the
+  menu bar. Elsewhere they're behind a button at the right of the tab bar,
+  and a right click in a pane opens a menu of its own (unless the program
+  there has the mouse; Shift+right click then). `[window] menu` chooses
+  the bar, the button or neither.
+- **A settings window** (Ctrl+Shift+, or Cmd+,) for the theme, font,
+  opacity, cursor, clipboard, menu and session. Each change is written
+  into the config file at once, keeping your comments, and applies
+  straight away.
 - **One TOML file** where every key is optional. A key Hof doesn't know is
-  a warning, not an error. `reload-config` applies the file without a
-  restart. See [`hof.example.toml`](crates/hof_config/hof.example.toml).
+  a warning, not an error. Saving the file applies it without a restart.
+  See [`hof.example.toml`](crates/hof_config/hof.example.toml).
 - **Commands.** `[commands.<name>]` runs a program in a tab, a split or the
   background, or types text into the focused pane, at a key you choose.
 - **Hooks.** Shell snippets run on pane-opened, pane-closed,
