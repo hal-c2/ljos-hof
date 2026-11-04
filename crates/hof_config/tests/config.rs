@@ -76,6 +76,8 @@ fn the_defaults_are_the_promised_ones() {
     assert_eq!(c.terminal.scrollback, 10_000);
     assert!(c.terminal.cursor_blink && c.terminal.copy_on_select);
     assert!(c.terminal.confirm_unsafe_paste);
+    assert_eq!(c.terminal.clipboard_read, Permission::Ask);
+    assert!(c.terminal.clipboard_write);
     assert_eq!(c.terminal.cursor_shape, CursorShape::Block);
     assert_eq!(c.theme.name, "hof-dark");
     assert_eq!(c.dropdown.height, 0.4);
@@ -152,6 +154,8 @@ fn every_key_is_read_into_its_field() {
         cursor-shape = "underline"
         copy-on-select = false
         confirm-unsafe-paste = false
+        clipboard-read = "allow"
+        clipboard-write = false
         working-directory = "/srv"
         env = { EDITOR = "nvim", PAGER = "less" }
 
@@ -228,6 +232,8 @@ fn every_key_is_read_into_its_field() {
     assert_eq!(c.terminal.cursor_shape, CursorShape::Underline);
     assert!(!c.terminal.copy_on_select);
     assert!(!c.terminal.confirm_unsafe_paste);
+    assert_eq!(c.terminal.clipboard_read, Permission::Allow);
+    assert!(!c.terminal.clipboard_write);
     assert_eq!(
         c.terminal.working_directory.as_deref(),
         Some(Path::new("/srv"))

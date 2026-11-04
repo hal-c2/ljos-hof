@@ -27,6 +27,9 @@ cursor-blink = true           # blink the cursor
 cursor-shape = "block"        # block, bar or underline
 copy-on-select = true         # copy to the clipboard as soon as text is selected
 confirm-unsafe-paste = true   # ask before pasting newlines or control codes
+clipboard-read = "ask"        # programs reading the clipboard (OSC 52):
+                              # "ask", "allow" or "deny"
+clipboard-write = true        # let programs put text on the clipboard
 # working-directory = "~/src" # where new terminals start; unset means Hof's own
                               # working directory
 

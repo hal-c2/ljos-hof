@@ -136,6 +136,11 @@ pub struct Terminal {
     pub copy_on_select: bool,
     /// Ask before pasting text that contains a newline or control codes.
     pub confirm_unsafe_paste: bool,
+    /// Whether programs here may read the clipboard (OSC 52); a program
+    /// on another machine is under its host's `clipboard`.
+    pub clipboard_read: Permission,
+    /// Let programs put text on the clipboard (OSC 52).
+    pub clipboard_write: bool,
     /// Directory new terminals start in, with a leading `~` already
     /// expanded; `None` means Hof's own working directory.
     pub working_directory: Option<PathBuf>,
@@ -153,6 +158,8 @@ impl Default for Terminal {
             cursor_shape: CursorShape::Block,
             copy_on_select: true,
             confirm_unsafe_paste: true,
+            clipboard_read: Permission::Ask,
+            clipboard_write: true,
             working_directory: None,
             env: BTreeMap::new(),
         }
@@ -339,7 +346,7 @@ pub struct Host {
     /// Let Hof show that machine's files here.
     pub files: bool,
     /// Whether programs there may read this machine's clipboard. Writing
-    /// to it is always allowed.
+    /// to it is as `terminal.clipboard-write` says.
     pub clipboard: Permission,
 }
 

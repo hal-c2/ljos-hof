@@ -67,6 +67,8 @@ const CONFIG_KEYS: &[(&str, Node)] = &[
             ("cursor-shape", Value),
             ("copy-on-select", Value),
             ("confirm-unsafe-paste", Value),
+            ("clipboard-read", Value),
+            ("clipboard-write", Value),
             ("working-directory", Value),
             ("env", Open),
         ]),
