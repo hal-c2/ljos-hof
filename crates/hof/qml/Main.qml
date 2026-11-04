@@ -41,7 +41,7 @@ Window {
     property bool menuBarShown: Settings.menu === "bar"
     readonly property bool menuButtonShown: Settings.menu === "button"
     // The actions the menu bar has, each shown with its first chord.
-    readonly property list<string> menuActions: ["new-tab", "new-tab-on-host", "split-right", "split-down", "split-right-on-host", "split-down-on-host", "close-pane", "close-tab", "settings", "edit-config", "reload-config", "quit", "copy", "paste", "select-all", "search", "reset", "font-bigger", "font-smaller", "font-reset", "zoom-pane", "toggle-fullscreen", "previous-prompt", "next-prompt", "scroll-top", "scroll-bottom", "previous-tab", "next-tab", "focus-previous", "focus-next", "focus-left", "focus-right", "focus-up", "focus-down", "grow-left", "grow-right", "grow-up", "grow-down", "next-waiting"]
+    readonly property list<string> menuActions: ["new-tab", "new-tab-on-host", "split-right", "split-down", "split-right-on-host", "split-down-on-host", "close-pane", "close-tab", "settings", "edit-config", "reload-config", "quit", "copy", "paste", "select-all", "search", "reset", "font-bigger", "font-smaller", "font-reset", "zoom-pane", "toggle-fullscreen", "minimize", "maximize", "previous-prompt", "next-prompt", "scroll-top", "scroll-bottom", "previous-tab", "next-tab", "focus-previous", "focus-next", "focus-left", "focus-right", "focus-up", "focus-down", "grow-left", "grow-right", "grow-up", "grow-down", "next-waiting"]
 
     // `[commands]` and `[hooks]`, as `Settings` gives them.
     readonly property var commands: JSON.parse(Settings.commands)
@@ -582,6 +582,15 @@ Window {
             break;
         case "toggle-fullscreen":
             window.visibility = window.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen;
+            break;
+        case "minimize":
+            window.showMinimized();
+            break;
+        case "maximize":
+            if (window.visibility === Window.Maximized)
+                window.showNormal();
+            else
+                window.showMaximized();
             break;
         case "toggle-dropdown":
             if (App.dropdown)

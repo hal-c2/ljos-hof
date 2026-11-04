@@ -73,6 +73,11 @@ pub enum Action {
     ToggleDropdown,
     /// Enter or leave fullscreen.
     ToggleFullscreen,
+    /// Minimize the window to the dock or the taskbar.
+    Minimize,
+    /// Maximize the window, or give it back its size if it is maximized
+    /// (a Mac's Zoom).
+    Maximize,
     /// Go to the next pane whose agent is waiting for you, in any tab.
     NextWaiting,
     /// Pick a machine, this one or one of `[hosts]`, and open a tab there.
@@ -112,7 +117,7 @@ pub enum Action {
     Quit,
 }
 
-const ACTION_NAMES: [(Action, &str); 51] = [
+const ACTION_NAMES: [(Action, &str); 53] = [
     (Action::NewTab, "new-tab"),
     (Action::CloseTab, "close-tab"),
     (Action::NextTab, "next-tab"),
@@ -146,6 +151,8 @@ const ACTION_NAMES: [(Action, &str); 51] = [
     (Action::ReloadConfig, "reload-config"),
     (Action::ToggleDropdown, "toggle-dropdown"),
     (Action::ToggleFullscreen, "toggle-fullscreen"),
+    (Action::Minimize, "minimize"),
+    (Action::Maximize, "maximize"),
     (Action::NextWaiting, "next-waiting"),
     (Action::NewTabOnHost, "new-tab-on-host"),
     (Action::SplitRightOnHost, "split-right-on-host"),
@@ -492,6 +499,7 @@ const MAC_DEFAULTS: &[(Action, &[&str])] = &[
     (Action::EditConfig, &["cmd+shift+,"]),
     (Action::ReloadConfig, &["cmd+shift+r"]),
     (Action::ToggleFullscreen, &["cmd+ctrl+f"]),
+    (Action::Minimize, &["cmd+m"]),
     (Action::NextWaiting, &["cmd+shift+a"]),
     (Action::NewTabOnHost, &["cmd+shift+h"]),
     (Action::Tab1, &["cmd+1"]),
@@ -751,6 +759,7 @@ mod tests {
             ("cmd+,", Action::Settings),
             ("cmd+shift+,", Action::EditConfig),
             ("cmd+q", Action::Quit),
+            ("cmd+m", Action::Minimize),
             ("ctrl+tab", Action::NextTab),
         ] {
             assert_eq!(keys.action_for(&chord(c)), Some(action), "{c}");

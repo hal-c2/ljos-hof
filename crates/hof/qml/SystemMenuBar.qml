@@ -54,6 +54,9 @@ MenuBar {
     }
     Menu {
         title: "Window"
+        MenuAction { name: "minimize"; text: "Minimize"; runner: bar.runner }
+        MenuAction { name: "maximize"; text: Qt.platform.os === "osx" ? "Zoom" : "Maximize"; runner: bar.runner }
+        MenuSeparator {}
         MenuAction { name: "previous-tab"; text: "Previous Tab"; runner: bar.runner }
         MenuAction { name: "next-tab"; text: "Next Tab"; runner: bar.runner }
         MenuSeparator {}
