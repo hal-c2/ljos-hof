@@ -59,7 +59,11 @@ fn ensure_private_dir(path: &Path, uid: u32) -> io::Result<()> {
     match std::fs::symlink_metadata(path) {
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            std::fs::DirBuilder::new().mode(0o700).create(path)?;
+            match std::fs::DirBuilder::new().mode(0o700).create(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
         }
         Err(error) => return Err(error),
     }
@@ -326,6 +330,7 @@ mod tests {
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o700
         );
+        ensure_private_dir(&dir, uid).unwrap();
         std::fs::remove_dir(&dir).unwrap();
         std::os::unix::fs::symlink(temp.path(), &dir).unwrap();
         assert!(ensure_private_dir(&dir, uid).is_err());
