@@ -511,6 +511,34 @@ fn a_prompt_closed_by_another_cannot_take_focus_back() {
     assert!(hof.engine.read_by_name(t, "activeFocus").to_boolean());
 }
 
+#[test]
+fn an_unsafe_paste_is_shown_above_a_clipboard_request() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from("\x1b]52;c;?\x07")])
+        .unwrap();
+    hof.window.settle().unwrap();
+    assert!(!hof.paste_text(t, "one\ntwo\n"));
+    let paste = hof.find("pasteConfirm").unwrap();
+    let clipboard = hof.find("clipboardPermit").unwrap();
+    assert!(hof.engine.read_by_name(paste, "activeFocus").to_boolean());
+    assert!(hof.number(paste, "z") > hof.number(clipboard, "z"));
+
+    hof.window.key(&KeyEvent::press(KEY_RETURN));
+    hof.window.settle().unwrap();
+    assert!(
+        hof.engine
+            .read_by_name(clipboard, "activeFocus")
+            .to_boolean()
+    );
+    hof.window
+        .key(&KeyEvent::press(KEY_RETURN).with_modifiers(Modifiers::CONTROL));
+    hof.window.settle().unwrap();
+    assert!(!hof.asking());
+    assert!(hof.engine.read_by_name(t, "activeFocus").to_boolean());
+}
+
 impl Hof {
     fn picking_host(&self) -> bool {
         self.engine

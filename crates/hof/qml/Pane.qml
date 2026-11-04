@@ -135,12 +135,18 @@ Item {
         onCellHeightChanged: if (terminal.cellHeight > 0)
             root.terminalReady(terminal, root)
         onExited: root.finished()
-        onPasteBlocked: text => confirm.ask(text)
+        onPasteBlocked: text => {
+            clipboardPermit.z = 3;
+            openPermit.z = 3;
+            confirm.ask(text);
+        }
         onClipboardRequested: clipboard => {
+            confirm.z = 3;
             openPermit.z = 3;
             clipboardPermit.ask(root.programName + " wants to read the " + clipboard + ".", "It would see whatever was copied last, here or in any other program.");
         }
         onOpenRequested: url => {
+            confirm.z = 3;
             clipboardPermit.z = 3;
             openPermit.ask(root.programName + " wants to open:", url.length > 300 ? url.slice(0, 300) + "…" : url);
         }
@@ -205,6 +211,7 @@ Item {
 
     PasteConfirm {
         id: confirm
+        objectName: "pasteConfirm"
 
         anchors.centerIn: parent
         z: 3
