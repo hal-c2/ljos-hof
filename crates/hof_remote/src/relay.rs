@@ -32,6 +32,8 @@ pub const WINDOW: usize = 1 << 20;
 
 /// The most one message carries.
 const PIECE: usize = 64 * 1024;
+/// A peer may not make this process open channels without end.
+const MAX_CHANNELS: usize = 64;
 
 /// A connected socket, of whatever kind.
 pub trait Socket: Read + Write + Send + 'static {
@@ -88,8 +90,9 @@ struct Channel {
     /// Once it is connected.
     socket: Mutex<Option<Box<dyn Socket>>>,
     /// To the thread that writes to the socket; taken when the other end
-    /// hangs up, so the writer ends once it has written what came.
-    to_write: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
+    /// hangs up, so the writer ends once it has written what came. Two
+    /// windows leave room for an honest window and writer scheduling.
+    to_write: Mutex<Option<mpsc::SyncSender<Vec<u8>>>>,
     /// Read and sent, and not acknowledged yet.
     unacked: Mutex<usize>,
     room: Condvar,
@@ -100,6 +103,7 @@ impl Channel {
     fn close(&self) {
         // Before the socket is looked at: one connected after this sees it.
         self.closed.store(true, Ordering::Release);
+        lock(&self.to_write).take();
         if let Some(socket) = lock(&self.socket).as_ref() {
             socket.close();
         }
@@ -157,7 +161,7 @@ impl Relays {
     where
         F: FnOnce() -> io::Result<(Box<dyn Socket>, Vec<u8>)> + Send + 'static,
     {
-        let (to_write, written) = mpsc::channel();
+        let (to_write, written) = mpsc::sync_channel(2 * WINDOW / PIECE);
         let ch = Arc::new(Channel {
             socket: Mutex::new(None),
             to_write: Mutex::new(Some(to_write)),
@@ -165,15 +169,27 @@ impl Relays {
             room: Condvar::new(),
             closed: AtomicBool::new(false),
         });
-        if let Some(old) = lock(&self.0.channels).insert(channel, ch.clone()) {
-            old.close();
+        {
+            let mut channels = lock(&self.0.channels);
+            if channels.contains_key(&channel) {
+                drop(channels);
+                self.end(channel);
+                return;
+            }
+            if channels.len() >= MAX_CHANNELS {
+                drop(channels);
+                self.send(Message::Hangup { channel });
+                return;
+            }
+            channels.insert(channel, ch.clone());
         }
         let relays = self.clone();
+        let running = ch.clone();
         let started = thread::Builder::new()
             .name("hof-relay-write".into())
-            .spawn(move || relays.run(channel, &ch, connect, &written));
+            .spawn(move || relays.run(channel, &running, connect, &written));
         if started.is_err() {
-            self.end(channel);
+            self.end_if(channel, &ch);
         }
     }
 
@@ -189,12 +205,12 @@ impl Relays {
         F: FnOnce() -> io::Result<(Box<dyn Socket>, Vec<u8>)>,
     {
         let Ok((socket, first)) = connect() else {
-            self.end(id);
+            self.end_if(id, channel);
             return;
         };
         let (Ok(reader), Ok(mut writer)) = (socket.another(), socket.another()) else {
             socket.close();
-            self.end(id);
+            self.end_if(id, channel);
             return;
         };
         *lock(&channel.socket) = Some(socket);
@@ -209,7 +225,7 @@ impl Relays {
             .name("hof-relay-read".into())
             .spawn(move || relays.read(id, &ch, reader));
         if reading.is_err() {
-            self.end(id);
+            self.end_if(id, channel);
             return;
         }
         let mut failed = !first.is_empty() && writer.write_all(&first).is_err();
@@ -228,7 +244,7 @@ impl Relays {
             });
         }
         if failed {
-            self.end(id);
+            self.end_if(id, channel);
         }
         // Hung up at the other end, and all of it written: or failed.
         channel.close();
@@ -237,7 +253,7 @@ impl Relays {
         }
     }
 
-    fn read(&self, id: ChannelId, channel: &Channel, mut reader: Box<dyn Socket>) {
+    fn read(&self, id: ChannelId, channel: &Arc<Channel>, mut reader: Box<dyn Socket>) {
         let mut buf = vec![0; PIECE];
         loop {
             let room = {
@@ -268,16 +284,35 @@ impl Relays {
                 break;
             }
         }
-        self.end(id);
+        self.end_if(id, channel);
     }
 
     /// The channel ended here: the other end is told, if it is still open.
     fn end(&self, id: ChannelId) {
-        let Some(channel) = lock(&self.0.channels).remove(&id) else {
-            return;
+        let channel = lock(&self.0.channels).remove(&id);
+        self.finish(id, channel);
+    }
+
+    /// Ends only the channel this thread was serving. A stale thread must
+    /// not hang up a newer channel that reused its number.
+    fn end_if(&self, id: ChannelId, expected: &Arc<Channel>) {
+        let channel = {
+            let mut channels = lock(&self.0.channels);
+            if channels
+                .get(&id)
+                .is_some_and(|channel| Arc::ptr_eq(channel, expected))
+            {
+                channels.remove(&id)
+            } else {
+                None
+            }
         };
+        self.finish(id, channel);
+    }
+
+    fn finish(&self, id: ChannelId, channel: Option<Arc<Channel>>) {
+        let Some(channel) = channel else { return };
         self.send(Message::Hangup { channel: id });
-        lock(&channel.to_write).take();
         channel.close();
     }
 
@@ -286,8 +321,12 @@ impl Relays {
         let channel = lock(&self.0.channels).get(&id).cloned();
         match channel {
             Some(channel) => {
-                if let Some(to_write) = lock(&channel.to_write).as_ref() {
-                    let _ = to_write.send(bytes);
+                let accepted = bytes.len() <= PIECE
+                    && lock(&channel.to_write)
+                        .as_ref()
+                        .is_some_and(|to_write| to_write.try_send(bytes).is_ok());
+                if !accepted {
+                    self.end_if(id, &channel);
                 }
             }
             // Ended here, and the hangup is on its way; or never was.
@@ -447,6 +486,52 @@ mod tests {
         assert_eq!(here.read_to_end(&mut rest).unwrap(), 0);
         assert_eq!(there.read_to_end(&mut rest).unwrap(), 0);
         assert!(a.is_empty() && b.is_empty());
+    }
+
+    #[test]
+    fn an_oversized_data_frame_ends_the_channel() {
+        let (a, b) = pair();
+        let (_here, _there) = channel(&a, &b, b"");
+        b.data(1, vec![0; PIECE + 1]);
+        wait_until("both ends to refuse it", || a.is_empty() && b.is_empty());
+    }
+
+    #[test]
+    fn a_duplicate_channel_is_closed_instead_of_replaced() {
+        let (a, b) = pair();
+        let (mut here, mut there) = channel(&a, &b, b"");
+        let (_extra, at_b) = UnixStream::pair().unwrap();
+        b.add(1, move || {
+            Ok((Box::new(at_b) as Box<dyn Socket>, Vec::new()))
+        });
+        wait_until("the duplicate to go", || a.is_empty() && b.is_empty());
+        let mut rest = Vec::new();
+        here.read_to_end(&mut rest).unwrap();
+        there.read_to_end(&mut rest).unwrap();
+    }
+
+    #[test]
+    fn channels_beyond_the_limit_are_refused() {
+        let relays = Relays::new(|_| true);
+        let mut kept = Vec::new();
+        for id in 0..MAX_CHANNELS as u32 {
+            let (here, at) = UnixStream::pair().unwrap();
+            kept.push(here);
+            relays.add(id, move || {
+                Ok((Box::new(at) as Box<dyn Socket>, Vec::new()))
+            });
+        }
+        let (mut extra, at) = UnixStream::pair().unwrap();
+        extra
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        relays.add(MAX_CHANNELS as u32, move || {
+            Ok((Box::new(at) as Box<dyn Socket>, Vec::new()))
+        });
+        assert_eq!(relays.len(), MAX_CHANNELS);
+        let mut rest = Vec::new();
+        extra.read_to_end(&mut rest).unwrap();
+        relays.close_all();
     }
 
     #[test]
