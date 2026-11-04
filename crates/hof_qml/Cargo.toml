@@ -1,0 +1,22 @@
+[package]
+name = "hof_qml"
+description = "The QML side of Ljós Hof: a native Terminal item that shows a session, and takes its keys, pointer, wheel and input method"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+hof_remote.workspace = true
+hof_vt.workspace = true
+ljos.workspace = true
+
+# `testing`: ljos's window without a platform.
+[dev-dependencies]
+hof_agent.workspace = true
+ljos = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true
