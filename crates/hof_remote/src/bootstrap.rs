@@ -122,6 +122,9 @@ impl Platform {
     pub fn of_uname(uname: &str) -> Option<Self> {
         let mut words = uname.split_whitespace();
         let (os, arch) = (words.next()?, words.next()?);
+        if words.next().is_some() {
+            return None;
+        }
         let os = match os {
             "Darwin" => "macos".to_owned(),
             other => other.to_lowercase(),
@@ -131,6 +134,18 @@ impl Platform {
             "arm64" | "armv8l" => "aarch64",
             other => other,
         };
+        // These words become a local filename, not just a description of
+        // the remote machine. Never let one become a path.
+        let safe = |word: &str| {
+            !word.is_empty()
+                && word.len() <= 32
+                && word
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        };
+        if !safe(&os) || !safe(arch) {
+            return None;
+        }
         Some(Self {
             os,
             arch: arch.to_owned(),
@@ -380,6 +395,19 @@ mod tests {
         let mac = Platform::of_uname("Darwin arm64").unwrap();
         assert_eq!(mac.agent_name(), "hof-agent-aarch64-macos");
         assert_eq!(Platform::of_uname("Linux"), None);
+    }
+
+    #[test]
+    fn a_platform_answer_cannot_become_a_local_path() {
+        for answer in [
+            "Linux ../../x",
+            "Linux x/../y",
+            "a/b c",
+            "Linux x86_64 extra",
+            "Linux x86-64",
+        ] {
+            assert_eq!(Platform::of_uname(answer), None, "{answer}");
+        }
     }
 
     #[test]
