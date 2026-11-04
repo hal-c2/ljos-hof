@@ -543,6 +543,45 @@ fn an_unsafe_paste_is_shown_above_a_clipboard_request() {
     assert!(hof.engine.read_by_name(t, "activeFocus").to_boolean());
 }
 
+#[test]
+fn the_prompt_drawn_last_wins_a_z_tie() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    assert!(!hof.paste_text(t, "one\ntwo\n"));
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from("\x1b]52;c;?\x07")])
+        .unwrap();
+    hof.window.settle().unwrap();
+    let open_request = String::from_utf8(hof_vt::open_request("https://a.example")).unwrap();
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from(open_request.as_str())])
+        .unwrap();
+    hof.window.settle().unwrap();
+    hof.window
+        .key(&KeyEvent::press(KEY_RETURN).with_modifiers(Modifiers::CONTROL));
+    hof.window.settle().unwrap();
+
+    let clipboard = hof.find("clipboardPermit").unwrap();
+    let paste = hof.find("pasteConfirm").unwrap();
+    assert_eq!(hof.number(clipboard, "z"), hof.number(paste, "z"));
+    hof.run("new-tab");
+    hof.run("previous-tab");
+    assert!(
+        hof.engine
+            .read_by_name(clipboard, "activeFocus")
+            .to_boolean()
+    );
+    hof.window
+        .key(&KeyEvent::press(KEY_RETURN).with_modifiers(Modifiers::CONTROL));
+    hof.window.settle().unwrap();
+    hof.run("new-tab");
+    hof.run("previous-tab");
+    assert!(hof.engine.read_by_name(paste, "activeFocus").to_boolean());
+    hof.window.key(&KeyEvent::press(KEY_RETURN));
+    hof.window.settle().unwrap();
+    assert!(hof.engine.read_by_name(t, "activeFocus").to_boolean());
+}
+
 impl Hof {
     fn picking_host(&self) -> bool {
         self.engine

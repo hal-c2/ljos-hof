@@ -64,12 +64,12 @@ Item {
     function giveFocus() {
         if (!root.focused || !root.shown)
             return;
-        if (confirm.visible && confirm.z >= clipboardPermit.z && confirm.z >= openPermit.z)
-            confirm.forceActiveFocus();
-        else if (clipboardPermit.visible && clipboardPermit.z >= openPermit.z)
-            clipboardPermit.forceActiveFocus();
-        else if (openPermit.visible)
+        if (openPermit.visible && openPermit.z >= clipboardPermit.z && openPermit.z >= confirm.z)
             openPermit.forceActiveFocus();
+        else if (clipboardPermit.visible && clipboardPermit.z >= confirm.z)
+            clipboardPermit.forceActiveFocus();
+        else if (confirm.visible)
+            confirm.forceActiveFocus();
         else
             terminal.forceActiveFocus();
     }
