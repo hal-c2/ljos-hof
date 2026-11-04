@@ -152,7 +152,7 @@ fn clear_stale_socket(path: &Path) -> io::Result<()> {
 }
 
 /// Bind under a temporary name and move the socket into place only once it
-/// is private, so no one else can connect in between.
+/// is private. A connection queued in between still has its peer checked.
 fn bind_private(path: &Path) -> io::Result<UnixListener> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let directory = path.parent().unwrap_or(Path::new("."));

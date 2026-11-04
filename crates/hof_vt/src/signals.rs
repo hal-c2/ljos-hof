@@ -4,8 +4,9 @@
 //! Whatever happens is a bit in a pending set. The waker fires only on the
 //! first bit after the UI last drained the set, so a program writing a
 //! thousand frames between two UI frames costs the UI one wake, and the UI
-//! reads the screen as it is then. Things the UI must not lose, such as
-//! notifications, go into a queue alongside.
+//! reads the screen as it is then. State changes and one-off reports go
+//! into a bounded queue alongside: agent and progress reports coalesce,
+//! and exit or connection news survives a flood.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -29,7 +30,8 @@ bitflags::bitflags! {
     }
 }
 
-/// Things a session reports that the UI must not miss or merge.
+/// State changes and one-off reports the UI takes in order. Only state
+/// reports coalesce; ordinary events may be dropped when the queue is full.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     /// A desktop notification (OSC 9 / OSC 777).
