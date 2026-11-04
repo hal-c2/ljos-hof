@@ -128,6 +128,14 @@ impl Screen for Shown {
         self.0.exited(code);
     }
 
+    fn foreground(&self, process: Option<hof_remote::Process>) {
+        self.0.foreground(process.map(|p| hof_vt::Process {
+            pid: p.pid,
+            name: p.name,
+            args: p.args,
+        }));
+    }
+
     fn state(&self, state: State) {
         self.0.link(match state {
             State::Connecting => Link::Connecting,

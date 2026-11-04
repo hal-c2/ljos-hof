@@ -81,3 +81,27 @@ fn what_an_agent_on_a_host_says_of_itself_is_shown_here() {
     });
     assert_eq!(s.engine.get(s.t, Terminal::AGENT).unwrap(), "codex");
 }
+
+#[test]
+fn an_agent_on_a_host_is_told_by_its_foreground_and_screen_there() {
+    // A name no other test's program has: the tables are the process's.
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("fake-agent");
+    std::fs::write(&script, "printf 'Proceed?\\n'; read x\n").unwrap();
+    hof_qml::agents::set_tables(vec![hof_qml::agents::Table {
+        name: "fake".into(),
+        processes: vec!["fake-agent".into()],
+        waiting: vec!["Proceed?".into()],
+        working: Vec::new(),
+    }]);
+    let (_agent, _) = host("tables");
+    let mut s = shown("tables", &format!("exec sh '{}'", script.display()), -1);
+    // Looks run on the engine's clock, which a test window moves itself.
+    let deadline = Instant::now() + PATIENCE;
+    while s.engine.get(s.t, Terminal::AGENT_STATE).unwrap() != "waiting" {
+        assert!(Instant::now() < deadline, "waiting for it: {:?}", s.text());
+        thread::sleep(Duration::from_millis(5));
+        s.window.advance(100).unwrap();
+    }
+    assert_eq!(s.engine.get(s.t, Terminal::AGENT).unwrap(), "fake");
+}

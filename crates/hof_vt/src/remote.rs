@@ -85,6 +85,21 @@ impl Feed {
         io.signals.kick();
     }
 
+    /// What runs in the foreground on the program's machine, as it says:
+    /// what [`Session::foreground`](crate::Session::foreground) answers.
+    pub fn foreground(&self, process: Option<crate::Process>) {
+        let Some(io) = self.shared.upgrade() else {
+            return;
+        };
+        *io.remote_foreground
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = process;
+        // Not drawn, but who is in the foreground is part of what the
+        // screen means: whoever watches it for agents looks again.
+        io.signals.mark(Changes::SCREEN);
+        io.signals.kick();
+    }
+
     /// How the connection is now.
     pub fn link(&self, link: Link) {
         let Some(io) = self.shared.upgrade() else {

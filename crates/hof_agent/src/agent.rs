@@ -123,6 +123,8 @@ enum Wake {
 struct Sent {
     at: u64,
     told_exit: bool,
+    /// The foreground process last told; `None` until told.
+    told_foreground: Option<Option<wire::Process>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -331,6 +333,7 @@ impl Agent {
             | Message::Panes { .. }
             | Message::Pong { .. }
             | Message::Gone { .. }
+            | Message::Foreground { .. }
             | Message::Unknown { .. } => {}
         }
     }
@@ -468,6 +471,7 @@ fn serve_wake(inner: &Inner, sent: &mut HashMap<PaneId, Sent>, wake: Wake, out: 
             let at = sent.entry(id).insert_entry(Sent {
                 at: have,
                 told_exit: false,
+                told_foreground: None,
             });
             catch_up(id, &p, at.into_mut(), out);
         }
@@ -492,6 +496,18 @@ fn catch_up(id: PaneId, pane: &Pane, sent: &mut Sent, out: &mut Vec<u8>) {
     // output is in, so the end is never sent ahead of any of it.
     lock(&pane.stream).woken = false;
     let exited = *lock(&pane.exited);
+    // Before the output: a program writes once it has the foreground, so
+    // what it says of itself in that output is heard with it in front. The
+    // whole process is compared, not its group: `exec` keeps the number.
+    let process = pane.session.foreground().map(|p| wire::Process {
+        pid: p.pid,
+        name: p.name,
+        args: p.args,
+    });
+    if sent.told_foreground.as_ref() != Some(&process) {
+        sent.told_foreground = Some(process.clone());
+        Message::Foreground { pane: id, process }.encode(out);
+    }
     let resume = lock(&pane.stream).backlog.resume(sent.at);
     match resume {
         Resume::Rest(bytes) => {

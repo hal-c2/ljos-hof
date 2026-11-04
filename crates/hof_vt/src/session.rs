@@ -118,6 +118,8 @@ pub(crate) struct Shared {
     vt: Mutex<Vt>,
     pub(crate) signals: Arc<Signals>,
     pub(crate) alive: AtomicBool,
+    /// A remote session's foreground, as its machine last said.
+    pub(crate) remote_foreground: Mutex<Option<crate::Process>>,
 }
 
 impl Shared {
@@ -312,6 +314,7 @@ impl Session {
             vt: Mutex::new(vt),
             signals,
             alive: AtomicBool::new(true),
+            remote_foreground: Mutex::new(None),
         });
         Ok(shared)
     }
@@ -347,10 +350,19 @@ impl Session {
     }
 
     /// What runs in the foreground now: the shell's command, if it is
-    /// running one, else the shell. `None` for a session with no program
-    /// here, or when the system won't say.
+    /// running one, else the shell. A remote session's is what its machine
+    /// last said. `None` for a session whose program is nowhere Hof can
+    /// see, or when the system won't say.
     pub fn foreground(&self) -> Option<crate::Process> {
-        crate::process::foreground(&*self.child.as_ref()?.master)
+        match &self.child {
+            Some(child) => crate::process::foreground(&*child.master),
+            None => self
+                .shared
+                .remote_foreground
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+        }
     }
 
     // ---- Output -----------------------------------------------------------

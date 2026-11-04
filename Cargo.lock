@@ -1867,6 +1867,7 @@ dependencies = [
  "hof_remote",
  "hof_vt",
  "ljos",
+ "tempfile",
 ]
 
 [[package]]

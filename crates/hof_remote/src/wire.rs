@@ -34,6 +34,16 @@ pub struct PaneInfo {
     pub exited: Option<Option<i32>>,
 }
 
+/// A process on the agent's machine, as `/proc` describes it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Process {
+    pub pid: u32,
+    /// The kernel's name for it.
+    pub name: String,
+    /// Its command line, the program first.
+    pub args: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Message {
     /// The first thing either end sends: its protocol version and what it
@@ -138,6 +148,14 @@ pub enum Message {
     Gone {
         pane: PaneId,
     },
+    /// What runs in the foreground of the pane's pty now, so Hof can tell
+    /// the agents in remote panes as in its own; `None` when the kernel
+    /// won't say. Sent on attach, and when it has changed by the next
+    /// output, ahead of that output.
+    Foreground {
+        pane: PaneId,
+        process: Option<Process>,
+    },
     /// A frame of a kind this end doesn't know, skipped.
     Unknown {
         tag: u8,
@@ -163,6 +181,7 @@ const PANES: u8 = 15;
 const PING: u8 = 16;
 const PONG: u8 = 17;
 const GONE: u8 = 18;
+const FOREGROUND: u8 = 19;
 
 /// A frame that is not what its tag says.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -304,6 +323,15 @@ impl Message {
                 w.u8(GONE);
                 w.u32(*pane);
             }
+            Foreground { pane, process } => {
+                w.u8(FOREGROUND);
+                w.u32(*pane);
+                w.option(process.as_ref(), |w, p| {
+                    w.u32(p.pid);
+                    w.str(&p.name);
+                    w.strs(&p.args);
+                });
+            }
             Unknown { tag } => panic!("a frame of unknown kind {tag} cannot be sent"),
         }
         let len = (out.len() - start - 4) as u32;
@@ -385,6 +413,16 @@ impl Message {
             PING => Message::Ping { nonce: r.u64()? },
             PONG => Message::Pong { nonce: r.u64()? },
             GONE => Message::Gone { pane: r.u32()? },
+            FOREGROUND => Message::Foreground {
+                pane: r.u32()?,
+                process: r.option(|r| {
+                    Ok(Process {
+                        pid: r.u32()?,
+                        name: r.str()?,
+                        args: r.strs()?,
+                    })
+                })?,
+            },
             tag => return Ok(Message::Unknown { tag }),
         };
         match r.0.len() {
@@ -626,6 +664,18 @@ mod tests {
             Message::Ping { nonce: u64::MAX },
             Message::Pong { nonce: 0 },
             Message::Gone { pane: 4 },
+            Message::Foreground {
+                pane: 3,
+                process: Some(Process {
+                    pid: 4242,
+                    name: "claude".into(),
+                    args: vec!["node".into(), "/usr/bin/claude".into()],
+                }),
+            },
+            Message::Foreground {
+                pane: 3,
+                process: None,
+            },
         ]
     }
 

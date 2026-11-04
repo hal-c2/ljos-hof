@@ -45,7 +45,18 @@ impl Client {
         self.stream.write_all(&frame).unwrap();
     }
 
+    /// The next message but what runs in the foreground, which comes
+    /// whenever it changes and is not what these tests are about.
     fn next(&mut self) -> Message {
+        loop {
+            match self.raw() {
+                Message::Foreground { .. } => {}
+                m => return m,
+            }
+        }
+    }
+
+    fn raw(&mut self) -> Message {
         let deadline = Instant::now() + PATIENCE;
         loop {
             if let Some(m) = self.decoder.next_message() {
@@ -298,6 +309,38 @@ fn a_pane_taken_by_another_connection_is_detached_from_the_first() {
             other => panic!("{other:?}"),
         }
     }
+}
+
+#[test]
+fn an_attached_client_is_told_what_runs_in_the_foreground_and_when_it_changes() {
+    let agent = agent();
+    let mut client = Client::to(&agent);
+    let then = "echo after; read y";
+    let pane = client.open(&[
+        "/bin/sh",
+        "-c",
+        &format!("read x; exec /bin/sh -c '{then}'"),
+    ]);
+    client.attach(pane, 0);
+    let told = |client: &mut Client| loop {
+        if let Message::Foreground { pane: p, process } = client.raw()
+            && p == pane
+        {
+            return process.expect("Linux says who it is");
+        }
+    };
+    let first = told(&mut client);
+    assert_eq!(first.name, "sh");
+    client.send(Message::Input {
+        pane,
+        at: 0,
+        bytes: b"\r".to_vec(),
+    });
+    // The agent looks again when there is output: the program it became
+    // is told with what that program writes.
+    let later = told(&mut client);
+    assert_eq!(later.args.last().map(String::as_str), Some(then));
+    assert_eq!(later.pid, first.pid, "exec keeps the number");
 }
 
 #[test]

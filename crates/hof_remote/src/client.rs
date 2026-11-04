@@ -32,6 +32,9 @@ pub trait Screen: Send + Sync + 'static {
     fn exited(&self, code: Option<i32>);
     /// The connection changed.
     fn state(&self, state: State);
+    /// What runs in the foreground of the program's pty, when the agent
+    /// says; an agent too old to say never calls it.
+    fn foreground(&self, _process: Option<crate::wire::Process>) {}
 }
 
 /// How a pane's connection is.
@@ -793,6 +796,11 @@ impl Driver {
                 };
                 slot.screen.replace(&bytes);
                 slot.received = Received::at(at);
+            }
+            Message::Foreground { pane, process } => {
+                if let Some(slot) = self.remote_slot(pane) {
+                    slot.screen.foreground(process);
+                }
             }
             Message::Exited { pane, code } => {
                 if let Some(slot) = self.remote_slot(pane) {

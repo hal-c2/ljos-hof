@@ -16,6 +16,7 @@ ljos.workspace = true
 # `testing`: ljos's window without a platform.
 [dev-dependencies]
 hof_agent.workspace = true
+tempfile.workspace = true
 ljos = { workspace = true, features = ["testing"] }
 
 [lints]

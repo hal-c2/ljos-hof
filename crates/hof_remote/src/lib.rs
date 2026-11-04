@@ -16,4 +16,4 @@ pub mod stream;
 pub mod wire;
 
 pub use stream::{Backlog, Gap, Received, Resume};
-pub use wire::{Decoder, Message, PaneId, PaneInfo, VERSION};
+pub use wire::{Decoder, Message, PaneId, PaneInfo, Process, VERSION};

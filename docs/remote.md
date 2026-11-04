@@ -118,14 +118,14 @@ channel:
 | channel   | carries                                                    |
 |-----------|------------------------------------------------------------|
 | control   | open, close and resize panes, hello and resume, version    |
-| pane N    | output from the agent, input to the agent                  |
+| pane N    | output from the agent, input to the agent, and what runs   |
+|           | in the pane's foreground                                   |
 | clipboard | `hof copy` and `hof paste` on the remote machine; OSC 52   |
 |           | already reaches the local parser                           |
 | open      | `hof open FILE\|URL` on the remote machine opens it here    |
 | files     | 9P: the remote machine's files, served by the `p9` crate   |
 | x11 N     | one X11 client connection                                  |
 | sound     | one PulseAudio native-protocol connection                  |
-| agents    | agent state changes, for hooks, rollups and MCP            |
 
 Each channel past control is switched on per host, in config, and some
 need a prompt:
@@ -207,9 +207,10 @@ The idea comes from herdr. What follows is Hof's own design.
     agent shows it.
 - **Telling the states, by three means:**
   1. **The foreground process.** `tcgetpgrp` on the pty, then
-     `/proc/<pid>/comm` and the arguments, gives the agent's name. For
-     remote panes the agent daemon should send it; until it does, a
-     remote agent is known only by what it says.
+     `/proc/<pid>/comm` and the arguments, gives the agent's name. For a
+     remote pane the agent daemon sends it (`Foreground`) on attach, and
+     when it has changed by the next output, ahead of that output, so the
+     tables work there too.
   2. **The screen.** A plugin can add an `[agents.<name>]` table with the
      process it matches and the text that means waiting or working. The
      screen is already parsed, and only its bottom rows need reading when
@@ -256,10 +257,9 @@ The idea comes from herdr. What follows is Hof's own design.
 5. **Agent awareness.** Done locally: the foreground process, the
    tables, the escape sequence, the frame, badge and tab dot, the hook,
    notifications, `next-waiting`, `hof ctl agent-state` and `wait-agent`,
-   and the MCP tools. Remote panes carry the escape sequence already.
-
-   Still to do: the agent daemon sending a remote pane's foreground
-   process, so tables work there too.
+   and the MCP tools. Remote panes carry the escape sequence, and the
+   agent daemon sends each pane's foreground process, so the same means
+   work on any machine.
 6. **Clipboard and open-here.** These come with the OSC 52 permission
    prompt, which local panes need anyway.
 7. **The X11 tunnel**, then **sound**.
