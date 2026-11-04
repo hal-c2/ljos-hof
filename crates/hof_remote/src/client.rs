@@ -434,6 +434,8 @@ struct Slot {
 const TRANSPORT_MEMORY: usize = 4 * 1024 * 1024;
 /// Relay traffic may not spend the room a Ping, resize or keystroke needs.
 const DRIVER_ROOM: usize = 64 * 1024;
+/// Input above the driver's reserve still goes in pieces, not over its limit.
+const INPUT_PIECE: usize = 64 * 1024;
 
 /// The connection that is up.
 struct Live {
@@ -622,7 +624,15 @@ impl Driver {
         let relays = Relays::new(move |message, wait| {
             let mut frame = Vec::new();
             message.encode(&mut frame);
-            to_relay.push(frame, TRANSPORT_MEMORY - DRIVER_ROOM, wait)
+            to_relay.push(
+                frame,
+                if wait {
+                    TRANSPORT_MEMORY - DRIVER_ROOM
+                } else {
+                    TRANSPORT_MEMORY
+                },
+                wait,
+            )
         });
         self.live = Some(Live {
             generation,
@@ -749,7 +759,13 @@ impl Driver {
                 let at = slot.input.end();
                 slot.input.push(&bytes);
                 if let (true, Some(pane)) = (slot.attached, slot.remote) {
-                    self.send(Message::Input { pane, at, bytes });
+                    for (piece, bytes) in bytes.chunks(INPUT_PIECE).enumerate() {
+                        self.send(Message::Input {
+                            pane,
+                            at: at + (piece * INPUT_PIECE) as u64,
+                            bytes: bytes.to_vec(),
+                        });
+                    }
                 }
             }
             Command::Resize { cols, rows } => {

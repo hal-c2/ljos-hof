@@ -150,9 +150,12 @@ impl Relays {
 
     fn send(&self, message: Message) -> bool {
         let send = lock(&self.0.send).clone();
-        // A transport may apply backpressure to data, but never to control
-        // traffic and never while holding the lock shutdown needs.
-        let wait = matches!(&message, Message::Data { .. });
+        // Listener threads can wait for data, acknowledgements and connects.
+        // A hangup must not wait: it is often the driver's way out.
+        let wait = matches!(
+            &message,
+            Message::Data { .. } | Message::Ack { .. } | Message::Connect { .. }
+        );
         send.is_some_and(|send| send(message, wait))
     }
 
@@ -587,13 +590,23 @@ mod tests {
     }
 
     #[test]
-    fn control_messages_do_not_wait_for_room() {
+    fn acknowledgements_wait_but_hangup_does_not() {
         let relays = Relays::new(|_, wait| wait);
         assert!(!relays.send(Message::List));
         assert!(relays.send(Message::Data {
             channel: 1,
             bytes: Vec::new(),
         }));
+        assert!(relays.send(Message::Ack {
+            channel: 1,
+            bytes: 1,
+        }));
+        assert!(relays.send(Message::Connect {
+            channel: 1,
+            service: "x11".into(),
+            opening: Vec::new(),
+        }));
+        assert!(!relays.send(Message::Hangup { channel: 1 }));
     }
 
     #[test]
