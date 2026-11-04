@@ -432,6 +432,8 @@ struct Slot {
 /// Bytes of encoded output waiting for the transport. Relay readers wait
 /// for room; the driver drops a connection whose control traffic can't go.
 const TRANSPORT_MEMORY: usize = 4 * 1024 * 1024;
+/// Relay traffic may not spend the room a Ping, resize or keystroke needs.
+const DRIVER_ROOM: usize = 64 * 1024;
 
 /// The connection that is up.
 struct Live {
@@ -617,10 +619,10 @@ impl Driver {
             });
         let now = Instant::now();
         let to_relay = frames.clone();
-        let relays = Relays::new(move |message| {
+        let relays = Relays::new(move |message, wait| {
             let mut frame = Vec::new();
             message.encode(&mut frame);
-            to_relay.push(frame, TRANSPORT_MEMORY, true)
+            to_relay.push(frame, TRANSPORT_MEMORY - DRIVER_ROOM, wait)
         });
         self.live = Some(Live {
             generation,
@@ -1174,7 +1176,12 @@ fn write_frames(
 ) {
     // Ends when the connection closes and everything before it has drained.
     while let Some(frame) = frames.read() {
-        if let Err(e) = writer.write_all(&frame).and_then(|()| writer.flush()) {
+        let mut batch = frame;
+        // Keystrokes come one frame each; a flush per batch is enough.
+        while let Some(more) = frames.try_read() {
+            batch.extend(more);
+        }
+        if let Err(e) = writer.write_all(&batch).and_then(|()| writer.flush()) {
             let _ = to.send(Event::Ended(generation, Some(e.to_string())));
             return;
         }

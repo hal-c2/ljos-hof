@@ -220,7 +220,7 @@ impl Agent {
             .name("hof-agent-write".into())
             .spawn(move || write_loop(&inner, &wakes, writer))?;
         let relaying = wake.clone();
-        let relays = Relays::new(move |m| relaying.send(Wake::Send(m)).is_ok());
+        let relays = Relays::new(move |m, _| relaying.send(Wake::Send(m)).is_ok());
 
         let result = self.read_loop(me, &wake, &relays, &mut reader);
 

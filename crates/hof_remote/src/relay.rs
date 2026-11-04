@@ -93,7 +93,7 @@ impl Socket for TcpStream {
     }
 }
 
-type Sender = Arc<dyn Fn(Message) -> bool + Send + Sync>;
+type Sender = Arc<dyn Fn(Message, bool) -> bool + Send + Sync>;
 
 /// One connection's channels. Clones share them.
 #[derive(Clone)]
@@ -140,8 +140,8 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl Relays {
     /// Channels whose messages go out through `send`, which says whether
-    /// it could send.
-    pub fn new(send: impl Fn(Message) -> bool + Send + Sync + 'static) -> Self {
+    /// it could send. Its second argument asks for backpressure.
+    pub fn new(send: impl Fn(Message, bool) -> bool + Send + Sync + 'static) -> Self {
         Self(Arc::new(Shared {
             send: Mutex::new(Some(Arc::new(send))),
             channels: Mutex::default(),
@@ -150,9 +150,10 @@ impl Relays {
 
     fn send(&self, message: Message) -> bool {
         let send = lock(&self.0.send).clone();
-        // A transport may apply backpressure, but never while holding the
-        // lock that shutdown needs to take the sender away.
-        send.is_some_and(|send| send(message))
+        // A transport may apply backpressure to data, but never to control
+        // traffic and never while holding the lock shutdown needs.
+        let wait = matches!(&message, Message::Data { .. });
+        send.is_some_and(|send| send(message, wait))
     }
 
     /// A program here connected to `service` and began with `opening`:
@@ -407,8 +408,8 @@ mod tests {
     fn pair() -> (Relays, Relays) {
         let (to_a, for_a) = mpsc::channel::<Message>();
         let (to_b, for_b) = mpsc::channel::<Message>();
-        let a = Relays::new(move |m| to_b.send(m).is_ok());
-        let b = Relays::new(move |m| to_a.send(m).is_ok());
+        let a = Relays::new(move |m, _| to_b.send(m).is_ok());
+        let b = Relays::new(move |m, _| to_a.send(m).is_ok());
         deliver(&a, for_a);
         deliver(&b, for_b);
         (a, b)
@@ -543,7 +544,7 @@ mod tests {
 
     #[test]
     fn channels_beyond_the_limit_are_refused() {
-        let relays = Relays::new(|_| true);
+        let relays = Relays::new(|_, _| true);
         let mut kept = Vec::new();
         for id in 0..MAX_CHANNELS as u32 {
             let (here, at) = UnixStream::pair().unwrap();
@@ -569,7 +570,7 @@ mod tests {
     fn closing_does_not_wait_for_a_blocked_sender() {
         let (release, waiting) = mpsc::channel();
         let waiting = Arc::new(Mutex::new(waiting));
-        let relays = Relays::new(move |_| waiting.lock().unwrap().recv().is_ok());
+        let relays = Relays::new(move |_, _| waiting.lock().unwrap().recv().is_ok());
         let sending = {
             let relays = relays.clone();
             thread::spawn(move || relays.send(Message::List))
@@ -583,6 +584,16 @@ mod tests {
         closing.join().unwrap();
         assert!(returned, "shutdown did not wait for the sender to return");
         sending.join().unwrap();
+    }
+
+    #[test]
+    fn control_messages_do_not_wait_for_room() {
+        let relays = Relays::new(|_, wait| wait);
+        assert!(!relays.send(Message::List));
+        assert!(relays.send(Message::Data {
+            channel: 1,
+            bytes: Vec::new(),
+        }));
     }
 
     #[test]
