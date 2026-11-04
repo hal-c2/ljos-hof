@@ -480,6 +480,29 @@ fn a_background_panes_request_cannot_take_the_keys_or_consent() {
     assert!(hof.engine.read_by_name(first, "activeFocus").to_boolean());
 }
 
+#[test]
+fn a_prompt_closed_by_another_cannot_take_focus_back() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    let open = String::from_utf8(hof_vt::open_request("https://a.example")).unwrap();
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from(open.as_str())])
+        .unwrap();
+    hof.window.settle().unwrap();
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from("\x1b]52;c;?\x07")])
+        .unwrap();
+    hof.window.settle().unwrap();
+    hof.window
+        .key(&KeyEvent::press(KEY_RETURN).with_modifiers(Modifiers::CONTROL));
+    hof.window.settle().unwrap();
+    hof.window
+        .key(&KeyEvent::press(KEY_RETURN).with_modifiers(Modifiers::CONTROL));
+    hof.window.settle().unwrap();
+    assert!(!hof.asking());
+    assert!(hof.engine.read_by_name(t, "activeFocus").to_boolean());
+}
+
 impl Hof {
     fn picking_host(&self) -> bool {
         self.engine

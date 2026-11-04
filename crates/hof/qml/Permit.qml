@@ -34,7 +34,7 @@ Rectangle {
     function answer(allow, always) {
         root.visible = false;
         if (root.active) {
-            if (root.previousFocus !== null)
+            if (root.previousFocus !== null && root.previousFocus.visible)
                 root.previousFocus.forceActiveFocus();
             else
                 root.terminal.forceActiveFocus();
