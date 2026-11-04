@@ -11,6 +11,7 @@
 //! terminal had, and what a remote session or a replayed one needs.
 
 pub mod agents;
+mod fonts;
 mod keys;
 pub mod layout;
 mod paint;

@@ -19,6 +19,7 @@ use ljos::item::{self, Font, KeyEvent, Surrounding, TextInputClient, kurbo};
 use ljos::prelude::*;
 
 use crate::agents::{self, Said, State};
+use crate::fonts;
 use crate::keys;
 use crate::paint::{Metrics, View};
 use crate::pointer::PointerState;
@@ -1032,7 +1033,7 @@ fn is_dark(theme: &Theme) -> bool {
 /// padding. Snapped to device pixels so that cells tile without seams.
 fn measure(engine: &Engine, me: ObjectId) {
     let font = item::prop(engine, me, Terminal::FONT);
-    let style = item::text_style(engine, &font);
+    let mut style = item::text_style(engine, &font);
     let dpr = item::device_pixel_ratio(engine, me).max(0.1);
     let padding = item::prop(engine, me, Terminal::PADDING).max(0.0);
     let width = item::prop(engine, me, Item::WIDTH);
@@ -1041,7 +1042,10 @@ fn measure(engine: &Engine, me: ObjectId) {
     // binding that resolves late), still opens the session.
     let external = item::prop(engine, me, Terminal::EXTERNAL);
     let auto_start = item::prop(engine, me, Terminal::AUTO_START);
-    let Some(metrics) = item::with_text_engine(|te| Metrics::measure(te, &style, dpr)) else {
+    let Some(metrics) = item::with_text_engine(|te| {
+        style.family = fonts::terminal_family(te, &style.family);
+        Metrics::measure(te, &style, dpr)
+    }) else {
         return;
     };
     let fit = |length: f64, by: f64| ((length - 2.0 * padding) / by).floor().max(0.0) as i32;

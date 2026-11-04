@@ -6,7 +6,10 @@
 # Hof does not know are reported and ignored.
 
 [font]
-family = "monospace"          # font family, as fontconfig names it
+# A family, or several separated by commas, tried in turn. "monospace" is
+# what fontconfig chooses on Linux and Menlo on macOS. Prompt symbols come
+# from an installed Nerd Font when none of these is one.
+family = "monospace"
 size = 11.0                   # size in points
 line-height = 1.0             # line height as a multiple of the font's own
 bold-is-bright = false        # draw bold text in the bright ANSI colour
