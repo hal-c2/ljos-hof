@@ -553,22 +553,38 @@ impl Terminal {
     }
 
     /// Answers the program's clipboard reads that wait: with what is on
-    /// the clipboard if `allow`, else with nothing. `always` lets it read
-    /// from now on, for as long as the terminal lasts.
+    /// the clipboard if `allow`, else with nothing. A one-time answer covers
+    /// only the clipboard named in the question. `always` covers both.
     #[qml(invokable)]
     fn answer_clipboard(cx: &Cx, allow: bool, always: bool) {
         let Some(shared) = shared_of(cx.engine, cx.this) else {
             return;
         };
-        let waiting = {
+        let (waiting, next) = {
             let mut reads = shared.clipboard.borrow_mut();
             reads.always |= allow && always;
-            std::mem::take(&mut reads.waiting)
+            let Some(first) = reads.waiting.first().copied() else {
+                return;
+            };
+            if reads.always {
+                (std::mem::take(&mut reads.waiting), None)
+            } else {
+                let same = reads
+                    .waiting
+                    .iter()
+                    .take_while(|&&from| from == first)
+                    .count();
+                let waiting = reads.waiting.drain(..same).collect();
+                (waiting, reads.waiting.first().copied())
+            }
         };
         for from in waiting {
             answer_read(cx.engine, cx.this, from, allow);
         }
         flush_input(cx.engine, cx.this);
+        if let Some(from) = next {
+            let _ = Terminal::emit_clipboard_requested(cx, clipboard_name(from).to_owned());
+        }
     }
 
     /// Opens the URL `openRequested` asked for if `allow`, and lets the
@@ -1417,6 +1433,17 @@ fn mode_of(clipboard: hof_vt::Clipboard) -> ClipboardMode {
     }
 }
 
+fn clipboard_name(clipboard: hof_vt::Clipboard) -> &'static str {
+    match clipboard {
+        hof_vt::Clipboard::Standard => "clipboard",
+        hof_vt::Clipboard::Selection => "selection",
+    }
+}
+
+/// As with opens, more waiting reads than this are dropped rather than
+/// letting a program turn them into unbounded memory or answers.
+const MOST_READS: usize = 8;
+
 /// The program asked to read a clipboard: answers it, or asks the user.
 fn read_asked(engine: &Engine, me: ObjectId, from: hof_vt::Clipboard) {
     let Some(shared) = shared_of(engine, me) else {
@@ -1435,15 +1462,15 @@ fn read_asked(engine: &Engine, me: ObjectId, from: hof_vt::Clipboard) {
     }
     let first = {
         let mut reads = shared.clipboard.borrow_mut();
+        if reads.waiting.len() >= MOST_READS {
+            return;
+        }
         reads.waiting.push(from);
         reads.waiting.len() == 1
     };
     if first {
-        let name = match from {
-            hof_vt::Clipboard::Standard => "clipboard",
-            hof_vt::Clipboard::Selection => "selection",
-        };
-        let _ = Terminal::emit_clipboard_requested(&cx(engine, me), name.to_owned());
+        let _ =
+            Terminal::emit_clipboard_requested(&cx(engine, me), clipboard_name(from).to_owned());
     }
 }
 

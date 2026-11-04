@@ -521,6 +521,44 @@ fn a_program_reads_the_clipboard_once_the_user_lets_it() {
 }
 
 #[test]
+fn a_onetime_consent_answers_only_the_clipboard_it_names() {
+    let mut f = shown();
+    let asked = f.record("clipboardRequested");
+    let input = f.record("input");
+    let clipboard = Platform::of(&f.engine).clipboard();
+    clipboard
+        .set_text(ClipboardMode::Clipboard, "standard")
+        .unwrap();
+    clipboard
+        .set_text(ClipboardMode::Selection, "selection")
+        .unwrap();
+
+    f.write("\x1b]52;c;?\x07\x1b]52;p;?\x07");
+    f.invoke("answerClipboard", &[Value::from(true), Value::from(false)]);
+    let standard =
+        String::from_utf8(hof_vt::carrying(hof_vt::Clipboard::Standard, "standard")).unwrap();
+    assert_eq!(sent(&input), standard);
+    assert_eq!(asked.borrow().len(), 2, "the selection is a new question");
+    assert_eq!(asked.borrow()[1][0].to_js_string().as_str(), "selection");
+
+    input.borrow_mut().clear();
+    f.invoke("answerClipboard", &[Value::from(true), Value::from(false)]);
+    let selection =
+        String::from_utf8(hof_vt::carrying(hof_vt::Clipboard::Selection, "selection")).unwrap();
+    assert_eq!(sent(&input), selection);
+}
+
+#[test]
+fn clipboard_reads_waiting_for_consent_are_bounded() {
+    let mut f = shown();
+    let input = f.record("input");
+    f.write(&"\x1b]52;c;?\x07".repeat(20));
+    f.invoke("answerClipboard", &[Value::from(true), Value::from(false)]);
+    let answer = String::from_utf8(hof_vt::carrying(hof_vt::Clipboard::Standard, "")).unwrap();
+    assert_eq!(sent(&input), answer.repeat(8));
+}
+
+#[test]
 fn a_read_let_always_or_by_policy_is_answered_unasked() {
     let mut f = shown();
     let asked = f.record("clipboardRequested");
