@@ -13,7 +13,7 @@
 //! opened it and its programs still find whichever Hof comes next.
 
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -140,10 +140,7 @@ impl Forwards {
 
     /// The directory, made if it is not there yet.
     fn dir(&self) -> io::Result<&Path> {
-        match std::fs::DirBuilder::new().mode(0o700).create(&self.dir) {
-            Err(e) if e.kind() != io::ErrorKind::AlreadyExists => Err(e),
-            _ => Ok(&self.dir),
-        }
+        private_dir(&self.dir).map(|()| self.dir.as_path())
     }
 
     /// Takes the files away, at the agent's end.
@@ -235,7 +232,13 @@ fn accept(listener: &Listener, mut each: impl FnMut(Box<dyn Socket>)) {
             Listener::Tcp(l) => l.accept().map(|(s, _)| Box::new(s) as Box<dyn Socket>),
         };
         match socket {
-            Ok(socket) => each(socket),
+            Ok(socket) => {
+                if socket.same_user().is_err() {
+                    socket.close();
+                } else {
+                    each(socket);
+                }
+            }
             Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
             Err(_) => thread::sleep(Duration::from_millis(100)),
         }
@@ -285,6 +288,29 @@ fn display_name(number: u32) -> String {
     }
 }
 
+fn private_dir(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    match std::fs::DirBuilder::new().mode(0o700).create(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_dir()
+        || metadata.uid() != rustix::process::getuid().as_raw()
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "{} must be a directory owned by this user and private to it",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn random_cookie() -> io::Result<[u8; 16]> {
     let mut cookie = [0; 16];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut cookie)?;
@@ -292,10 +318,16 @@ fn random_cookie() -> io::Result<[u8; 16]> {
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    // Inside the private directory an existing link is ours to replace;
+    // create_new then keeps a race from becoming a followed symlink.
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
     std::fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .mode(0o600)
         .open(path)?
         .write_all(bytes)
@@ -359,5 +391,48 @@ fn take_sound(forwards: &Weak<Forwards>, mut socket: Box<dyn Socket>) {
     match route {
         Some((relays, channel)) => relays.connect_out(channel, pulse::SERVICE, opening, socket),
         None => socket.close(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_forwarding_directory_must_be_private_and_not_a_symlink() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("forward");
+        private_dir(&dir).unwrap();
+        assert_eq!(
+            std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(private_dir(&dir).is_err());
+        std::fs::remove_dir(&dir).unwrap();
+        std::os::unix::fs::symlink(temp.path(), &dir).unwrap();
+        assert!(private_dir(&dir).is_err());
+    }
+
+    #[test]
+    fn an_xauthority_symlink_is_replaced_not_followed() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("precious");
+        std::fs::write(&target, b"keep me").unwrap();
+        let path = temp.path().join("Xauthority");
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        write_private(&path, b"cookie").unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"keep me");
+        assert_eq!(std::fs::read(&path).unwrap(), b"cookie");
+        assert!(
+            !std::fs::symlink_metadata(&path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 }

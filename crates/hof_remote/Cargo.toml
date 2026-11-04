@@ -10,7 +10,7 @@ publish.workspace = true
 
 [dependencies]
 thiserror.workspace = true
-rustix.workspace = true
+rustix = { workspace = true, features = ["net"] }
 
 [dev-dependencies]
 tempfile.workspace = true

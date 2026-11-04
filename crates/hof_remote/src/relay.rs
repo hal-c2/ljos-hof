@@ -44,6 +44,11 @@ pub trait Socket: Read + Write + Send + 'static {
     fn close(&self);
     /// How long a read may wait; `None` for as long as it takes.
     fn read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+    /// Whether the operating system says this socket's peer is this user.
+    /// TCP has no such identity, so it has nothing to check here.
+    fn same_user(&self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 impl Socket for UnixStream {
@@ -57,6 +62,20 @@ impl Socket for UnixStream {
 
     fn read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
         self.set_read_timeout(timeout)
+    }
+
+    fn same_user(&self) -> io::Result<()> {
+        #[cfg(target_os = "linux")]
+        {
+            let credentials = rustix::net::sockopt::socket_peercred(self)?;
+            if credentials.uid != rustix::process::getuid() {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "the socket peer belongs to another user",
+                ));
+            }
+        }
+        Ok(())
     }
 }
 
