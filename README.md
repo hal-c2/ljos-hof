@@ -134,7 +134,10 @@ itself over yet. When the connection drops, the pane says it is
 reconnecting and picks up where it was. When Hof quits with
 `session.restore` on, the remote programs keep running and are attached
 again at the next start. `hof copy`, `hof paste` and `hof open URL` there
-reach the clipboard and the browser where you sit.
+reach the clipboard and the browser where you sit. With `x11 = true` and
+`sound = true` on the host, programs there open their windows on your
+display and play through your speakers, as with `ssh -X`, carried over
+Hof's own connection.
 
 ## Not yet
 

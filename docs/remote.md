@@ -121,8 +121,28 @@ channel:
 | pane N    | output from the agent, input to the agent, and what runs   |
 |           | in the pane's foreground                                   |
 | files     | 9P: the remote machine's files, served by the `p9` crate   |
-| x11 N     | one X11 client connection                                  |
-| sound     | one PulseAudio native-protocol connection                  |
+| carried N | one connection the agent passes on: an X11 client, or a    |
+|           | PulseAudio native-protocol client                          |
+
+A carried connection works like this:
+
+- **Offering.** After the hello, Hof sends `Offer` with the services it
+  can serve: `x11`, `sound`, or both. The agent starts listening for each
+  the first time one is offered. Panes opened while a connection offers
+  them get `DISPLAY`, `XAUTHORITY` and `PULSE_SERVER`. The pane's own
+  environment, sent by Hof, still wins.
+- **Connecting.** When a program there connects, the agent picks a
+  channel number and sends `Connect`, with the service and what the
+  program opened with. It goes to the newest connection that offers the
+  service. Hof connects to the server here and answers with data, or
+  with `Hangup`.
+- **Flowing.** `Data` carries the bytes both ways, in pieces of 64 KiB.
+  Each end acknowledges what it has written with `Ack`, and stops reading
+  from its socket while 1 MiB is unacknowledged. A program that floods
+  the display can't starve the panes' output.
+- **Ending.** `Hangup` closes the channel once what was sent before it
+  has been written. When the connection drops, every channel on it is
+  closed, and the programs see their server go, as with `ssh -X`.
 
 Each channel past control is switched on per host, in config, and some
 need a prompt:
@@ -163,10 +183,20 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
   - The `p9` server runs in the agent and reads frames off the channel
     directly.
 - **X11, in two steps:**
-  1. **A tunnel, like `ssh -X` but over our mux.** The agent listens on a
-     display socket, `DISPLAY` is set in remote panes, and each connection
-     is relayed to the local X server or Xwayland. Apps die when the
-     connection drops, as with `ssh -X`.
+  1. **A tunnel, like `ssh -X` but over our mux.** Done.
+     - The agent takes the first display from `:10` that has no lock
+       file and no socket. It listens on the abstract socket
+       `@/tmp/.X11-unix/X<n>` on Linux, or on TCP port `6000+n`
+       elsewhere.
+     - It writes an Xauthority file with a cookie of its own into a
+       private directory, and remote panes get `XAUTHORITY` for it. A
+       client that doesn't bring that cookie is refused there, before
+       anything reaches Hof.
+     - Hof takes the agent's cookie out of the client's setup, and puts
+       in the local display's own, read from `$XAUTHORITY` or
+       `~/.Xauthority` for each connection. Then it connects to the local
+       X server or Xwayland.
+     - Apps die when the connection drops, as with `ssh -X`.
   2. **Apps that survive a dropped connection, as with xpra.**
      [yserver](https://github.com/joske/yserver)'s core is backend-agnostic:
      `yserver-core` drives a `dyn Backend`, and its rendering lives in
@@ -179,9 +209,17 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
        connection is down.
      - This needs yserver to export drawables. That is work to do upstream,
        not to copy.
-- **Sound:** remote panes get `PULSE_SERVER` pointing at the agent. Each
-  connection is relayed to the local PulseAudio server (pipewire-pulse
-  speaks the same protocol).
+- **Sound:** done.
+  - Remote panes get `PULSE_SERVER` for a socket of the agent's, in its
+    private directory.
+  - Each connection is relayed to the local PulseAudio server:
+    `$PULSE_SERVER` if it names a socket, else
+    `$XDG_RUNTIME_DIR/pulse/native`. pipewire-pulse speaks the same
+    protocol.
+  - Hof rewrites the client's first packet, its authorization. It puts in
+    the local cookie, if there is one, and takes out the offer to share
+    memory, which two machines can't. The sound then travels in the
+    packets.
 
 ### Mixing machines in tabs and splits
 
@@ -268,7 +306,10 @@ The idea comes from herdr. What follows is Hof's own design.
    prompt, in local and remote panes; `hof copy`, `hof paste` and
    `hof open URL`. Still to do: opening a remote machine's files, which
    waits for the files channel.
-7. **The X11 tunnel**, then **sound**.
+7. **The X11 tunnel**, then **sound**. Done: carried connections with
+   their own flow control, the display and sound sockets in the agent,
+   and the cookies put in by Hof. Tested against stand-in servers, and
+   with `xdpyinfo` and `pactl` against a real desktop (an ignored test).
 8. **Files over 9P**, then the FUSE mount.
 9. **X11 apps that survive a dropped connection**, built on yserver, and the
    **UDP transport**.
