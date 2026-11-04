@@ -18,6 +18,9 @@ use hof_vt::{Feed, Link, Outlet, Size};
 pub struct Reach {
     /// The command whose stdin and stdout reach `hof agent --stdio` there.
     pub transport: Vec<String>,
+    /// Reached over ssh, and given Hof's agent when it has no Hof: then
+    /// this, not `transport`.
+    pub bootstrap: Option<hof_remote::bootstrap::Ssh>,
     /// Programs there may open windows on the X server here.
     pub x11: bool,
     /// Programs there may play sound here.
@@ -138,12 +141,19 @@ pub(crate) fn host(name: &str) -> Option<Arc<Host>> {
     if k.host.is_none() {
         let reach = k.transport.clone()?;
         let options = reach.options();
-        k.host = Some(Arc::new(Host::new(
-            Spawned {
-                argv: reach.transport,
-            },
-            options,
-        )));
+        let host = match reach.bootstrap {
+            Some(ssh) => Host::new(
+                hof_remote::bootstrap::Bootstrapping::new(ssh, hof_remote::bootstrap::agent_dirs()),
+                options,
+            ),
+            None => Host::new(
+                Spawned {
+                    argv: reach.transport,
+                },
+                options,
+            ),
+        };
+        k.host = Some(Arc::new(host));
     }
     k.host.clone()
 }

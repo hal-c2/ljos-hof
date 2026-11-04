@@ -296,6 +296,10 @@ impl Settings {
                 .map(|(name, host)| {
                     let reach = hof_qml::remote::Reach {
                         transport: host.transport(name),
+                        bootstrap: host.bootstraps().then(|| hof_remote::bootstrap::Ssh {
+                            argv: host.ssh_argv(name),
+                            hof: host.hof.clone(),
+                        }),
                         x11: host.x11,
                         sound: host.sound,
                     };

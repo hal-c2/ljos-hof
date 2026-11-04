@@ -294,11 +294,16 @@ fn a_host_is_reached_through_ssh_unless_it_names_another_way() {
         [hosts.box]
         [hosts.dev]
         ssh = "me@dev.example.com"
+        ssh-options = ["-p", "2222"]
         hof = "/opt/hof"
+        bootstrap = false
         [hosts.local]
         command = ["hof", "agent", "--stdio"]
     "#)
     .config;
+    assert!(c.hosts["box"].bootstraps());
+    assert!(!c.hosts["dev"].bootstraps(), "turned off");
+    assert!(!c.hosts["local"].bootstraps(), "not over ssh");
     let box_ = &c.hosts["box"];
     assert_eq!(
         box_.transport("box"),
@@ -311,6 +316,8 @@ fn a_host_is_reached_through_ssh_unless_it_names_another_way() {
         [
             "ssh",
             "-T",
+            "-p",
+            "2222",
             "me@dev.example.com",
             "--",
             "/opt/hof",

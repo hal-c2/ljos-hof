@@ -337,11 +337,15 @@ pub struct Host {
     /// What to give `ssh` to reach it; empty means the host's name, which
     /// `~/.ssh/config` may know.
     pub ssh: String,
+    /// More for `ssh`, before the destination: `["-p", "2222"]`.
+    pub ssh_options: Vec<String>,
     /// A program, and its arguments, whose stdin and stdout reach `hof
     /// agent --stdio` some other way than ssh. Set, it replaces ssh.
     pub command: Vec<String>,
     /// The Hof to run on that machine, a name on its `PATH` or a path.
     pub hof: String,
+    /// Copy Hof's agent there when the machine has no Hof. Only over ssh.
+    pub bootstrap: bool,
     /// Let programs there open X11 windows here.
     pub x11: bool,
     /// Let programs there play sound here.
@@ -357,8 +361,10 @@ impl Default for Host {
     fn default() -> Self {
         Self {
             ssh: String::new(),
+            ssh_options: Vec::new(),
             command: Vec::new(),
             hof: "hof".into(),
+            bootstrap: true,
             x11: false,
             sound: false,
             files: false,
@@ -374,12 +380,27 @@ impl Host {
         if !self.command.is_empty() {
             return self.command.clone();
         }
+        let mut argv = self.ssh_argv(name);
+        argv.extend(["--", &self.hof, "agent", "--stdio"].map(String::from));
+        argv
+    }
+
+    /// What runs a command on the host `name` over ssh, the command left
+    /// to add after a `--`.
+    pub fn ssh_argv(&self, name: &str) -> Vec<String> {
         let dest = if self.ssh.is_empty() { name } else { &self.ssh };
         // -T: the agent speaks frames on stdio, which a remote pty would
         // mangle.
-        ["ssh", "-T", dest, "--", &self.hof, "agent", "--stdio"]
-            .map(String::from)
-            .into()
+        let mut argv = vec!["ssh".to_owned(), "-T".to_owned()];
+        argv.extend(self.ssh_options.iter().cloned());
+        argv.push(dest.to_owned());
+        argv
+    }
+
+    /// Whether Hof copies its agent there, when it has none: over ssh,
+    /// and unless `bootstrap` is off.
+    pub fn bootstraps(&self) -> bool {
+        self.bootstrap && self.command.is_empty()
     }
 }
 

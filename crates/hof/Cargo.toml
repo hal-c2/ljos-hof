@@ -19,6 +19,7 @@ hof_config.workspace = true
 hof_session.workspace = true
 hof_mcp.workspace = true
 hof_agent.workspace = true
+hof_remote.workspace = true
 rustix.workspace = true
 serde_json.workspace = true
 serde.workspace = true
@@ -36,7 +37,6 @@ ljos = { workspace = true, features = ["build"] }
 [dev-dependencies]
 ljos = { workspace = true, features = ["shell", "testing"] }
 tempfile.workspace = true
-hof_remote.workspace = true
 
 [lints]
 workspace = true

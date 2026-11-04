@@ -117,8 +117,10 @@ const CONFIG_KEYS: &[(&str, Node)] = &[
         "hosts",
         Each(&[
             ("ssh", Value),
+            ("ssh-options", Value),
             ("command", Value),
             ("hof", Value),
+            ("bootstrap", Value),
             ("x11", Value),
             ("sound", Value),
             ("files", Value),

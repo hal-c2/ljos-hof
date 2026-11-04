@@ -166,8 +166,10 @@ disabled = []                 # plugins, by name, to leave unloaded
 #
 # [hosts.dev]
 # ssh = "dev.example.com"     # anything ssh takes; empty means the name
+# ssh-options = []            # more for ssh, before it: ["-p", "2222"]
 # command = []                # reach the agent with this instead of ssh
 # hof = "hof"                 # the Hof to run there
+# bootstrap = true            # with no Hof there, copy Hof's agent over ssh
 # x11 = false                 # let programs there open X11 windows here
 # sound = false               # let programs there play sound here
 # files = false               # show that machine's files here
