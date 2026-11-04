@@ -214,11 +214,6 @@ impl Relays {
             return;
         };
         *lock(&channel.socket) = Some(socket);
-        if channel.closed.load(Ordering::Acquire) {
-            // Ended while it connected.
-            channel.close();
-            return;
-        }
         let relays = self.clone();
         let ch = channel.clone();
         let reading = thread::Builder::new()
