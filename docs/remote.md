@@ -120,9 +120,6 @@ channel:
 | control   | open, close and resize panes, hello and resume, version    |
 | pane N    | output from the agent, input to the agent, and what runs   |
 |           | in the pane's foreground                                   |
-| clipboard | `hof copy` and `hof paste` on the remote machine; OSC 52   |
-|           | already reaches the local parser                           |
-| open      | `hof open FILE\|URL` on the remote machine opens it here    |
 | files     | 9P: the remote machine's files, served by the `p9` crate   |
 | x11 N     | one X11 client connection                                  |
 | sound     | one PulseAudio native-protocol connection                  |
@@ -144,15 +141,22 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
 
 - **Clipboard:**
   - OSC 52 from any pane, local or remote, is parsed locally. Writes are
-    allowed; a read needs a permission prompt.
-  - `hof copy` and `hof paste` on the remote machine use the clipboard
-    channel.
+    allowed unless `terminal.clipboard-write` is off. A read asks the
+    user, unless `terminal.clipboard-read` (or, for a remote pane, its
+    host's `clipboard`) says to allow or deny it. The answer goes back as
+    the program's input, through the agent for a remote pane.
+  - `hof copy` and `hof paste` write OSC 52 to `/dev/tty`. They need no
+    channel of their own: the sequences travel in the pane's output, so
+    they work in local and remote panes alike, and in other terminals
+    that take OSC 52.
   - X11 clients on the remote machine get the clipboard through the X
     tunnel.
 - **Open here:**
-  - `hof open URL` on the remote machine opens it locally.
-  - `hof open FILE` fetches the file into a local cache, opens it with the
-    local handler, and writes it back when it changes.
+  - `hof open URL` writes Hof's OSC 7702 to `/dev/tty`, and Hof opens the
+    URL locally, asking first unless `terminal.open-urls` says otherwise.
+  - `hof open FILE` in a local pane opens the file. In a remote pane it is
+    not opened yet. It should fetch the file into a local cache, open it
+    with the local handler, and write it back when it changes.
   - Once the files channel is there, the remote machine's tree is mounted
     at `~/.cache/hof/hosts/<name>`. That needs a local FUSE 9P client of our
     own; `p9` is server-only.
@@ -260,8 +264,10 @@ The idea comes from herdr. What follows is Hof's own design.
    and the MCP tools. Remote panes carry the escape sequence, and the
    agent daemon sends each pane's foreground process, so the same means
    work on any machine.
-6. **Clipboard and open-here.** These come with the OSC 52 permission
-   prompt, which local panes need anyway.
+6. **Clipboard and open-here.** Done: OSC 52 writes, and reads behind a
+   prompt, in local and remote panes; `hof copy`, `hof paste` and
+   `hof open URL`. Still to do: opening a remote machine's files, which
+   waits for the files channel.
 7. **The X11 tunnel**, then **sound**.
 8. **Files over 9P**, then the FUSE mount.
 9. **X11 apps that survive a dropped connection**, built on yserver, and the

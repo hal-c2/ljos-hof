@@ -40,6 +40,11 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   tabs and splits, focus or close panes, and say or wait for an agent's
   state. Inside a pane it needs no arguments, because Hof sets
   `HOF_SOCKET` and `HOF_PANE_ID` there.
+- **The clipboard from programs.** Programs may put text on the clipboard
+  with OSC 52. When one asks to read it, Hof asks you first, as
+  `clipboard-read` says. `hof copy`, `hof paste` and `hof open URL|FILE` do
+  the same from the shell. They speak to the pane's terminal, so they work
+  in remote panes too.
 - **MCP.** `hof mcp` is a stdio MCP server for the running Hof. Agents can
   read panes and agents' states, and say or wait for those states, always;
   typing into panes and opening or closing them are separate opt-ins in
@@ -128,12 +133,12 @@ stays on `dev`. The machine needs `hof` on its `PATH`; Hof doesn't copy
 itself over yet. When the connection drops, the pane says it is
 reconnecting and picks up where it was. When Hof quits with
 `session.restore` on, the remote programs keep running and are attached
-again at the next start.
+again at the next start. `hof copy`, `hof paste` and `hof open URL` there
+reach the clipboard and the browser where you sit.
 
 ## Not yet
 
 - Links: OSC 8 hyperlinks, and detecting URLs in plain text.
-- OSC 52 clipboard access, behind a permission prompt.
 
 ## Licence
 
