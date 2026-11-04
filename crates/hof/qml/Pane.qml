@@ -23,6 +23,14 @@ Item {
     readonly property bool searching: search.visible
     // A paste is waiting for the user to say yes.
     readonly property bool confirmingPaste: confirm.visible
+    // The AI agent the pane runs, if any, and how it is: "working",
+    // "waiting" for the user, "idle", or "none".
+    readonly property string agent: terminal.agent
+    readonly property string agentState: terminal.agentState
+    // The colours for each state, from the palette.
+    readonly property color waitingColor: Settings.palette.length > 3 ? Settings.palette[3] : "orange"
+    readonly property color workingColor: Settings.palette.length > 4 ? Settings.palette[4] : "steelblue"
+    readonly property color idleColor: Settings.palette.length > 2 ? Settings.palette[2] : "seagreen"
 
     signal terminalReady(Terminal terminal, Item pane)
     signal terminalGone
@@ -32,6 +40,8 @@ Item {
     // Something happened that `[hooks]` may want, with what it says as
     // `NAME=value` each.
     signal hook(string event, var extra)
+    // The pane's agent began waiting for the user.
+    signal attention
 
     // The command the shell is running, for its hook when it finishes.
     property string command: ""
@@ -113,6 +123,11 @@ Item {
         onNotification: (title, body) => root.hook("notification", ["HOF_TITLE=" + title, "HOF_BODY=" + body])
         onTitleChanged: root.hook("title-changed", ["HOF_TITLE=" + terminal.title])
         onWorkingDirectoryChanged: root.hook("directory-changed", ["HOF_DIRECTORY=" + terminal.workingDirectory])
+        onAgentStatus: (agent, state) => {
+            root.hook("agent-changed", ["HOF_AGENT=" + agent, "HOF_AGENT_STATE=" + state]);
+            if (state === "waiting")
+                root.attention();
+        }
 
         Component.onCompleted: {
             root.terminalReady(terminal, root);
@@ -165,6 +180,42 @@ Item {
         border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
         fontFamily: Settings.fontFamily
         fontSize: root.fontSize
+    }
+
+    // An agent waiting for the user: a frame round the pane, seen from
+    // across the window.
+    Rectangle {
+        anchors.fill: parent
+        z: 1
+        visible: root.agentState === "waiting"
+        color: "transparent"
+        border.width: 2
+        border.color: root.waitingColor
+    }
+
+    // Which agent runs, and how it is.
+    Rectangle {
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        anchors.margins: 6
+        z: 1
+        visible: root.agentState !== "none" && root.agent.length > 0
+        width: agentText.implicitWidth + 14
+        height: agentText.implicitHeight + 6
+        radius: height / 2
+        color: Qt.darker(root.background, 1.3)
+        border.color: root.agentState === "waiting" ? root.waitingColor : root.agentState === "working" ? root.workingColor : root.idleColor
+        opacity: root.agentState === "idle" ? 0.6 : 0.9
+
+        Text {
+            id: agentText
+
+            anchors.centerIn: parent
+            text: (root.agentState === "waiting" ? "● " : root.agentState === "working" ? "◌ " : "○ ") + root.agent + " · " + root.agentState
+            color: root.foreground
+            font.family: Settings.fontFamily
+            font.pointSize: Math.max(1, root.fontSize - 2)
+        }
     }
 
     // Which machine a remote pane is on.

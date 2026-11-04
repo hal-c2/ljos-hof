@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 hof_qml.workspace = true
+hof_vt.workspace = true
 hof_config.workspace = true
 hof_session.workspace = true
 hof_mcp.workspace = true

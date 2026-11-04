@@ -629,6 +629,30 @@
               "constant": false,
               "group": false,
               "notify": "searchCurrentChanged"
+            },
+            {
+              "name": "agent",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "agentChanged"
+            },
+            {
+              "name": "agentState",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "agentStateChanged"
             }
           ],
           "signals": [
@@ -703,6 +727,19 @@
               "parameters": [
                 {
                   "name": "text",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "name": "agentStatus",
+              "parameters": [
+                {
+                  "name": "agent",
+                  "type": "string"
+                },
+                {
+                  "name": "state",
                   "type": "string"
                 }
               ]
@@ -887,6 +924,20 @@
             {
               "name": "start",
               "parameters": [],
+              "returnType": "bool"
+            },
+            {
+              "name": "reportAgent",
+              "parameters": [
+                {
+                  "name": "state",
+                  "type": "string"
+                },
+                {
+                  "name": "name",
+                  "type": "string"
+                }
+              ],
               "returnType": "bool"
             },
             {
@@ -1748,6 +1799,18 @@
               "constant": false,
               "group": false,
               "notify": "problemsChanged"
+            },
+            {
+              "name": "notifyAgentWaiting",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "notifyAgentWaitingChanged"
             }
           ],
           "signals": [

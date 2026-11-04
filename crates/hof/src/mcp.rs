@@ -11,7 +11,10 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
-use hof_mcp::{CommandResult, Direction, Host, HostError, HostResult, PaneId, PaneInfo, Policy};
+use hof_mcp::{
+    AgentState, AgentWait, CommandResult, Direction, Host, HostError, HostResult, PaneId, PaneInfo,
+    Policy,
+};
 use ljos::prelude::*;
 use serde::Deserialize;
 
@@ -113,6 +116,8 @@ struct ListedPane {
     running: bool,
     columns: u16,
     rows: u16,
+    agent: String,
+    agent_state: String,
 }
 
 impl From<ListedPane> for PaneInfo {
@@ -126,6 +131,8 @@ impl From<ListedPane> for PaneInfo {
             running: p.running,
             columns: p.columns,
             rows: p.rows,
+            agent: (!p.agent.is_empty()).then_some(p.agent),
+            agent_state: AgentState::parse(&p.agent_state).unwrap_or_default(),
         }
     }
 }
@@ -181,6 +188,13 @@ fn new_pane(v: Value) -> HostResult<PaneId> {
         n if n >= 1.0 => Ok(PaneId(n as u64)),
         _ => Err(HostError::Failed("no pane was made".into())),
     }
+}
+
+/// The agent of terminal `t`, as it is now.
+fn agent_of(e: &Engine, t: ObjectId) -> (Option<String>, AgentState) {
+    let name = text(e.read_by_name(t, "agent"));
+    let state = AgentState::parse(&text(e.read_by_name(t, "agentState"))).unwrap_or_default();
+    ((!name.is_empty()).then_some(name), state)
 }
 
 /// The last `lines` lines of `text`, or all of it.
@@ -334,6 +348,64 @@ impl Host for WindowHost {
                 timed_out: true,
             },
         })
+    }
+
+    fn set_agent_state(
+        &self,
+        pane: PaneId,
+        state: AgentState,
+        agent: Option<String>,
+    ) -> HostResult<()> {
+        self.ask(move |e, w| {
+            let t = terminal(e, w, pane)?;
+            let name = Value::from(agent.as_deref().unwrap_or(""));
+            call(e, t, "reportAgent", &[Value::from(state.name()), name]);
+            Ok(())
+        })?
+    }
+
+    fn wait_for_agent(
+        &self,
+        pane: PaneId,
+        states: Vec<AgentState>,
+        timeout: Duration,
+    ) -> HostResult<AgentWait> {
+        let (reached, came) = mpsc::sync_channel::<()>(1);
+        // Looked at and listened to in one job on the UI thread, so no
+        // change can slip between the two.
+        let (t, ear) = self.ask(move |e, w| {
+            let t = terminal(e, w, pane)?;
+            let (_, now) = agent_of(e, t);
+            if states.contains(&now) {
+                return Ok((t, None));
+            }
+            let ear = e
+                .connect_by_name(t, "agentStatus", move |_: &Engine, args: &[Value]| {
+                    let state = args.get(1).map(|v| text(v.clone()));
+                    if state
+                        .and_then(|s| AgentState::parse(&s))
+                        .is_some_and(|s| states.contains(&s))
+                    {
+                        let _ = reached.try_send(());
+                    }
+                })
+                .map_err(|e| HostError::Failed(e.to_string()))?;
+            Ok((t, Some(ear)))
+        })??;
+        let timed_out = ear.is_some() && came.recv_timeout(timeout).is_err();
+        self.ask(move |e, w| {
+            if let Some(ear) = ear {
+                e.disconnect(ear);
+            }
+            // It may have closed meanwhile.
+            terminal(e, w, pane)?;
+            let (agent, state) = agent_of(e, t);
+            Ok(AgentWait {
+                agent,
+                state,
+                timed_out,
+            })
+        })?
     }
 }
 

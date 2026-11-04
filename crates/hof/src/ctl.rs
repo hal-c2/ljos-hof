@@ -2,9 +2,10 @@
 //! Scripts in a pane need no arguments to find it: Hof gives each pane
 //! `HOF_SOCKET` and `HOF_PANE_ID`.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
 use serde_json::{Value, json};
 
 /// What `hof ctl` does. A pane left out is the one the command runs in.
@@ -83,6 +84,52 @@ pub enum Ctl {
         #[arg(short, long)]
         pane: Option<u64>,
     },
+    /// Says how the AI agent in a pane is, for an agent's own hooks to
+    /// call. Without --pane it says so with an escape sequence to the
+    /// terminal, which reaches Hof on whatever machine the agent runs.
+    AgentState {
+        state: AgentState,
+        /// The agent's name, when Hof cannot tell it.
+        #[arg(short, long, value_name = "NAME")]
+        agent: Option<String>,
+        #[arg(short, long)]
+        pane: Option<u64>,
+    },
+    /// Waits for the AI agent in a pane to be in a STATE (by default
+    /// waiting or idle), and prints the state; exits 124 when the timeout
+    /// passes first.
+    WaitAgent {
+        #[arg(short, long)]
+        pane: Option<u64>,
+        /// A state to wait for; give it again for more.
+        #[arg(short, long = "state", value_name = "STATE")]
+        states: Vec<AgentState>,
+        /// Seconds to wait.
+        #[arg(short, long, default_value_t = 600.0)]
+        timeout: f64,
+    },
+}
+
+/// How an agent is, as `hof ctl` takes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AgentState {
+    Working,
+    /// For the user.
+    Waiting,
+    Idle,
+    /// There is no agent.
+    None,
+}
+
+impl AgentState {
+    fn name(self) -> &'static str {
+        match self {
+            AgentState::Working => "working",
+            AgentState::Waiting => "waiting",
+            AgentState::Idle => "idle",
+            AgentState::None => "none",
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -123,6 +170,20 @@ pub fn run(socket: &Path, what: Ctl) -> Result<Done, Error> {
 }
 
 fn run_in(socket: &Path, what: Ctl, here: Option<u64>) -> Result<Done, Error> {
+    if let Ctl::AgentState {
+        state,
+        agent,
+        pane: None,
+    } = &what
+    {
+        // The terminal carries it to Hof from any machine, and to the pane
+        // the agent is in; a hook with no terminal falls back to the socket.
+        match say_on_tty(*state, agent.as_deref()) {
+            Ok(done) => return Ok(done),
+            Err(e) if here.is_none() => return Err(e),
+            Err(_) => {}
+        }
+    }
     let pane = |p: Option<u64>| p.or(here).ok_or(Error::NoPane);
     let (tool, arguments) = match what {
         Ctl::List => ("list_panes", json!({})),
@@ -175,6 +236,29 @@ fn run_in(socket: &Path, what: Ctl, here: Option<u64>) -> Result<Done, Error> {
         ),
         Ctl::Focus { pane: p } => ("focus_pane", json!({ "pane": pane(p)? })),
         Ctl::Close { pane: p } => ("close_pane", json!({ "pane": pane(p)? })),
+        Ctl::AgentState {
+            state,
+            agent,
+            pane: p,
+        } => (
+            "set_agent_state",
+            json!({ "pane": pane(p)?, "state": state.name(), "agent": agent }),
+        ),
+        Ctl::WaitAgent {
+            pane: p,
+            states,
+            timeout,
+        } => {
+            let states: Vec<&str> = states.iter().map(|s| s.name()).collect();
+            (
+                "wait_for_agent",
+                json!({
+                    "pane": pane(p)?,
+                    "states": (!states.is_empty()).then_some(states),
+                    "timeout_seconds": timeout,
+                }),
+            )
+        }
     };
     let answer = hof_mcp::call(socket, tool, arguments)
         .map_err(|e| Error::NotRunning(socket.to_path_buf(), e))?;
@@ -187,7 +271,8 @@ fn run_in(socket: &Path, what: Ctl, here: Option<u64>) -> Result<Done, Error> {
             output: new_pane(&answer.text),
             code: 0,
         },
-        "send_input" | "focus_pane" | "close_pane" => Done {
+        "wait_for_agent" => waited(&answer.text),
+        "send_input" | "focus_pane" | "close_pane" | "set_agent_state" => Done {
             output: String::new(),
             code: 0,
         },
@@ -212,6 +297,47 @@ fn ran(text: &str) -> Done {
         output: output.to_owned(),
         code,
     }
+}
+
+/// `wait_for_agent`'s answer as the state reached, and 124 when it was not.
+fn waited(text: &str) -> Done {
+    let answer: Value = serde_json::from_str(text).unwrap_or_default();
+    Done {
+        output: answer["state"].as_str().unwrap_or("none").to_owned(),
+        code: if answer["timed_out"] == true { 124 } else { 0 },
+    }
+}
+
+/// Hof's escape sequence for an agent's `state`: what its terminal shows
+/// Hof, through `ssh` and `hof agent` alike.
+fn sequence(state: AgentState, agent: Option<&str>) -> String {
+    // A control character in the name would end the sequence early.
+    let name: String = agent
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    let osc = hof_vt::AGENT_OSC;
+    match name.is_empty() {
+        true => format!("\x1b]{osc};{}\x07", state.name()),
+        false => format!("\x1b]{osc};{};{name}\x07", state.name()),
+    }
+}
+
+/// Writes the sequence to the terminal the command runs in. That is the
+/// controlling terminal, not stdout, which a hook's caller often captures.
+fn say_on_tty(state: AgentState, agent: Option<&str>) -> Result<Done, Error> {
+    let mut tty = std::fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/tty")
+        .map_err(|_| Error::NoPane)?;
+    tty.write_all(sequence(state, agent).as_bytes())
+        .and_then(|()| tty.flush())
+        .map_err(|_| Error::NoPane)?;
+    Ok(Done {
+        output: String::new(),
+        code: 0,
+    })
 }
 
 /// `{"pane": 3}` as `3`.
@@ -253,6 +379,25 @@ mod tests {
         // With one, it goes as far as finding no Hof.
         let error = run_in(nowhere, Ctl::Screen { pane: None }, Some(2)).unwrap_err();
         assert!(matches!(error, Error::NotRunning(..)));
+    }
+
+    #[test]
+    fn an_agent_state_is_said_in_hof_s_sequence() {
+        assert_eq!(
+            sequence(AgentState::Waiting, Some("claude\x07x")),
+            "\x1b]7701;waiting;claudex\x07"
+        );
+        assert_eq!(sequence(AgentState::Idle, None), "\x1b]7701;idle\x07");
+    }
+
+    #[test]
+    fn a_wait_that_times_out_exits_as_timeout_does() {
+        let done = waited(r#"{"agent":"claude","state":"working","timed_out":true}"#);
+        assert_eq!((done.output.as_str(), done.code), ("working", 124));
+        assert_eq!(
+            waited(r#"{"agent":null,"state":"idle","timed_out":false}"#).code,
+            0
+        );
     }
 
     #[test]

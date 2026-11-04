@@ -155,6 +155,48 @@ Window {
         return (window.starts[pane] ?? {}).host ?? "";
     }
 
+    // How the agents in `panes` are, the one most in need first: one
+    // waiting, else one working, else one idle, else "none".
+    function agentStateOf(panes) {
+        const order = ["none", "idle", "working", "waiting"];
+        let most = 0;
+        for (const pane of panes) {
+            const t = window.terminalOf(pane);
+            if (t !== null)
+                most = Math.max(most, order.indexOf(t.agentState));
+        }
+        return order[most];
+    }
+
+    // Focuses the next pane, after the focused one in reading order and
+    // across tabs, whose agent waits for the user. Returns whether there
+    // was one.
+    function focusNextWaiting() {
+        const panes = workspace.panes().map(p => p.pane);
+        const from = panes.indexOf(workspace.focusedPane);
+        for (let i = 1; i <= panes.length; ++i) {
+            const pane = panes[(from + i) % panes.length];
+            const t = window.terminalOf(pane);
+            if (t !== null && t.agentState === "waiting" && pane !== workspace.focusedPane)
+                return workspace.focusPane(pane);
+        }
+        return false;
+    }
+
+    // Tells the desktop that the agent in `pane` waits, unless the user
+    // can see it already: the pane has the keys of the window they are in.
+    function notifyWaiting(pane, shown, focused) {
+        if (!Settings.notifyAgentWaiting || (window.active && window.visible && shown && focused))
+            return;
+        const t = window.terminalOf(pane);
+        if (t === null)
+            return;
+        const host = window.hostOf(pane);
+        const where = t.title.length > 0 ? t.title : window.directoryOf(pane);
+        const title = t.agent + " is waiting" + (host.length > 0 ? " on " + host : "");
+        App.spawn(["notify-send", "--app-name=Hof", "--icon=utilities-terminal", title, where], [], "");
+    }
+
     function newTab(directory, command, environment, host) {
         const on = host ?? "";
         // The focused pane's directory means nothing on another machine.
@@ -252,6 +294,8 @@ Window {
                 workingDirectory: window.directoryOf(p.pane),
                 focused: p.pane === workspace.focusedPane,
                 running: t !== null && t.commandRunning,
+                agent: t !== null ? t.agent : "",
+                agentState: t !== null ? t.agentState : "none",
                 columns: t !== null ? t.columns : 0,
                 rows: t !== null ? t.rows : 0
             });
@@ -463,6 +507,9 @@ Window {
                 item.openSearch();
             break;
         }
+        case "next-waiting":
+            window.focusNextWaiting();
+            break;
         case "reload-config":
             Settings.reload();
             break;
@@ -577,6 +624,13 @@ Window {
                 const host = window.hostOf(pane);
                 return host.length > 0 ? host + ": " + title : title;
             }
+            agentStateOf: index => {
+                void window.terminalsRevision;
+                return window.agentStateOf(workspace.tabPanes(index));
+            }
+            waitingColor: Settings.palette.length > 3 ? Settings.palette[3] : "orange"
+            workingColor: Settings.palette.length > 4 ? Settings.palette[4] : "steelblue"
+            idleColor: Settings.palette.length > 2 ? Settings.palette[2] : "seagreen"
             onNewTab: window.newTab()
             onCloseTab: index => {
                 for (const pane of workspace.tabPanes(index))
@@ -621,6 +675,7 @@ Window {
                     onFinished: window.closePane(slot.pane)
                     onAction: name => window.run(name)
                     onHook: (event, extra) => window.fireHook(slot.pane, event, extra)
+                    onAttention: window.notifyWaiting(slot.pane, slot.shown, slot.focused)
                 }
             }
 

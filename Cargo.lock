@@ -1820,6 +1820,7 @@ dependencies = [
  "hof_qml",
  "hof_remote",
  "hof_session",
+ "hof_vt",
  "ljos",
  "notify",
  "serde",

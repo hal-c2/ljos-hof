@@ -13,6 +13,12 @@ Item {
     property string fontFamily
     // The title of the tab whose focused pane is `pane`.
     property var titleOf: pane => ""
+    // How the agents of tab `index` are, the one most in need first:
+    // "waiting", "working", "idle" or "none".
+    property var agentStateOf: index => "none"
+    property color waitingColor: "orange"
+    property color workingColor: "steelblue"
+    property color idleColor: "seagreen"
 
     signal newTab
     signal closeTab(int index)
@@ -43,6 +49,10 @@ Item {
                     void root.workspace.revision;
                     return root.titleOf(root.workspace.tabFocus(tab.index));
                 }
+                readonly property string agentState: {
+                    void root.workspace.revision;
+                    return root.agentStateOf(tab.index);
+                }
 
                 width: Math.min(220, (root.width - add.width) / Math.max(1, root.workspace.tabCount))
                 height: tabs.height
@@ -59,10 +69,23 @@ Item {
                     color: root.border
                 }
 
+                // A dot for the tab's agents.
                 Text {
+                    id: mark
+
                     anchors.left: parent.left
-                    anchors.right: close.left
                     anchors.leftMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: tab.agentState === "none" ? 0 : implicitWidth + 6
+                    visible: tab.agentState !== "none"
+                    text: tab.agentState === "waiting" ? "●" : tab.agentState === "working" ? "◌" : "○"
+                    color: tab.agentState === "waiting" ? root.waitingColor : tab.agentState === "working" ? root.workingColor : root.idleColor
+                    font.family: root.fontFamily
+                }
+
+                Text {
+                    anchors.left: mark.right
+                    anchors.right: close.left
                     anchors.verticalCenter: parent.verticalCenter
                     text: tab.title
                     elide: Text.ElideRight

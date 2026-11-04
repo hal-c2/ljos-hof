@@ -115,9 +115,16 @@ pub struct Settings {
     #[qml(notify, readonly)]
     pub problems: Vec<String>,
 
+    /// Tell the desktop when an agent out of sight starts waiting.
+    #[qml(notify, readonly)]
+    pub notify_agent_waiting: bool,
+
     /// Each host's name and the command that reaches it, for the terminals.
     #[qml(skip)]
     pub transports: Vec<(String, Vec<String>)>,
+    /// The `[agents]` tables, for the terminals.
+    #[qml(skip)]
+    pub agents: Vec<hof_qml::agents::Table>,
 }
 
 /// The file this run reads: the command line's, else the usual one.
@@ -253,6 +260,7 @@ impl Settings {
             dropdown_bottom: dropdown.position == Position::Bottom,
             hide_on_focus_loss: dropdown.hide_on_focus_loss,
             animation_ms: i32::try_from(dropdown.animation_ms).unwrap_or(i32::MAX),
+            notify_agent_waiting: config.notify.agent_waiting,
             session_restore: config.session.restore,
             session_save_scrollback: config.session.save_scrollback,
             binding_actions,
@@ -266,6 +274,16 @@ impl Settings {
                 .iter()
                 .map(|(name, host)| (name.clone(), host.transport(name)))
                 .collect(),
+            agents: config
+                .agents()
+                .into_iter()
+                .map(|(name, agent)| hof_qml::agents::Table {
+                    processes: agent.processes(&name).into_iter().map(Into::into).collect(),
+                    waiting: agent.waiting,
+                    working: agent.working,
+                    name,
+                })
+                .collect(),
         }
     }
 }
@@ -274,6 +292,7 @@ impl Default for Settings {
     fn default() -> Self {
         let settings = Self::read(&config_path());
         hof_qml::remote::set_hosts(settings.transports.clone());
+        hof_qml::agents::set_tables(settings.agents.clone());
         settings
     }
 }
@@ -316,6 +335,7 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
         dropdown_bottom => DROPDOWN_BOTTOM,
         hide_on_focus_loss => HIDE_ON_FOCUS_LOSS,
         animation_ms => ANIMATION_MS,
+        notify_agent_waiting => NOTIFY_AGENT_WAITING,
         session_restore => SESSION_RESTORE,
         session_save_scrollback => SESSION_SAVE_SCROLLBACK,
         binding_actions => BINDING_ACTIONS,
@@ -331,6 +351,7 @@ fn reload_now(cx: &Cx) {
     let path = PathBuf::from(cx.get(Settings::PATH).unwrap_or_default());
     let new = Settings::read(&path);
     hof_qml::remote::set_hosts(new.transports.clone());
+    hof_qml::agents::set_tables(new.agents.clone());
     apply(cx.engine, cx.this, new);
     let _ = Settings::emit_reloaded(cx);
 }
