@@ -22,7 +22,7 @@ const MOST_REPLIES: usize = 64 * 1024;
 
 #[derive(Default)]
 struct Queue {
-    chunks: std::collections::VecDeque<Vec<u8>>,
+    chunks: std::collections::VecDeque<(bool, Vec<u8>)>,
     replies: usize,
     closed: bool,
 }
@@ -36,7 +36,7 @@ pub(crate) struct PtyInput {
 impl PtyInput {
     fn write(&self, bytes: &[u8]) {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
-        queue.chunks.push_back(bytes.to_vec());
+        queue.chunks.push_back((false, bytes.to_vec()));
         self.wake.notify_one();
     }
 
@@ -46,15 +46,17 @@ impl PtyInput {
             return;
         }
         queue.replies += bytes.len();
-        queue.chunks.push_back(bytes.to_vec());
+        queue.chunks.push_back((true, bytes.to_vec()));
         self.wake.notify_one();
     }
 
     pub(crate) fn read(&self) -> Option<Vec<u8>> {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         loop {
-            if let Some(chunk) = queue.chunks.pop_front() {
-                queue.replies = queue.replies.saturating_sub(chunk.len());
+            if let Some((reply, chunk)) = queue.chunks.pop_front() {
+                if reply {
+                    queue.replies = queue.replies.saturating_sub(chunk.len());
+                }
                 return Some(chunk);
             }
             if queue.closed {
@@ -487,5 +489,22 @@ mod tests {
         assert_eq!(&received[received.len() - 4..], b"keys");
         input.close();
         assert!(input.read().is_none());
+    }
+
+    #[test]
+    fn user_input_does_not_reduce_the_reply_budget() {
+        let input = PtyInput::default();
+        let chunk = vec![b'x'; 1024];
+        input.reply(&chunk);
+        input.write(&chunk);
+        for _ in 0..MOST_REPLIES / chunk.len() - 1 {
+            input.reply(&chunk);
+        }
+        assert_eq!(input.read().unwrap(), chunk);
+        assert_eq!(input.read().unwrap(), chunk);
+        assert_eq!(
+            input.queue.lock().unwrap().replies,
+            MOST_REPLIES - chunk.len()
+        );
     }
 }
