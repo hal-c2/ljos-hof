@@ -76,7 +76,6 @@ impl Pty {
         rustix::pty::unlockpt(&master).map_err(|e| Error::Pty("unlockpt", e.into()))?;
         let slave_path = rustix::pty::ptsname(&master, Vec::new())
             .map_err(|e| Error::Pty("ptsname", e.into()))?;
-        set_winsize(&master, size)?;
 
         let slave = rustix::fs::open(
             slave_path.as_c_str(),
@@ -84,6 +83,10 @@ impl Pty {
             Mode::empty(),
         )
         .map_err(|e| Error::Pty("open slave", e.into()))?;
+        // Through the slave, before the program starts: macOS refuses the
+        // master's size until a slave is open, and the program should
+        // never see a size of 0×0.
+        set_winsize(&slave, size)?;
 
         let program = spawn.program();
         let mut cmd = Command::new(&program);
@@ -154,14 +157,14 @@ fn open_master() -> Result<OwnedFd, Error> {
     Ok(master)
 }
 
-pub(crate) fn set_winsize(master: impl AsFd, size: Size) -> Result<(), Error> {
+pub(crate) fn set_winsize(pty: impl AsFd, size: Size) -> Result<(), Error> {
     let winsize = Winsize {
         ws_row: size.rows,
         ws_col: size.cols,
         ws_xpixel: clamp_u16(u32::from(size.cols) * size.cell_width),
         ws_ypixel: clamp_u16(u32::from(size.rows) * size.cell_height),
     };
-    rustix::termios::tcsetwinsize(master, winsize).map_err(|e| Error::Pty("tcsetwinsize", e.into()))
+    rustix::termios::tcsetwinsize(pty, winsize).map_err(|e| Error::Pty("tcsetwinsize", e.into()))
 }
 
 fn clamp_u16(v: u32) -> u16 {
