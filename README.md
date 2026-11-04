@@ -63,22 +63,28 @@ You need [mise](https://mise.jdx.dev). It installs Rust and Zig;
 libghostty-vt's build script needs Zig to build Ghostty's parser.
 
 ```sh
-mise install
-mise run setup        # links your Ljós UI checkout ($LJOS_UI_DIR) into third_party/
-cargo build --release
-./target/release/hof
+mise install          # Rust and Zig, at the versions mise.toml pins
+mise run setup        # links your Ljós UI checkout ($LJOS_UI_DIR) into third_party/,
+                      # and fetches the dependencies
+mise run run          # builds Hof and opens a window; `mise run run -- --dropdown`
 ```
 
-```sh
-cargo test --workspace
-cargo clippy --workspace --all-targets
-```
+| task                         | what it does                                           |
+|------------------------------|--------------------------------------------------------|
+| `mise run build`             | an optimised build, `target/release/hof`               |
+| `mise run run -- ARGS`       | builds and runs Hof, with ARGS                         |
+| `mise run test [-- ARGS]`    | every test, or what ARGS pick (`-- -p hof_vt`)         |
+| `mise run check`             | what a change must pass: fmt, clippy and every test    |
+| `mise run types`             | regenerates the QML types (see below)                  |
+| `mise run fire [SECONDS]`    | the stress test (see below)                            |
+| `mise run agents`            | the static agents for remote machines                  |
+| `mise run remote-test [IMG]` | bootstrapping a container over ssh, with Docker        |
 
 The QML is compiled ahead of time against generated types. After changing a
 Rust type that QML can see, regenerate them:
 
 ```sh
-LJOS_TYPES=write cargo test -p hof --test types
+mise run types        # LJOS_TYPES=write cargo test -p hof --test types
 ```
 
 Remote machines with no Hof get a static, agent-only build. Build it,

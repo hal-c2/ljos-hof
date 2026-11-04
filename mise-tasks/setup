@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-#MISE description="Link the Ljós UI checkout into third_party/ (LJOS_UI_DIR, default ~/dev/ljos-ui)"
+#MISE description="First, after cloning: link the Ljós UI checkout into third_party/ (LJOS_UI_DIR, default ~/dev/ljos-ui) and fetch the dependencies"
 set -euo pipefail
 dir="${LJOS_UI_DIR:-$HOME/dev/ljos-ui}"
 [ -f "$dir/crates/ljos/Cargo.toml" ] || { echo "no Ljós UI checkout at $dir (set LJOS_UI_DIR)" >&2; exit 1; }
 mkdir -p third_party
 ln -sfn "$dir" third_party/ljos-ui
 echo "third_party/ljos-ui -> $dir"
+# Everything cargo needs from the network, once: libghostty-rs from git
+# and the crates. After this, builds work offline too.
+cargo fetch

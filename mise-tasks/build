@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Build Hof, optimised: target/release/hof"
+set -euo pipefail
+cargo build --release -p hof "$@"

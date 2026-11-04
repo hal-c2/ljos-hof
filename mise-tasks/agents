@@ -11,7 +11,7 @@ built=0
 for arch in x86_64 aarch64; do
   target="$arch-unknown-linux-musl"
   rustup target list --installed | grep -qx "$target" || { echo "skipping $target: rustup target add $target"; continue; }
-  cargo build --profile agent --offline -p hof_agent --bin hof-agent --target "$target"
+  cargo build --profile agent -p hof_agent --bin hof-agent --target "$target"
   # Beside Hof's own program, where it looks for them.
   for dir in target/debug target/release; do
     mkdir -p "$dir"

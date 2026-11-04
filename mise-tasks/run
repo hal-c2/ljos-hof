@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Build Hof and open a window; what follows goes to hof (run -- --dropdown)"
+set -euo pipefail
+cargo run --release -p hof -- "$@"

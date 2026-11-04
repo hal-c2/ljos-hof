@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Regenerate the types the QML is compiled against, after changing a Rust type QML sees"
+set -euo pipefail
+LJOS_TYPES=write cargo test -p hof --test types

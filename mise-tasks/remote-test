@@ -20,6 +20,6 @@ ssh="ssh -T -p $port -i $work/key -o IdentitiesOnly=yes -o BatchMode=yes -o Stri
 for _ in $(seq 50); do $ssh true 2>/dev/null && break; sleep 0.2; done
 echo "== $base on port $port, no Hof there: $($ssh 'command -v hof || echo none')"
 HOF_TEST_SSH="$ssh" HOF_AGENT_DIR="$PWD/target/release" \
-  cargo test --offline -p hof --test bootstrap -- --ignored --nocapture
+  cargo test -p hof --test bootstrap -- --ignored --nocapture
 echo "== what Hof left there"
 $ssh 'ls -la ~/.local/share/hof/*/ ~/.local/bin/'

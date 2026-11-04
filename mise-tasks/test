@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run every test in the workspace; what follows goes to cargo test (test -p hof_vt)"
+set -euo pipefail
+if [ $# -eq 0 ]; then set -- --workspace; fi
+cargo test --no-fail-fast "$@"

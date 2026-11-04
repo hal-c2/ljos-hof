@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="Stress test: a fire, parsed headless, painted offscreen, then drawn in this terminal (fire SECONDS)"
 set -euo pipefail
-cargo build --release --offline -p hof_vt --example fire -p hof_qml --example paint_fire
+cargo build --release -p hof_vt --example fire -p hof_qml --example paint_fire
 echo "== the parser and the grid"
 ./target/release/examples/fire headless
 echo "== painted"
