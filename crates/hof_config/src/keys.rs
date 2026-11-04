@@ -106,11 +106,13 @@ pub enum Action {
     /// Open the configuration file, writing the example there first when
     /// there is none.
     EditConfig,
+    /// Open the settings window, which changes the configuration file.
+    Settings,
     /// Close the window, and with it every pane.
     Quit,
 }
 
-const ACTION_NAMES: [(Action, &str); 50] = [
+const ACTION_NAMES: [(Action, &str); 51] = [
     (Action::NewTab, "new-tab"),
     (Action::CloseTab, "close-tab"),
     (Action::NextTab, "next-tab"),
@@ -160,6 +162,7 @@ const ACTION_NAMES: [(Action, &str); 50] = [
     (Action::Tab8, "tab-8"),
     (Action::LastTab, "last-tab"),
     (Action::EditConfig, "edit-config"),
+    (Action::Settings, "settings"),
     (Action::Quit, "quit"),
 ];
 
@@ -446,6 +449,7 @@ const DEFAULTS: &[(Action, &[&str])] = &[
     (Action::Tab7, &["alt+7"]),
     (Action::Tab8, &["alt+8"]),
     (Action::LastTab, &["alt+9"]),
+    (Action::Settings, &["ctrl+shift+,"]),
     (Action::Quit, &["ctrl+shift+q"]),
 ];
 
@@ -484,7 +488,8 @@ const MAC_DEFAULTS: &[(Action, &[&str])] = &[
     (Action::FontSmaller, &["cmd+minus"]),
     (Action::FontReset, &["cmd+0"]),
     (Action::Search, &["cmd+f"]),
-    (Action::EditConfig, &["cmd+,"]),
+    (Action::Settings, &["cmd+,"]),
+    (Action::EditConfig, &["cmd+shift+,"]),
     (Action::ReloadConfig, &["cmd+shift+r"]),
     (Action::ToggleFullscreen, &["cmd+ctrl+f"]),
     (Action::NextWaiting, &["cmd+shift+a"]),
@@ -713,6 +718,7 @@ mod tests {
             ("ctrl+shift+x", Action::NextPrompt),
             ("ctrl+shift+f", Action::Search),
             ("ctrl+shift+r", Action::ReloadConfig),
+            ("ctrl+shift+,", Action::Settings),
             ("f11", Action::ToggleFullscreen),
             ("ctrl+shift+c", Action::Copy),
             ("ctrl+shift+v", Action::Paste),
@@ -742,7 +748,8 @@ mod tests {
             ("cmd+0", Action::FontReset),
             ("cmd+1", Action::Tab1),
             ("cmd+]", Action::FocusNext),
-            ("cmd+,", Action::EditConfig),
+            ("cmd+,", Action::Settings),
+            ("cmd+shift+,", Action::EditConfig),
             ("cmd+q", Action::Quit),
             ("ctrl+tab", Action::NextTab),
         ] {

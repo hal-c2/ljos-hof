@@ -89,6 +89,35 @@ pub struct Window {
     pub height: u16,
     /// Window title until the program running in the terminal sets one.
     pub title: String,
+    /// Where the menu of Hof's actions is.
+    pub menu: Menu,
+}
+
+/// Where the menu of Hof's actions is, beside the right-click menu every
+/// pane has.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Menu {
+    /// The system's menu bar where there is one (macOS), else `button`.
+    #[default]
+    Auto,
+    /// A menu bar: the system's on macOS, else across the top of the window.
+    Bar,
+    /// A button at the end of the tab bar, which is then always shown.
+    Button,
+    /// None: the keys and the right-click menu are enough.
+    None,
+}
+
+impl Menu {
+    /// What `Auto` is on this system: `Bar` on macOS, else `Button`.
+    pub fn resolved(self) -> Menu {
+        match self {
+            Menu::Auto if cfg!(target_os = "macos") => Menu::Bar,
+            Menu::Auto => Menu::Button,
+            other => other,
+        }
+    }
 }
 
 impl Default for Window {
@@ -100,6 +129,7 @@ impl Default for Window {
             width: 100,
             height: 30,
             title: "Hof".into(),
+            menu: Menu::Auto,
         }
     }
 }

@@ -21,6 +21,12 @@ decorations = true            # ask for a title bar and borders
 width = 100                   # initial width, in cells
 height = 30                   # initial height, in cells
 title = "Hof"                 # title until the running program sets one
+menu = "auto"                 # where the menu of Hof's actions is: "bar" (the
+                              # system's on macOS, else atop the window),
+                              # "button" (at the end of the tab bar, which is
+                              # then always shown), "none", or "auto": the bar
+                              # on macOS, the button elsewhere. Every pane has
+                              # a right-click menu too.
 
 [terminal]
 # shell = "/usr/bin/fish"     # program to run; unset means $SHELL, then /bin/sh
@@ -117,6 +123,7 @@ animation-ms = 150            # length of the slide in milliseconds; 0 for none
 # tab-8 = "alt+8"
 # last-tab = "alt+9"
 # edit-config = "none"
+# settings = "ctrl+shift+,"
 # quit = "ctrl+shift+q"
 #
 # On macOS, where Command is the application's and every Ctrl and Option
@@ -170,7 +177,8 @@ animation-ms = 150            # length of the slide in milliseconds; 0 for none
 #   tab-7 = "cmd+7"
 #   tab-8 = "cmd+8"
 #   last-tab = "cmd+9"
-#   edit-config = "cmd+,"
+#   edit-config = "cmd+shift+,"
+#   settings = "cmd+,"
 #   quit = "cmd+q"
 
 [session]

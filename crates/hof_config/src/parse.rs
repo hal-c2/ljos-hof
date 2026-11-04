@@ -55,6 +55,7 @@ const CONFIG_KEYS: &[(&str, Node)] = &[
             ("width", Value),
             ("height", Value),
             ("title", Value),
+            ("menu", Value),
         ]),
     ),
     (
@@ -166,6 +167,15 @@ const THEME_FILE_KEYS: &[(&str, Node)] = &[
     ("selection", Value),
     ("palette", Value),
 ];
+
+/// Whether `section.key` is a value Hof knows, as `font.size` is: the
+/// keys a program may change one at a time ([`crate::edit::set`]).
+pub(crate) fn is_setting(section: &str, key: &str) -> bool {
+    CONFIG_KEYS.iter().any(|(name, node)| {
+        *name == section
+            && matches!(node, Table(keys) if keys.iter().any(|(k, n)| *k == key && matches!(n, Value)))
+    })
+}
 
 /// One text being read, for turning byte offsets into `file:line` reports.
 struct Source<'a> {

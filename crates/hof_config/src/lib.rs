@@ -10,6 +10,7 @@
 
 mod agents;
 mod config;
+pub mod edit;
 mod error;
 mod keys;
 mod parse;
@@ -21,13 +22,13 @@ use std::path::{Path, PathBuf};
 
 pub use agents::Agent;
 pub use config::{
-    Config, CursorShape, Dropdown, Font, Host, Mcp, Notify, Permission, Position, Session,
+    Config, CursorShape, Dropdown, Font, Host, Mcp, Menu, Notify, Permission, Position, Session,
     Terminal, ThemeConfig, Window,
 };
 pub use error::{Error, Warning, WarningKind};
 pub use keys::{Action, BadChord, Chord, Keys, Platform, UnknownAction};
 pub use scripts::{Binding, Command, Hook, Hooks, Place, Plugin, Plugins, Program};
-pub use theme::{BadColour, DEFAULT_THEME, Rgba, Theme, builtin, themes};
+pub use theme::{BadColour, DEFAULT_THEME, Rgba, Theme, builtin, theme_names, themes};
 
 /// The example file: every key, commented out, at its default. What
 /// `edit-config` writes when there is no file yet.

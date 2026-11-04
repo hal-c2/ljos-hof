@@ -235,6 +235,30 @@ pub fn themes() -> &'static [(&'static str, Theme)] {
     &THEMES
 }
 
+/// Every theme `theme.name` may name: the built-in ones in their order,
+/// then the files in `themes_dir` (`<name>.toml`) alphabetically. A file
+/// named as a built-in theme takes its place, as it does when loaded.
+pub fn theme_names(themes_dir: &std::path::Path) -> Vec<String> {
+    let mut files: Vec<String> = std::fs::read_dir(themes_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let stem = path.file_stem()?.to_str()?;
+            (path.extension()? == "toml" && path.is_file() && !stem.starts_with('.'))
+                .then(|| stem.to_owned())
+        })
+        .filter(|name| builtin(name).is_none())
+        .collect();
+    files.sort();
+    THEMES
+        .iter()
+        .map(|(name, _)| (*name).to_owned())
+        .chain(files)
+        .collect()
+}
+
 /// The built-in theme called `name`, if there is one.
 pub fn builtin(name: &str) -> Option<&'static Theme> {
     THEMES.iter().find(|(n, _)| *n == name).map(|(_, t)| t)
@@ -243,6 +267,24 @@ pub fn builtin(name: &str) -> Option<&'static Theme> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_theme_names_are_the_built_in_ones_then_the_files() {
+        let dir = std::env::temp_dir().join(format!("hof-theme-names-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["zebra.toml", "alpha.toml", "nord.toml", "notes.txt"] {
+            std::fs::write(dir.join(name), "").unwrap();
+        }
+        let names = theme_names(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        let builtins: Vec<&str> = THEMES.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names[..builtins.len()], builtins[..]);
+        assert_eq!(names[builtins.len()..], ["alpha", "zebra"]);
+        assert_eq!(
+            theme_names(std::path::Path::new("/nonexistent/hof")).len(),
+            builtins.len()
+        );
+    }
 
     #[test]
     fn a_six_digit_hex_is_an_opaque_colour() {

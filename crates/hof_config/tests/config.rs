@@ -155,6 +155,7 @@ fn every_key_is_read_into_its_field() {
         width = 120
         height = 40
         title = "Shrine"
+        menu = "none"
 
         [terminal]
         shell = "/usr/bin/fish"
@@ -236,6 +237,7 @@ fn every_key_is_read_into_its_field() {
     assert!(!c.window.decorations);
     assert_eq!((c.window.width, c.window.height), (120, 40));
     assert_eq!(c.window.title, "Shrine");
+    assert_eq!(c.window.menu, hof_config::Menu::None);
     assert_eq!(c.terminal.shell.as_deref(), Some("/usr/bin/fish"));
     assert_eq!(c.terminal.args, ["-l"]);
     assert_eq!(c.terminal.scrollback, 500);
