@@ -22,6 +22,10 @@ pub const MAX_FRAME: usize = 16 * 1024 * 1024;
 /// A pane on the agent's machine, by the number the agent gave it.
 pub type PaneId = u32;
 
+/// A connection relayed between the two machines, such as an X11
+/// client's, by the number the end that took it gave it.
+pub type ChannelId = u32;
+
 /// What a pane is, as the agent lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PaneInfo {
@@ -156,6 +160,38 @@ pub enum Message {
         pane: PaneId,
         process: Option<Process>,
     },
+    /// Hof takes connections for these services, `x11` and `sound`, from
+    /// programs on the agent's machine. Sent after the hello. The agent
+    /// passes each connection on to the newest connection that offered
+    /// its service, and sets what finds the service in the panes this one
+    /// opens.
+    Offer {
+        services: Vec<String>,
+    },
+    /// A program connected to `service`, as `channel`. `opening` is what
+    /// it began with, whole (an X11 client's setup, with its
+    /// authorization taken out): what the other end may have to rewrite.
+    Connect {
+        channel: ChannelId,
+        service: String,
+        opening: Vec<u8>,
+    },
+    /// What came on the channel, for the other end of it.
+    Data {
+        channel: ChannelId,
+        bytes: Vec<u8>,
+    },
+    /// `bytes` more of the channel's data reached where it was going:
+    /// room for that much more on the way.
+    Ack {
+        channel: ChannelId,
+        bytes: u32,
+    },
+    /// The channel ended at this end; it ends at the other once what came
+    /// before is written.
+    Hangup {
+        channel: ChannelId,
+    },
     /// A frame of a kind this end doesn't know, skipped.
     Unknown {
         tag: u8,
@@ -182,6 +218,11 @@ const PING: u8 = 16;
 const PONG: u8 = 17;
 const GONE: u8 = 18;
 const FOREGROUND: u8 = 19;
+const OFFER: u8 = 20;
+const CONNECT: u8 = 21;
+const DATA: u8 = 22;
+const ACK: u8 = 23;
+const HANGUP: u8 = 24;
 
 /// A frame that is not what its tag says.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -332,6 +373,34 @@ impl Message {
                     w.strs(&p.args);
                 });
             }
+            Offer { services } => {
+                w.u8(OFFER);
+                w.strs(services);
+            }
+            Connect {
+                channel,
+                service,
+                opening,
+            } => {
+                w.u8(CONNECT);
+                w.u32(*channel);
+                w.str(service);
+                w.bytes(opening);
+            }
+            Data { channel, bytes } => {
+                w.u8(DATA);
+                w.u32(*channel);
+                w.bytes(bytes);
+            }
+            Ack { channel, bytes } => {
+                w.u8(ACK);
+                w.u32(*channel);
+                w.u32(*bytes);
+            }
+            Hangup { channel } => {
+                w.u8(HANGUP);
+                w.u32(*channel);
+            }
             Unknown { tag } => panic!("a frame of unknown kind {tag} cannot be sent"),
         }
         let len = (out.len() - start - 4) as u32;
@@ -423,6 +492,23 @@ impl Message {
                     })
                 })?,
             },
+            OFFER => Message::Offer {
+                services: r.strs()?,
+            },
+            CONNECT => Message::Connect {
+                channel: r.u32()?,
+                service: r.str()?,
+                opening: r.bytes()?.to_vec(),
+            },
+            DATA => Message::Data {
+                channel: r.u32()?,
+                bytes: r.bytes()?.to_vec(),
+            },
+            ACK => Message::Ack {
+                channel: r.u32()?,
+                bytes: r.u32()?,
+            },
+            HANGUP => Message::Hangup { channel: r.u32()? },
             tag => return Ok(Message::Unknown { tag }),
         };
         match r.0.len() {
@@ -676,6 +762,23 @@ mod tests {
                 pane: 3,
                 process: None,
             },
+            Message::Offer {
+                services: vec!["x11".into(), "sound".into()],
+            },
+            Message::Connect {
+                channel: 5,
+                service: "x11".into(),
+                opening: b"l\0\x0b\0".to_vec(),
+            },
+            Message::Data {
+                channel: 5,
+                bytes: vec![0, 255, 1],
+            },
+            Message::Ack {
+                channel: 5,
+                bytes: 3,
+            },
+            Message::Hangup { channel: 5 },
         ]
     }
 

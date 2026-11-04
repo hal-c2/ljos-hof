@@ -88,6 +88,7 @@ pub fn serve(agent: &Agent, path: &Path, linger: Duration) -> io::Result<()> {
             // First, so a bridge that comes now starts a new agent rather
             // than reaching this one as it goes.
             let _ = std::fs::remove_file(path);
+            agent.remove_files();
             return Ok(());
         }
     }

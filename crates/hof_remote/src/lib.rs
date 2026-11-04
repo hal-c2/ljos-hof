@@ -10,10 +10,18 @@
 //! way round. The messages are in [`wire`], Hof's end of a connection in
 //! [`client`]; see `docs/remote.md` for the
 //! whole design.
+//!
+//! Beside the panes, a connection carries other connections: X11 and
+//! sound clients on the agent's machine, passed on to the servers on
+//! Hof's ([`relay`], [`x11`], [`pulse`]).
 
 pub mod client;
+pub mod pulse;
+pub mod relay;
 pub mod stream;
 pub mod wire;
+pub mod x11;
 
+pub use relay::{Relays, Socket};
 pub use stream::{Backlog, Gap, Received, Resume};
-pub use wire::{Decoder, Message, PaneId, PaneInfo, Process, VERSION};
+pub use wire::{ChannelId, Decoder, Message, PaneId, PaneInfo, Process, VERSION};

@@ -18,7 +18,9 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak, mpsc};
 use std::thread;
 
 use hof_remote::wire::{self, Decoder, Message, PaneId, PaneInfo, VERSION};
-use hof_remote::{Backlog, Received, Resume};
+use hof_remote::{Backlog, Received, Relays, Resume};
+
+use crate::forward::Forwards;
 use hof_vt::{Event, Session, Size, Spawn};
 
 /// The most output one message carries; more goes in several, so one
@@ -69,6 +71,8 @@ struct Inner {
     connections: AtomicUsize,
     /// Where a pane's session says it has news (its end, mostly).
     changed: mpsc::Sender<PaneId>,
+    /// The X11 and sound clients here, passed on to Hof.
+    forwards: Arc<Forwards>,
 }
 
 struct Pane {
@@ -147,6 +151,7 @@ impl Agent {
             next_connection: AtomicU64::new(1),
             connections: AtomicUsize::new(0),
             changed,
+            forwards: Arc::new(Forwards::new(instance)),
         });
         let weak = Arc::downgrade(&inner);
         thread::Builder::new()
@@ -159,6 +164,12 @@ impl Agent {
     /// Different for every agent: what tells a client its panes are gone.
     pub fn instance(&self) -> u64 {
         self.inner.instance
+    }
+
+    /// Takes away the files the agent made for its panes' programs (the
+    /// X11 authorization, the sound socket): it is going.
+    pub fn remove_files(&self) {
+        self.inner.forwards.remove_files();
     }
 
     /// No connection is open and no pane is left: nothing to stay for.
@@ -180,9 +191,14 @@ impl Agent {
         let writing = thread::Builder::new()
             .name("hof-agent-write".into())
             .spawn(move || write_loop(&inner, &wakes, writer))?;
+        let relaying = wake.clone();
+        let relays = Relays::new(move |m| relaying.send(Wake::Send(m)).is_ok());
 
-        let result = self.read_loop(me, &wake, &mut reader);
+        let result = self.read_loop(me, &wake, &relays, &mut reader);
 
+        // Its channels go with it, and let go of the writer.
+        self.inner.forwards.withdraw(me);
+        relays.close_all();
         // Stop the output, so that the writer's last sender is ours.
         for pane in lock(&self.inner.panes).values() {
             let mut stream = lock(&pane.stream);
@@ -200,6 +216,7 @@ impl Agent {
         &self,
         me: u64,
         wake: &mpsc::Sender<Wake>,
+        relays: &Relays,
         reader: &mut impl Read,
     ) -> io::Result<()> {
         let mut decoder = Decoder::new();
@@ -214,7 +231,7 @@ impl Agent {
             decoder.push(&buf[..n]);
             while let Some(message) = decoder.next_message() {
                 match message {
-                    Ok(message) => self.handle(me, wake, message),
+                    Ok(message) => self.handle(me, wake, relays, message),
                     Err(e @ wire::Error::TooLarge(_)) => {
                         return Err(io::Error::new(io::ErrorKind::InvalidData, e));
                     }
@@ -225,7 +242,7 @@ impl Agent {
         }
     }
 
-    fn handle(&self, me: u64, wake: &mpsc::Sender<Wake>, message: Message) {
+    fn handle(&self, me: u64, wake: &mpsc::Sender<Wake>, relays: &Relays, message: Message) {
         let send = |m: Message| {
             let _ = wake.send(Wake::Send(m));
         };
@@ -250,7 +267,7 @@ impl Agent {
                 cols,
                 rows,
             } => send(
-                match self.open(command, &directory, &environment, cols, rows) {
+                match self.open(me, command, &directory, &environment, cols, rows) {
                     Ok(pane) => Message::Opened { request, pane },
                     Err(reason) => Message::Refused { request, reason },
                 },
@@ -322,6 +339,14 @@ impl Agent {
                     .collect(),
             }),
             Message::Ping { nonce } => send(Message::Pong { nonce }),
+            Message::Offer { services } => {
+                self.inner.forwards.offer(me, services, relays.clone());
+            }
+            Message::Data { channel, bytes } => relays.data(channel, bytes),
+            Message::Ack { channel, bytes } => relays.ack(channel, bytes),
+            Message::Hangup { channel } => relays.hang_up(channel),
+            // The agent takes the connections; Hof only passes them on.
+            Message::Connect { channel, .. } => send(Message::Hangup { channel }),
             // What the agent sends, not what it is sent, and what it can't
             // read: nothing to do.
             Message::Opened { .. }
@@ -344,6 +369,7 @@ impl Agent {
 
     fn open(
         &self,
+        me: u64,
         command: Vec<String>,
         directory: &str,
         environment: &[String],
@@ -360,10 +386,19 @@ impl Agent {
         } else {
             Some(PathBuf::from(directory))
         };
-        spawn.env = environment
-            .iter()
-            .filter_map(|v| v.split_once('='))
+        // What finds Hof's services first, so Hof's own say wins.
+        spawn.env = self
+            .inner
+            .forwards
+            .environment(me)
+            .into_iter()
             .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+            .chain(
+                environment
+                    .iter()
+                    .filter_map(|v| v.split_once('='))
+                    .map(|(k, v)| (OsString::from(k), OsString::from(v))),
+            )
             .collect();
 
         let stream = Arc::new(Mutex::new(Stream {

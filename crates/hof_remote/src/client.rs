@@ -19,8 +19,26 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::relay::{Relays, Socket};
 use crate::stream::{Backlog, Received, Resume};
 use crate::wire::{Decoder, Message, PaneId, VERSION};
+
+/// Something here that programs on the host may connect to, through the
+/// agent: the X server, the sound server.
+pub trait Service: Send + Sync + 'static {
+    /// What the agent knows it by: `x11`, `sound`.
+    fn name(&self) -> &str;
+    /// Connects to it here, for a program there that opened with
+    /// `opening`, and says what to write to it first: the opening, with
+    /// this machine's authorization put in.
+    fn open(&self, opening: &[u8]) -> io::Result<(Box<dyn Socket>, Vec<u8>)>;
+}
+
+impl std::fmt::Debug for dyn Service {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
 
 /// The local copy of a remote pane: where its output goes.
 pub trait Screen: Send + Sync + 'static {
@@ -74,6 +92,8 @@ pub struct Options {
     pub retry_longest: Duration,
     /// How much of what was typed to keep for sending again.
     pub input_backlog: usize,
+    /// What programs on the host may reach here.
+    pub services: Vec<Arc<dyn Service>>,
 }
 
 impl Default for Options {
@@ -84,6 +104,7 @@ impl Default for Options {
             retry_first: Duration::from_millis(250),
             retry_longest: Duration::from_secs(15),
             input_backlog: 1 << 20,
+            services: Vec::new(),
         }
     }
 }
@@ -337,6 +358,8 @@ struct Live {
     greeted: bool,
     heard: Instant,
     pinged: Instant,
+    /// The connections the agent passed on, over this one.
+    relays: Relays,
 }
 
 struct Driver {
@@ -499,6 +522,12 @@ impl Driver {
                     .spawn(move || read_frames(reader, &to, generation))
             });
         let now = Instant::now();
+        let to_relay = frames.clone();
+        let relays = Relays::new(move |message| {
+            let mut frame = Vec::new();
+            message.encode(&mut frame);
+            to_relay.send(frame).is_ok()
+        });
         self.live = Some(Live {
             generation,
             frames,
@@ -507,6 +536,7 @@ impl Driver {
             greeted: false,
             heard: now,
             pinged: now,
+            relays,
         });
         if let Err(e) = started {
             self.lost(Some(e.to_string()));
@@ -547,8 +577,11 @@ impl Driver {
             frames,
             written,
             end,
+            relays,
             ..
         } = self.live.take()?;
+        // They go with it, and let go of the writer.
+        relays.close_all();
         // What was sent last (a close, often) goes before the connection
         // does, unless it is stuck.
         drop(frames);
@@ -815,6 +848,39 @@ impl Driver {
             Message::Gone { pane } => {
                 self.disown(pane, "the program is gone from its machine");
             }
+            Message::Connect {
+                channel,
+                service,
+                opening,
+            } => {
+                let Some(live) = &self.live else { return };
+                let found = self
+                    .options
+                    .services
+                    .iter()
+                    .find(|s| s.name() == service)
+                    .cloned();
+                match found {
+                    Some(service) => live.relays.add(channel, move || service.open(&opening)),
+                    // Not offered, or no longer.
+                    None => self.send(Message::Hangup { channel }),
+                }
+            }
+            Message::Data { channel, bytes } => {
+                if let Some(live) = &self.live {
+                    live.relays.data(channel, bytes);
+                }
+            }
+            Message::Ack { channel, bytes } => {
+                if let Some(live) = &self.live {
+                    live.relays.ack(channel, bytes);
+                }
+            }
+            Message::Hangup { channel } => {
+                if let Some(live) = &self.live {
+                    live.relays.hang_up(channel);
+                }
+            }
             // Only for being heard.
             Message::Pong { .. } => {}
             _ => {}
@@ -868,6 +934,17 @@ impl Driver {
         self.retry_wait = self.options.retry_first;
         self.retry_at = None;
         self.why = None;
+        if !self.options.services.is_empty() {
+            // Before any pane is opened: the agent sets what finds them in
+            // the panes this connection opens.
+            let services = self
+                .options
+                .services
+                .iter()
+                .map(|s| s.name().into())
+                .collect();
+            self.send(Message::Offer { services });
+        }
         for pane in std::mem::take(&mut self.to_close) {
             self.send(Message::Close { pane });
         }

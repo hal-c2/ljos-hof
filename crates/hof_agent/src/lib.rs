@@ -10,8 +10,12 @@
 //! [`Agent`] is the panes and the protocol, over any reader and writer.
 //! [`daemon`] is the agent as a process that outlives its connections, on
 //! a unix socket, and the `--stdio` bridge ssh runs to reach it.
+//!
+//! The agent also passes on to Hof the X11 and sound clients its panes'
+//! programs start, when Hof offers to take them.
 
 mod agent;
 pub mod daemon;
+mod forward;
 
 pub use agent::{Agent, Options};
