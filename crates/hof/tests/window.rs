@@ -583,3 +583,40 @@ fn notification_text_cannot_become_an_option() {
     assert_eq!(args[4], "--wait");
     assert_eq!(args[5], "--replace-id=7");
 }
+
+#[test]
+fn a_remote_directory_is_not_a_local_process_working_directory() {
+    let hof = opened();
+    let empty = Value::list(Vec::new());
+    let pane = hof
+        .engine
+        .invoke_by_name(
+            hof.root,
+            "newTab",
+            &[
+                Value::from("/tmp"),
+                empty.clone(),
+                empty,
+                Value::from("dev"),
+            ],
+        )
+        .unwrap()
+        .to_number();
+    assert!(pane > 0.0);
+    assert_eq!(
+        hof.engine
+            .invoke_by_name(hof.root, "directoryOf", &[Value::from(pane)])
+            .unwrap()
+            .to_js_string()
+            .as_str(),
+        "/tmp"
+    );
+    assert_eq!(
+        hof.engine
+            .invoke_by_name(hof.root, "localDirectoryOf", &[Value::from(pane)])
+            .unwrap()
+            .to_js_string()
+            .as_str(),
+        ""
+    );
+}

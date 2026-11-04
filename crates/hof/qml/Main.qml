@@ -154,6 +154,12 @@ Window {
         return (window.starts[pane] ?? {}).directory ?? "";
     }
 
+    // A path on another machine is data for display and the hook's
+    // environment, never a directory for a process started here.
+    function localDirectoryOf(pane) {
+        return window.hostOf(pane).length > 0 ? "" : window.directoryOf(pane);
+    }
+
     function directoryOfCurrent() {
         return window.directoryOf(workspace.focusedPane);
     }
@@ -273,7 +279,7 @@ Window {
         const plugin = c.pluginDir.length > 0 ? ["HOF_PLUGIN_DIR=" + c.pluginDir] : [];
         switch (c.in) {
         case "background":
-            return App.spawn(c.run, window.environmentOf(pane, c.pluginDir), window.directoryOf(pane));
+            return App.spawn(c.run, window.environmentOf(pane, c.pluginDir), window.localDirectoryOf(pane));
         case "split-right":
         case "split-down":
             return window.split(c.in.slice(6), c.run, plugin) > 0;
@@ -288,7 +294,7 @@ Window {
         const hooks = window.hooks[event];
         if (hooks === undefined)
             return;
-        const directory = window.directoryOf(pane);
+        const directory = window.localDirectoryOf(pane);
         for (const h of hooks)
             App.spawn(h.run, window.environmentOf(pane, h.pluginDir).concat(["HOF_EVENT=" + event], extra), directory);
     }
