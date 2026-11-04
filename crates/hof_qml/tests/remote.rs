@@ -105,3 +105,32 @@ fn an_agent_on_a_host_is_told_by_its_foreground_and_screen_there() {
     }
     assert_eq!(s.engine.get(s.t, Terminal::AGENT).unwrap(), "fake");
 }
+
+#[test]
+fn a_program_on_a_host_reads_and_writes_the_clipboard_here() {
+    use ljos::prelude::*;
+    let (_agent, _) = host("clipboard");
+    // Raw, so the answer, with no newline, reaches it at once; the ESCs
+    // taken out, so what it read shows as text.
+    let mut s = shown(
+        "clipboard",
+        "stty raw -echo; printf '\\033]52;c;?\\007'; head -c 13 | tr -d '\\033'; \
+         printf ' \\033]52;c;bGrDs3M=\\007done'; read y",
+        -1,
+    );
+    s.engine
+        .set(s.t, Terminal::CLIPBOARD_READ, "allow".to_owned())
+        .unwrap();
+    Platform::of(&s.engine)
+        .clipboard()
+        .set_text(ClipboardMode::Clipboard, "hi")
+        .unwrap();
+    s.until_text("]52;c;aGk=\\ done");
+    assert_eq!(
+        Platform::of(&s.engine)
+            .clipboard()
+            .text(ClipboardMode::Clipboard)
+            .as_deref(),
+        Some("ljós")
+    );
+}

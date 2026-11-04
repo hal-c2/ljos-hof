@@ -463,3 +463,87 @@ fn the_cursor_has_the_configured_shape_until_a_program_asks_for_another() {
     f.window.settle().unwrap();
     assert_eq!(f.cursor(), vec![kurbo::Rect::new(0.0, 0.0, w, h)]);
 }
+
+fn clipboard(f: &Fixture) -> Option<String> {
+    Platform::of(&f.engine)
+        .clipboard()
+        .text(ClipboardMode::Clipboard)
+}
+
+#[test]
+fn a_program_puts_text_on_the_clipboard_unless_it_may_not() {
+    let mut f = shown();
+    // "ljós", in base64.
+    f.write("\x1b]52;c;bGrDs3M=\x07");
+    assert_eq!(clipboard(&f).as_deref(), Some("ljós"));
+
+    f.engine.set(f.t, Terminal::CLIPBOARD_WRITE, false).unwrap();
+    f.write("\x1b]52;c;bm8=\x07");
+    assert_eq!(clipboard(&f).as_deref(), Some("ljós"), "\"no\" is kept off");
+}
+
+/// What the terminal sent the program, as `input`.
+fn sent(input: &RefCell<Vec<Vec<Value>>>) -> String {
+    input
+        .borrow()
+        .iter()
+        .map(|a| a[0].to_js_string().as_str().to_owned())
+        .collect()
+}
+
+#[test]
+fn a_program_reads_the_clipboard_once_the_user_lets_it() {
+    let mut f = shown();
+    let asked = f.record("clipboardRequested");
+    let input = f.record("input");
+    Platform::of(&f.engine)
+        .clipboard()
+        .set_text(ClipboardMode::Clipboard, "ljós")
+        .unwrap();
+
+    f.write("\x1b]52;c;?\x07\x1b]52;c;?\x07");
+    assert_eq!(asked.borrow().len(), 1, "asked once for both");
+    assert_eq!(asked.borrow()[0][0].to_js_string().as_str(), "clipboard");
+    assert_eq!(sent(&input), "", "nothing is said before the user says");
+
+    f.invoke("answerClipboard", &[Value::from(true), Value::from(false)]);
+    assert_eq!(sent(&input), "\x1b]52;c;bGrDs3M=\x1b\\".repeat(2));
+
+    input.borrow_mut().clear();
+    f.write("\x1b]52;c;?\x07");
+    assert_eq!(asked.borrow().len(), 2, "allowing once is not always");
+    f.invoke("answerClipboard", &[Value::from(false), Value::from(false)]);
+    assert_eq!(
+        sent(&input),
+        "\x1b]52;c;\x1b\\",
+        "a denied read is answered empty"
+    );
+}
+
+#[test]
+fn a_read_let_always_or_by_policy_is_answered_unasked() {
+    let mut f = shown();
+    let asked = f.record("clipboardRequested");
+    let input = f.record("input");
+    Platform::of(&f.engine)
+        .clipboard()
+        .set_text(ClipboardMode::Clipboard, "hi")
+        .unwrap();
+
+    f.write("\x1b]52;c;?\x07");
+    f.invoke("answerClipboard", &[Value::from(true), Value::from(true)]);
+    input.borrow_mut().clear();
+    f.write("\x1b]52;c;?\x07");
+    assert_eq!(asked.borrow().len(), 1);
+    assert_eq!(sent(&input), "\x1b]52;c;aGk=\x1b\\");
+
+    let mut g = shown();
+    let asked = g.record("clipboardRequested");
+    let input = g.record("input");
+    g.engine
+        .set(g.t, Terminal::CLIPBOARD_READ, "deny".to_owned())
+        .unwrap();
+    g.write("\x1b]52;c;?\x07");
+    assert!(asked.borrow().is_empty());
+    assert_eq!(sent(&input), "\x1b]52;c;\x1b\\");
+}

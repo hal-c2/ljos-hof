@@ -88,6 +88,13 @@ pub struct Terminal {
     /// codes) and say so through `pasteBlocked`, for the user to confirm.
     #[qml(notify)]
     pub confirm_paste: bool,
+    /// Whether a program may read the clipboard (OSC 52): "ask", through
+    /// `clipboardRequested`; "allow"; or "deny", which answers it empty.
+    #[qml(notify)]
+    pub clipboard_read: String,
+    /// Whether a program may put text on the clipboard (OSC 52).
+    #[qml(notify)]
+    pub clipboard_write: bool,
 
     /// What to run; empty for the user's shell.
     #[qml(notify)]
@@ -232,6 +239,8 @@ impl Default for Terminal {
             scrollback: 10_000,
             copy_on_select: false,
             confirm_paste: true,
+            clipboard_read: "ask".into(),
+            clipboard_write: true,
             program: String::new(),
             arguments: Vec::new(),
             start_directory: String::new(),
@@ -301,6 +310,16 @@ pub(crate) struct Shared {
     /// not reached it yet: should that pane be gone, a new one starts.
     pub attaching: Cell<bool>,
     pub agent: RefCell<agents::Watch>,
+    pub clipboard: RefCell<ClipboardReads>,
+}
+
+/// The program's clipboard reads waiting for the user.
+#[derive(Debug, Default)]
+pub(crate) struct ClipboardReads {
+    /// Each read asked, in order; each gets its answer.
+    pub waiting: Vec<hof_vt::Clipboard>,
+    /// The user said to let this pane's program read, from now on.
+    pub always: bool,
 }
 
 /// How long a blinking cursor stays shown, and hidden.
@@ -384,6 +403,12 @@ impl Terminal {
     /// are now.
     #[qml(signal)]
     fn agent_status(agent: String, state: String);
+
+    /// The program asks to read a clipboard ("clipboard" or "selection")
+    /// and `clipboardRead` says to ask: the program waits for
+    /// `answerClipboard`. Further reads wait with it, unsaid.
+    #[qml(signal)]
+    fn clipboard_requested(clipboard: String);
 
     #[qml(on_complete)]
     fn completed(cx: &Cx) -> Result<(), EngineError> {
@@ -494,6 +519,25 @@ impl Terminal {
     #[qml(invokable)]
     fn paste_text(cx: &Cx, text: String) -> bool {
         paste(cx.engine, cx.this, &text, false)
+    }
+
+    /// Answers the program's clipboard reads that wait: with what is on
+    /// the clipboard if `allow`, else with nothing. `always` lets it read
+    /// from now on, for as long as the terminal lasts.
+    #[qml(invokable)]
+    fn answer_clipboard(cx: &Cx, allow: bool, always: bool) {
+        let Some(shared) = shared_of(cx.engine, cx.this) else {
+            return;
+        };
+        let waiting = {
+            let mut reads = shared.clipboard.borrow_mut();
+            reads.always |= allow && always;
+            std::mem::take(&mut reads.waiting)
+        };
+        for from in waiting {
+            answer_read(cx.engine, cx.this, from, allow);
+        }
+        flush_input(cx.engine, cx.this);
     }
 
     /// Pastes `text` even if it could run commands.
@@ -1053,6 +1097,14 @@ fn drain(engine: &Engine, me: ObjectId) {
                     said(engine, me, state, report.name);
                 }
             }
+            Event::Copy { to, text } => {
+                if engine.untrack(|| item::prop(engine, me, Terminal::CLIPBOARD_WRITE)) {
+                    let _ = Platform::of(engine)
+                        .clipboard()
+                        .set_text(mode_of(to), &text);
+                }
+            }
+            Event::ClipboardRead(from) => read_asked(engine, me, from),
             Event::Exited(code) => {
                 let code = code.unwrap_or(-1);
                 forget_agent(engine, me);
@@ -1200,6 +1252,58 @@ fn path_of(url: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+fn mode_of(clipboard: hof_vt::Clipboard) -> ClipboardMode {
+    match clipboard {
+        hof_vt::Clipboard::Standard => ClipboardMode::Clipboard,
+        hof_vt::Clipboard::Selection => ClipboardMode::Selection,
+    }
+}
+
+/// The program asked to read a clipboard: answers it, or asks the user.
+fn read_asked(engine: &Engine, me: ObjectId, from: hof_vt::Clipboard) {
+    let Some(shared) = shared_of(engine, me) else {
+        return;
+    };
+    let policy: String = engine.untrack(|| item::prop(engine, me, Terminal::CLIPBOARD_READ));
+    let allow = match policy.as_str() {
+        "allow" => Some(true),
+        "deny" => Some(false),
+        _ if shared.clipboard.borrow().always => Some(true),
+        _ => None,
+    };
+    if let Some(allow) = allow {
+        answer_read(engine, me, from, allow);
+        return;
+    }
+    let first = {
+        let mut reads = shared.clipboard.borrow_mut();
+        reads.waiting.push(from);
+        reads.waiting.len() == 1
+    };
+    if first {
+        let name = match from {
+            hof_vt::Clipboard::Standard => "clipboard",
+            hof_vt::Clipboard::Selection => "selection",
+        };
+        let _ = Terminal::emit_clipboard_requested(&cx(engine, me), name.to_owned());
+    }
+}
+
+/// Tells the program what is on the clipboard it asked for, or that
+/// nothing is, for a read it may not make; a program that asks waits for
+/// an answer either way.
+fn answer_read(engine: &Engine, me: ObjectId, from: hof_vt::Clipboard, allow: bool) {
+    let text = if allow {
+        Platform::of(engine)
+            .clipboard()
+            .text(mode_of(from))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    with_session(engine, me, |s| s.write(&hof_vt::read_answer(from, &text)));
 }
 
 pub(crate) fn copy_selection(engine: &Engine, me: ObjectId, mode: ClipboardMode) -> bool {
