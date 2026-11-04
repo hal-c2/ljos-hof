@@ -49,8 +49,11 @@ pub enum Event {
     Copy { to: crate::Clipboard, text: String },
     /// The program asked what is on a clipboard (OSC 52 `?`). The UI asks
     /// the user, or knows the answer, and answers with
-    /// [`crate::read_answer`]; nothing answers it before.
+    /// [`crate::carrying`]; nothing answers it before.
     ClipboardRead(crate::Clipboard),
+    /// The program asked the terminal to open a URL (Hof's OSC 7702, what
+    /// `hof open` says). The UI decides whether to.
+    Open(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

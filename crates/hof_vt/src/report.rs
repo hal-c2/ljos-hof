@@ -10,6 +10,15 @@
 //! sequence travels in the output, it reaches Hof from a program on any
 //! machine, through `hof agent` and back, with nothing more to set up.
 //!
+//! Another of Hof's own asks the terminal to open a URL, which may be a
+//! `file:` one, with what the user's desktop opens it with:
+//!
+//! ```text
+//! ESC ] 7702 ; <url> ST
+//! ```
+//!
+//! It is what `hof open` says, on whichever machine it runs.
+//!
 //! The same scanner picks out OSC 52 clipboard reads, which libghostty is
 //! left to pass over too; see [`crate::clipboard`].
 //!
@@ -23,6 +32,12 @@ pub const OSC: u16 = 7701;
 /// it is something else, never ending, or a clipboard write, which is
 /// libghostty's, and is let go.
 const MOST: usize = 256;
+
+/// The OSC number of a request to open a URL.
+pub const OPEN_OSC: u16 = 7702;
+
+/// The most a request to open may hold: URLs run longer than reports.
+const MOST_URL: usize = 8192;
 
 /// OSC 52, the clipboard's.
 const CLIPBOARD: u32 = 52;
@@ -43,6 +58,14 @@ pub struct Report {
 pub(crate) enum Found {
     Report(Report),
     ClipboardRead(crate::Clipboard),
+    Open(String),
+}
+
+/// What asks the terminal to open `url`, with any control characters,
+/// which would end it early, taken out.
+pub fn open_request(url: &str) -> Vec<u8> {
+    let url: String = url.chars().filter(|c| !c.is_control()).collect();
+    format!("\x1b]{OPEN_OSC};{url}\x1b\\").into_bytes()
 }
 
 #[derive(Debug, Default)]
@@ -108,7 +131,7 @@ impl Scanner {
                     At::Ground
                 }
                 At::Body if b == ESC => At::BodyEscape,
-                At::Body if self.body.len() >= MOST => At::Ground,
+                At::Body if self.body.len() >= self.most() => At::Ground,
                 At::Body => {
                     self.body.push(b);
                     At::Body
@@ -124,8 +147,21 @@ impl Scanner {
         }
     }
 
+    fn most(&self) -> usize {
+        if self.number == u32::from(OPEN_OSC) {
+            MOST_URL
+        } else {
+            MOST
+        }
+    }
+
     fn finish(&mut self, found: &mut impl FnMut(Found)) {
-        if self.number == CLIPBOARD {
+        if self.number == u32::from(OPEN_OSC) {
+            let url = String::from_utf8_lossy(&self.body).trim().to_owned();
+            if !url.is_empty() {
+                found(Found::Open(url));
+            }
+        } else if self.number == CLIPBOARD {
             if let Some(from) = crate::clipboard::read_of(&self.body) {
                 found(Found::ClipboardRead(from));
             }
@@ -143,7 +179,7 @@ impl Scanner {
 
 /// Whether `ESC ] n ;` starts a sequence of interest.
 fn wanted(n: u32) -> bool {
-    n == u32::from(OSC) || n == CLIPBOARD
+    n == u32::from(OSC) || n == u32::from(OPEN_OSC) || n == CLIPBOARD
 }
 
 #[cfg(test)]
@@ -164,7 +200,7 @@ mod tests {
             .into_iter()
             .filter_map(|f| match f {
                 Found::Report(r) => Some(r),
-                Found::ClipboardRead(_) => None,
+                Found::ClipboardRead(_) | Found::Open(_) => None,
             })
             .collect()
     }
@@ -221,6 +257,18 @@ mod tests {
         write.extend(b"\x07");
         let reads = found(&[&write, b"\x1b]52;c;aGk=\x07", b"\x1b]52;p;?\x1b\\"]);
         assert_eq!(reads, [Found::ClipboardRead(crate::Clipboard::Selection)]);
+    }
+
+    #[test]
+    fn a_request_to_open_is_found_however_long_its_url() {
+        let long = format!("https://ljos.dev/{}", "x".repeat(MOST * 2));
+        let mut out = b"\x1b]7702;\x1b\\".to_vec();
+        out.extend(open_request(&long));
+        out.extend(open_request("file:///tmp/a\x07b"));
+        assert_eq!(
+            found(&[&out]),
+            [Found::Open(long), Found::Open("file:///tmp/ab".into())]
+        );
     }
 
     #[test]

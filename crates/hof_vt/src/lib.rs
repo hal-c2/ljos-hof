@@ -31,7 +31,7 @@ mod session;
 mod signals;
 mod vt;
 
-pub use clipboard::{Clipboard, read_answer};
+pub use clipboard::{Clipboard, answer_of, carrying, read_request};
 pub use error::Error;
 pub use find::{Found, Highlight};
 pub use grid::{Attrs, Cell, Colors, Cursor, CursorShape, Damage, Grid, Line, Rgb};
@@ -39,7 +39,7 @@ pub use input::{KeyInput, MouseAction, MouseButton, MouseInput};
 pub use process::Process;
 pub use pty::Spawn;
 pub use remote::{Feed, Link, Outlet};
-pub use report::{OSC as AGENT_OSC, Report};
+pub use report::{OPEN_OSC, OSC as AGENT_OSC, Report, open_request};
 pub use session::{Options, PasteError, Scroll, Scrollbar, Selecting, Session, Tap, Theme};
 pub use signals::{Changes, Event, Progress, PromptMark};
 
