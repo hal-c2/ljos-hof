@@ -30,7 +30,9 @@ pub fn translate(ev: &KeyEvent, mac: bool) -> Option<KeyInput> {
     Some(input)
 }
 
-fn mods(m: Modifiers, mac: bool) -> Mods {
+/// Qt's modifiers as the terminal's. On a Mac Qt calls Command Control and
+/// Control Meta; the terminal wants them the other way round.
+pub(crate) fn mods(m: Modifiers, mac: bool) -> Mods {
     let mut out = Mods::empty();
     out.set(Mods::SHIFT, m.contains(Modifiers::SHIFT));
     out.set(Mods::ALT, m.contains(Modifiers::ALT));

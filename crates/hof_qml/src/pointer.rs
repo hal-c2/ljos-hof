@@ -51,13 +51,10 @@ fn locate(engine: &Engine, me: ObjectId, p: kurbo::Point) -> ((u16, u16), (f32, 
     )
 }
 
-fn mods(m: Modifiers) -> Mods {
-    let mut out = Mods::empty();
-    out.set(Mods::SHIFT, m.contains(Modifiers::SHIFT));
-    out.set(Mods::CTRL, m.contains(Modifiers::CONTROL));
-    out.set(Mods::ALT, m.contains(Modifiers::ALT));
-    out.set(Mods::SUPER, m.contains(Modifiers::META));
-    out
+/// So a Control+click reaches a program as one on a Mac too, where Qt calls
+/// Control Meta.
+fn mods(engine: &Engine, me: ObjectId, m: Modifiers) -> Mods {
+    crate::keys::mods(m, item::prop(engine, me, Terminal::MAC_MODIFIERS))
 }
 
 fn button(b: MouseButtons) -> Option<MouseButton> {
@@ -106,7 +103,7 @@ fn press(engine: &Engine, me: ObjectId, ev: &PointerEvent, p: kurbo::Point) -> b
         let input = MouseInput {
             action: MouseAction::Press,
             button: Some(b),
-            mods: mods(ev.modifiers),
+            mods: mods(engine, me, ev.modifiers),
             x,
             y,
         };
@@ -171,7 +168,7 @@ fn moved(engine: &Engine, me: ObjectId, ev: &PointerEvent, p: kurbo::Point) {
             MouseInput {
                 action: MouseAction::Motion,
                 button: Some(b),
-                mods: mods(ev.modifiers),
+                mods: mods(engine, me, ev.modifiers),
                 x,
                 y,
             },
@@ -197,7 +194,7 @@ fn release(engine: &Engine, me: ObjectId, ev: &PointerEvent, p: kurbo::Point) {
             MouseInput {
                 action: MouseAction::Release,
                 button: Some(b),
-                mods: mods(ev.modifiers),
+                mods: mods(engine, me, ev.modifiers),
                 x,
                 y,
             },
@@ -296,7 +293,7 @@ pub fn wheel(engine: &Engine, me: ObjectId, ev: &WheelEvent, p: kurbo::Point) ->
                 MouseInput {
                     action: MouseAction::Press,
                     button: Some(b),
-                    mods: mods(ev.modifiers),
+                    mods: mods(engine, me, ev.modifiers),
                     x,
                     y,
                 },
