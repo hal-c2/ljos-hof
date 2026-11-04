@@ -1,7 +1,7 @@
 # Ljós Hof
 
 *Ljós* is Icelandic for light; a *hof* is a shrine. Hof is a terminal for
-Linux. Its UI is QML, built on [Ljós UI](https://github.com/hal-c2/ljos-ui),
+Linux and macOS. Its UI is QML, built on [Ljós UI](https://github.com/hal-c2/ljos-ui),
 and it uses Ghostty's `libghostty-vt` (through
 [libghostty-rs](https://github.com/uzaaft/libghostty-rs)) as a library to
 parse what programs write.
@@ -17,6 +17,11 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
 - **A dropdown.** `hof --dropdown` slides in from the top or bottom edge,
   and `hof --toggle` shows or hides it (bind that in your desktop).
   `hof --tab -- cmd` opens a tab in it.
+- **Keys as each desktop has them.** On a Mac, Command: Cmd+T, Cmd+W,
+  Cmd+D, Cmd+1 to 9, Cmd+C and Cmd+V, and every Ctrl and Option chord is
+  the terminal's. Elsewhere Ctrl+Shift: Ctrl+Shift+T, Ctrl+Shift+W, Alt+1
+  to 9, Ctrl+Shift+C, so plain Ctrl chords (fzf's Ctrl+T, say) reach the
+  shell. Any of it can be rebound in `[keys]`.
 - **One TOML file** where every key is optional. A key Hof doesn't know is
   a warning, not an error. `reload-config` applies the file without a
   restart. See [`hof.example.toml`](crates/hof_config/hof.example.toml).
@@ -47,7 +52,7 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   in remote panes too.
 - **Links.** A program's own links (OSC 8) and URLs in the text are
   underlined under the pointer, which names them in the pane's corner.
-  Ctrl+click opens one. A URL that wraps onto the next row opens whole.
+  Ctrl+click (Cmd+click on a Mac) opens one. A URL that wraps onto the next row opens whole.
 - **MCP.** `hof mcp` is a stdio MCP server for the running Hof. Agents can
   read panes and agents' states, and say or wait for those states, always;
   typing into panes and opening or closing them are separate opt-ins in
@@ -151,7 +156,7 @@ Remote panes work now. Name a machine under `[hosts]`:
 ssh = "dev.example.com"
 ```
 
-Then Ctrl+Shift+H, or `hof ctl tab --host dev`, opens a tab there, and a
+Then Ctrl+Shift+H (Cmd+Shift+H on a Mac), or `hof ctl tab --host dev`, opens a tab there, and a
 split of that tab stays on `dev`. A machine with no Hof gets a small,
 static `hof` agent, copied over ssh the first time. When the connection drops, the pane says it is
 reconnecting and picks up where it was. When Hof quits with
