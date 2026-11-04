@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="Check that Hof compiles for macOS, from Linux: clippy for aarch64-apple-darwin, with Zig as the C compiler"
+set -euo pipefail
+# Some dependencies build C, and cc-rs needs a compiler for the target.
+# Zig has one, with macOS's headers; cc-rs's own --target is dropped for
+# Zig's. Nothing is linked, so no macOS SDK is needed.
+rustup target add aarch64-apple-darwin >/dev/null
+bin=$(mktemp -d)
+trap 'rm -rf "$bin"' EXIT
+cat > "$bin/cc" <<'CC'
+#!/bin/sh
+skip=
+for a in "$@"; do
+  shift
+  if [ -n "$skip" ]; then skip=; continue; fi
+  case "$a" in --target=*|-mmacosx-version-min=*) continue;; -arch|-target) skip=1; continue;; esac
+  set -- "$@" "$a"
+done
+exec zig cc -target aarch64-macos "$@"
+CC
+printf '#!/bin/sh\nexec zig ar "$@"\n' > "$bin/ar"
+chmod +x "$bin/cc" "$bin/ar"
+CC_aarch64_apple_darwin="$bin/cc" AR_aarch64_apple_darwin="$bin/ar" \
+  cargo clippy --workspace --all-targets --target aarch64-apple-darwin "$@" -- -D warnings

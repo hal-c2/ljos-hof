@@ -71,9 +71,7 @@ pub(crate) struct Pty {
 
 impl Pty {
     pub fn spawn(spawn: &Spawn, size: Size) -> Result<Self, Error> {
-        let master =
-            rustix::pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)
-                .map_err(|e| Error::Pty("openpt", e.into()))?;
+        let master = open_master()?;
         rustix::pty::grantpt(&master).map_err(|e| Error::Pty("grantpt", e.into()))?;
         rustix::pty::unlockpt(&master).map_err(|e| Error::Pty("unlockpt", e.into()))?;
         let slave_path = rustix::pty::ptsname(&master, Vec::new())
@@ -134,6 +132,26 @@ impl Pty {
         let child = cmd.spawn().map_err(|e| Error::Spawn(program, e))?;
         Ok(Self { master, child })
     }
+}
+
+/// The master side, closed on exec so no other child holds it open.
+#[cfg(target_os = "linux")]
+fn open_master() -> Result<OwnedFd, Error> {
+    rustix::pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)
+        .map_err(|e| Error::Pty("openpt", e.into()))
+}
+
+/// The master side, closed on exec so no other child holds it open. Only
+/// Linux takes that flag at open; elsewhere it is set just after, which
+/// leaves a moment where a fork on another thread could inherit it.
+#[cfg(not(target_os = "linux"))]
+fn open_master() -> Result<OwnedFd, Error> {
+    use rustix::io::FdFlags;
+    let master = rustix::pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY)
+        .map_err(|e| Error::Pty("openpt", e.into()))?;
+    rustix::io::fcntl_setfd(&master, FdFlags::CLOEXEC)
+        .map_err(|e| Error::Pty("cloexec", e.into()))?;
+    Ok(master)
 }
 
 pub(crate) fn set_winsize(master: impl AsFd, size: Size) -> Result<(), Error> {

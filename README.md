@@ -75,6 +75,7 @@ mise hof              # builds Hof and opens a window; `mise hof --dropdown`
 | `mise build`             | an optimised build, `target/release/hof`            |
 | `mise test [ARGS]`       | every test, or what ARGS pick (`mise test -p hof_vt`) |
 | `mise check`             | what a change must pass: fmt, clippy and every test |
+| `mise check-macos`       | that it compiles for macOS, checked from Linux      |
 | `mise types`             | regenerates the QML types (see below)               |
 | `mise fire [SECONDS]`    | the stress test (see below)                         |
 | `mise agents`            | the static agents for remote machines               |

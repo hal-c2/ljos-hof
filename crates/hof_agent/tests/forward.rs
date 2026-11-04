@@ -143,17 +143,31 @@ fn serve_once(listener: UnixListener, wanted: usize) -> thread::JoinHandle<(Vec<
     })
 }
 
-fn x_client(display: &str) -> UnixStream {
+trait Stream: Read + Write {}
+impl<T: Read + Write> Stream for T {}
+
+/// A client of the display the agent made: on Linux its abstract socket,
+/// elsewhere TCP on this machine.
+fn x_client(display: &str) -> Box<dyn Stream> {
     let (target, _) = x11::Target::of(display).expect("a display");
-    let x11::Target::Local(n) = target else {
-        panic!("not a local display: {display}");
-    };
-    use std::os::linux::net::SocketAddrExt;
-    let addr =
-        std::os::unix::net::SocketAddr::from_abstract_name(format!("/tmp/.X11-unix/X{n}")).unwrap();
-    let s = UnixStream::connect_addr(&addr).unwrap();
-    s.set_read_timeout(Some(PATIENCE)).unwrap();
-    s
+    match target {
+        #[cfg(target_os = "linux")]
+        x11::Target::Local(n) => {
+            use std::os::linux::net::SocketAddrExt;
+            let addr =
+                std::os::unix::net::SocketAddr::from_abstract_name(format!("/tmp/.X11-unix/X{n}"))
+                    .unwrap();
+            let s = UnixStream::connect_addr(&addr).unwrap();
+            s.set_read_timeout(Some(PATIENCE)).unwrap();
+            Box::new(s)
+        }
+        x11::Target::Tcp(host, port) => {
+            let s = std::net::TcpStream::connect((host.as_str(), port)).unwrap();
+            s.set_read_timeout(Some(PATIENCE)).unwrap();
+            Box::new(s)
+        }
+        other => panic!("not a display the agent makes: {other:?}"),
+    }
 }
 
 fn cookie_in(xauthority: &str, display: &str) -> Vec<u8> {
@@ -203,7 +217,12 @@ fn an_x11_client_there_reaches_the_server_here_with_its_cookie() {
     let seen = pane_saying(&host, &["DISPLAY", "XAUTHORITY"]);
     let display = seen.line("DISPLAY=");
     let xauthority = seen.line("XAUTHORITY=");
-    assert!(display.starts_with(':'), "{display}");
+    let ours = if cfg!(target_os = "linux") {
+        ":"
+    } else {
+        "localhost:"
+    };
+    assert!(display.starts_with(ours), "{display}");
 
     let fake = cookie_in(&xauthority, &display);
     assert_ne!(
