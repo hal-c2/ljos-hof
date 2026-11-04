@@ -1,0 +1,675 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Window
+import Hof
+import Hof.App
+
+// Hof's window: tabs of split panes, one terminal each. The layout lives
+// in `Workspace`; this file places a terminal where it says. Terminals are
+// made once per pane and only moved, so splitting, closing and zooming
+// keep every program and its scrollback.
+Window {
+    id: window
+
+    // Points added to the font by font-bigger and font-smaller.
+    property real zoom: 0
+    readonly property real fontSize: Math.max(4, Settings.fontSize + window.zoom)
+    readonly property color background: Settings.background
+    readonly property color foreground: Settings.foreground
+    readonly property color border: Qt.rgba(window.foreground.r, window.foreground.g, window.foreground.b, 0.15)
+
+    // The Terminal of each pane, by pane id; `terminalsRevision` moves with it.
+    property var terminals: ({})
+    // The Pane item of each pane, by pane id, for what only it can do.
+    property var paneItems: ({})
+    property int terminalsRevision: 0
+    // What a pane about to be made runs and where: `{ directory, command,
+    // host, remote }`, `host` a `[hosts]` name (empty for this machine)
+    // and `remote` its pane under `hof agent` there.
+    property var starts: ({})
+    // The window is sized to Settings' cells once the first terminal knows
+    // its cell.
+    property bool sized: App.dropdown
+    // The layout is changing in steps (a new pane, a saved session put in
+    // place): its new panes wait for their starts before they are made.
+    property bool holding: false
+
+    // `[commands]` and `[hooks]`, as `Settings` gives them.
+    readonly property var commands: JSON.parse(Settings.commands)
+    readonly property var hooks: JSON.parse(Settings.hooks)
+
+    // For whoever drives the window from outside (tests, the MCP server).
+    readonly property Workspace layout: workspace
+    readonly property int paneCount: paneModel.count
+    readonly property bool tabsShown: tabBar.visible
+    readonly property bool confirmingPaste: {
+        void window.terminalsRevision;
+        const item = window.paneItems[workspace.focusedPane];
+        return item !== undefined && item.confirmingPaste;
+    }
+    readonly property bool searchShown: {
+        void window.terminalsRevision;
+        const item = window.paneItems[workspace.focusedPane];
+        return item !== undefined && item.searching;
+    }
+
+    readonly property Terminal current: {
+        void window.terminalsRevision;
+        return window.terminals[workspace.focusedPane] ?? null;
+    }
+
+    visible: !App.dropdown
+    width: 900
+    height: 560
+    title: window.current !== null && window.current.title.length > 0 ? window.current.title : Settings.title
+    color: Qt.rgba(window.background.r, window.background.g, window.background.b, Settings.opacity)
+    flags: App.dropdown ? (Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint) : (Settings.decorations ? Qt.Window : (Qt.Window | Qt.FramelessWindowHint))
+
+    Workspace {
+        id: workspace
+
+        onRevisionChanged: if (!window.holding)
+            window.sync()
+    }
+
+    ListModel {
+        id: paneModel
+    }
+
+    ListModel {
+        id: dividerModel
+    }
+
+    function indexIn(model, key, value) {
+        for (let i = 0; i < model.count; ++i) {
+            if (model.get(i)[key] === value)
+                return i;
+        }
+        return -1;
+    }
+
+    // Brings the models in line with the layout, changing rows in place.
+    function sync() {
+        const panes = workspace.panes();
+        const ids = panes.map(p => p.pane);
+        for (let i = paneModel.count - 1; i >= 0; --i) {
+            if (ids.indexOf(paneModel.get(i).pane) < 0)
+                paneModel.remove(i);
+        }
+        for (const p of panes) {
+            const row = {
+                pane: p.pane,
+                tab: p.tab,
+                rx: p.x,
+                ry: p.y,
+                rw: p.width,
+                rh: p.height,
+                focused: p.focused,
+                shown: p.visible
+            };
+            const at = window.indexIn(paneModel, "pane", p.pane);
+            if (at < 0)
+                paneModel.append(row);
+            else
+                paneModel.set(at, row);
+        }
+        const dividers = workspace.dividers();
+        const paths = dividers.map(d => d.path);
+        for (let i = dividerModel.count - 1; i >= 0; --i) {
+            if (paths.indexOf(dividerModel.get(i).path) < 0)
+                dividerModel.remove(i);
+        }
+        for (const d of dividers) {
+            const row = {
+                path: d.path,
+                vertical: d.vertical,
+                ratio: d.ratio,
+                rx: d.x,
+                ry: d.y,
+                rw: d.width,
+                rh: d.height
+            };
+            const at = window.indexIn(dividerModel, "path", d.path);
+            if (at < 0)
+                dividerModel.append(row);
+            else
+                dividerModel.set(at, row);
+        }
+    }
+
+    // Where a pane is: where its shell last said, else where it started.
+    function directoryOf(pane) {
+        const t = window.terminalOf(pane);
+        if (t !== null && t.workingDirectory.length > 0)
+            return t.workingDirectory;
+        return (window.starts[pane] ?? {}).directory ?? "";
+    }
+
+    function directoryOfCurrent() {
+        return window.directoryOf(workspace.focusedPane);
+    }
+
+    // The `[hosts]` name the pane runs on; empty for this machine.
+    function hostOf(pane) {
+        return (window.starts[pane] ?? {}).host ?? "";
+    }
+
+    function newTab(directory, command, environment, host) {
+        const on = host ?? "";
+        // The focused pane's directory means nothing on another machine.
+        const from = window.hostOf(workspace.focusedPane) === on ? window.directoryOfCurrent() : "";
+        window.holding = true;
+        const pane = workspace.newTab();
+        window.holding = false;
+        window.starts[pane] = {
+            directory: directory ?? from,
+            command: command ?? [],
+            environment: environment ?? [],
+            host: on
+        };
+        window.sync();
+        return pane;
+    }
+
+    function split(toward, command, environment, host) {
+        // A split runs on the machine of the pane it splits, unless told.
+        const from = window.hostOf(workspace.focusedPane);
+        const on = host ?? from;
+        const directory = on === from ? window.directoryOfCurrent() : "";
+        window.holding = true;
+        const pane = workspace.split(toward);
+        window.holding = false;
+        if (pane > 0)
+            window.starts[pane] = {
+                directory: directory,
+                command: command ?? [],
+                environment: environment ?? [],
+                host: on
+            };
+        window.sync();
+        return pane;
+    }
+
+    // What a program Hof starts for a pane is told, beyond the config's
+    // environment: the pane, how to reach Hof, and where the pane is.
+    function environmentOf(pane, pluginDir) {
+        const env = ["HOF_PANE_ID=" + pane, "HOF_SOCKET=" + App.controlSocket, "HOF_DIRECTORY=" + window.directoryOf(pane)];
+        if (pluginDir.length > 0)
+            env.push("HOF_PLUGIN_DIR=" + pluginDir);
+        return Settings.environment.concat(env);
+    }
+
+    // Runs a `[commands]` entry by name, from the focused pane: types its
+    // text there, or runs its program in a tab, a split or the background.
+    function runCommand(name) {
+        const c = window.commands[name];
+        if (c === undefined) {
+            console.warn("hof: no command called " + name);
+            return false;
+        }
+        const pane = workspace.focusedPane;
+        if (c.send !== null) {
+            const t = window.terminalOf(pane);
+            if (t === null)
+                return false;
+            t.send(c.send);
+            return true;
+        }
+        const plugin = c.pluginDir.length > 0 ? ["HOF_PLUGIN_DIR=" + c.pluginDir] : [];
+        switch (c.in) {
+        case "background":
+            return App.spawn(c.run, window.environmentOf(pane, c.pluginDir), window.directoryOf(pane));
+        case "split-right":
+        case "split-down":
+            return window.split(c.in.slice(6), c.run, plugin) > 0;
+        default:
+            return window.newTab(undefined, c.run, plugin) > 0;
+        }
+    }
+
+    // Runs the `[hooks]` for `event` in `pane`, with what the event says
+    // (`NAME=value` each) in `extra`.
+    function fireHook(pane, event, extra) {
+        const hooks = window.hooks[event];
+        if (hooks === undefined)
+            return;
+        const directory = window.directoryOf(pane);
+        for (const h of hooks)
+            App.spawn(h.run, window.environmentOf(pane, h.pluginDir).concat(["HOF_EVENT=" + event], extra), directory);
+    }
+
+    // What the MCP server asks of the window (see `src/mcp.rs`): plain
+    // values in and out, JSON where there is more than one.
+    function mcpPanes() {
+        const out = [];
+        for (const p of workspace.panes()) {
+            const t = window.terminalOf(p.pane);
+            out.push({
+                id: p.pane,
+                tab: p.tab,
+                title: t !== null ? t.title : "",
+                workingDirectory: window.directoryOf(p.pane),
+                focused: p.pane === workspace.focusedPane,
+                running: t !== null && t.commandRunning,
+                columns: t !== null ? t.columns : 0,
+                rows: t !== null ? t.rows : 0
+            });
+        }
+        return JSON.stringify(out);
+    }
+
+    function mcpNewTab(directory, command, host) {
+        return window.newTab(directory.length > 0 ? directory : undefined, command, undefined, host);
+    }
+
+    // `host` null for the split pane's.
+    function mcpSplit(pane, toward, command, host) {
+        if (!workspace.focusPane(pane))
+            return 0;
+        return window.split(toward, command, undefined, host);
+    }
+
+    function mcpFocus(pane) {
+        return workspace.focusPane(pane);
+    }
+
+    // Closes a pane whose program is done or that the user closed. The
+    // last pane closes the window; a dropdown hides and starts afresh.
+    function closePane(pane) {
+        const closed = workspace.closePane(pane);
+        if (closed !== "everything")
+            return;
+        if (App.dropdown) {
+            window.hideDropdown();
+            window.newTab("", []);
+        } else {
+            // Everything was closed on purpose: the next start is a fresh one.
+            if (Settings.sessionRestore)
+                App.clearSession();
+            Qt.quit();
+        }
+    }
+
+    // Saves the tabs and splits, and where each pane was and what it
+    // showed, for the next start to open again.
+    function saveSession() {
+        const panes = {};
+        for (const pane in window.terminals) {
+            const t = window.terminals[pane];
+            const start = window.starts[pane] ?? {};
+            panes[pane] = {
+                directory: window.directoryOf(pane),
+                command: start.command ?? [],
+                title: t.title,
+                scrollback: Settings.sessionSaveScrollback ? t.snapshot() : "",
+                host: t.host,
+                // Its program runs on there, to attach to again.
+                remote: t.remotePane >= 0 ? t.remotePane : null
+            };
+        }
+        return App.saveSession(workspace, JSON.stringify(panes), window.width, window.height);
+    }
+
+    // Opens the last session in place of a first tab, when the settings
+    // ask for it and the command line did not ask for something else.
+    function restoreSession() {
+        if (!Settings.sessionRestore || App.dropdown || App.command.length > 0)
+            return false;
+        window.holding = true;
+        const text = App.restoreSession(workspace);
+        window.holding = false;
+        if (text.length === 0)
+            return false;
+        const saved = JSON.parse(text);
+        for (const pane in saved.panes)
+            window.starts[pane] = saved.panes[pane];
+        if (saved.width > 0 && saved.height > 0) {
+            window.sized = true;
+            window.width = saved.width;
+            window.height = saved.height;
+        }
+        window.sync();
+        return true;
+    }
+
+    onClosing: close => {
+        if (Settings.sessionRestore && !App.dropdown)
+            window.saveSession();
+    }
+
+    function register(pane, terminal, item) {
+        const opened = window.terminals[pane] === undefined;
+        window.terminals[pane] = terminal;
+        window.paneItems[pane] = item;
+        window.terminalsRevision++;
+        // Both: the cell's width is known a moment before its height.
+        if (!window.sized && terminal.cellWidth > 0 && terminal.cellHeight > 0) {
+            window.sized = true;
+            const chrome = tabBar.visible ? tabBar.height : 0;
+            window.width = Math.round(Settings.columns * terminal.cellWidth + 2 * terminal.padding);
+            window.height = Math.round(Settings.rows * terminal.cellHeight + 2 * terminal.padding + chrome);
+        }
+        if (opened)
+            window.fireHook(pane, "pane-opened", []);
+    }
+
+    function unregister(pane) {
+        window.fireHook(pane, "pane-closed", []);
+        delete window.terminals[pane];
+        delete window.paneItems[pane];
+        window.terminalsRevision++;
+    }
+
+    function terminalOf(pane) {
+        void window.terminalsRevision;
+        return window.terminals[pane] ?? null;
+    }
+
+    // An action a key binding or the menu names.
+    function run(action) {
+        const t = window.current;
+        switch (action) {
+        case "new-tab":
+            window.newTab();
+            break;
+        case "close-tab":
+            for (const pane of workspace.tabPanes(workspace.currentTab))
+                window.closePane(pane);
+            break;
+        case "close-pane":
+            if (t !== null)
+                window.closePane(workspace.focusedPane);
+            break;
+        case "next-tab":
+            workspace.nextTab();
+            break;
+        case "previous-tab":
+            workspace.previousTab();
+            break;
+        case "split-right":
+            window.split("right");
+            break;
+        case "split-down":
+            window.split("down");
+            break;
+        case "focus-left":
+        case "focus-right":
+        case "focus-up":
+        case "focus-down":
+            workspace.focusToward(action.slice(6));
+            break;
+        case "grow-left":
+        case "grow-right":
+        case "grow-up":
+        case "grow-down":
+            workspace.grow(action.slice(5), 0.05);
+            break;
+        case "zoom-pane":
+            workspace.toggleZoom();
+            break;
+        case "copy":
+            if (t !== null)
+                t.copy();
+            break;
+        case "paste":
+            if (t !== null)
+                t.paste();
+            break;
+        case "select-all":
+            if (t !== null)
+                t.selectAll();
+            break;
+        case "scroll-page-up":
+            if (t !== null)
+                t.scrollLines(-Math.max(1, t.rows - 1));
+            break;
+        case "scroll-page-down":
+            if (t !== null)
+                t.scrollLines(Math.max(1, t.rows - 1));
+            break;
+        case "scroll-top":
+            if (t !== null)
+                t.scrollToTop();
+            break;
+        case "scroll-bottom":
+            if (t !== null)
+                t.scrollToBottom();
+            break;
+        case "previous-prompt":
+            if (t !== null)
+                t.scrollToPrompt(-1);
+            break;
+        case "next-prompt":
+            if (t !== null)
+                t.scrollToPrompt(1);
+            break;
+        case "font-bigger":
+            window.zoom += 1;
+            break;
+        case "font-smaller":
+            window.zoom -= 1;
+            break;
+        case "font-reset":
+            window.zoom = 0;
+            break;
+        case "reset":
+            if (t !== null)
+                t.reset();
+            break;
+        case "search": {
+            const item = window.paneItems[workspace.focusedPane];
+            if (item !== undefined)
+                item.openSearch();
+            break;
+        }
+        case "reload-config":
+            Settings.reload();
+            break;
+        case "toggle-fullscreen":
+            window.visibility = window.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen;
+            break;
+        case "toggle-dropdown":
+            if (App.dropdown)
+                window.toggleDropdown();
+            break;
+        default:
+            if (action.startsWith("command:"))
+                window.runCommand(action.slice(8));
+            else
+                console.warn("hof: no action called " + action);
+        }
+    }
+
+    // The dropdown: where it sits, and its slide in and out. On a desktop
+    // that places windows itself (most Wayland compositors) the position
+    // is a hint; a window rule puts it at the edge.
+    property real shownFraction: App.dropdown ? 0 : 1
+
+    Behavior on shownFraction {
+        enabled: App.dropdown && Settings.animationMs > 0
+
+        NumberAnimation {
+            duration: Settings.animationMs
+            easing.type: Easing.OutCubic
+        }
+    }
+    onShownFractionChanged: if (App.dropdown && window.shownFraction === 0 && window.hiding) {
+        window.hiding = false;
+        window.visible = false;
+    }
+    property bool hiding: false
+
+    function showDropdown() {
+        window.hiding = false;
+        if (!window.visible) {
+            window.width = Math.round(Screen.width * Settings.dropdownWidth);
+            window.height = Math.round(Screen.height * Settings.dropdownHeight);
+            window.x = Screen.virtualX + Math.round((Screen.width - window.width) / 2);
+            window.y = Screen.virtualY + (Settings.dropdownBottom ? Screen.height - window.height : 0);
+            window.visible = true;
+        }
+        window.raise();
+        window.requestActivate();
+        window.shownFraction = 1;
+        if (window.current !== null)
+            window.current.forceActiveFocus();
+    }
+
+    function hideDropdown() {
+        if (!window.visible)
+            return;
+        window.hiding = true;
+        window.shownFraction = 0;
+        if (Settings.animationMs <= 0) {
+            window.hiding = false;
+            window.visible = false;
+        }
+    }
+
+    function toggleDropdown() {
+        if (window.visible && !window.hiding)
+            window.hideDropdown();
+        else
+            window.showDropdown();
+    }
+
+    onActiveChanged: if (App.dropdown && !window.active && Settings.hideOnFocusLoss && window.visible)
+        window.hideDropdown()
+
+    Connections {
+        target: App
+
+        function onToggleRequested() {
+            window.toggleDropdown();
+        }
+
+        function onTabRequested(command, directory) {
+            window.newTab(directory, command);
+            window.showDropdown();
+        }
+    }
+
+    Item {
+        id: content
+
+        width: window.width
+        height: window.height
+        // A dropdown slides in from its edge.
+        y: Math.round((1 - window.shownFraction) * window.height * (Settings.dropdownBottom ? 1 : -1))
+
+        TabBar {
+            id: tabBar
+
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            visible: workspace.tabCount > 1
+            height: visible ? implicitHeight : 0
+            workspace: workspace
+            background: window.background
+            foreground: window.foreground
+            border: window.border
+            fontFamily: Settings.fontFamily
+            titleOf: pane => {
+                const t = window.terminalOf(pane);
+                const title = t !== null && t.title.length > 0 ? t.title : Settings.title;
+                const host = window.hostOf(pane);
+                return host.length > 0 ? host + ": " + title : title;
+            }
+            onNewTab: window.newTab()
+            onCloseTab: index => {
+                for (const pane of workspace.tabPanes(index))
+                    window.closePane(pane);
+            }
+        }
+
+        Item {
+            id: area
+
+            anchors.top: tabBar.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+
+            Repeater {
+                model: paneModel
+
+                delegate: Pane {
+                    id: slot
+
+                    required property real rx
+                    required property real ry
+                    required property real rw
+                    required property real rh
+
+                    x: Math.round(slot.rx * area.width)
+                    y: Math.round(slot.ry * area.height)
+                    width: Math.round((slot.rx + slot.rw) * area.width) - x
+                    height: Math.round((slot.ry + slot.rh) * area.height) - y
+                    visible: slot.shown
+                    start: window.starts[slot.pane] ?? ({
+                            directory: App.workingDirectory,
+                            command: App.command
+                        })
+                    fontSize: window.fontSize
+                    background: window.background
+                    foreground: window.foreground
+                    onTerminalReady: (terminal, item) => window.register(slot.pane, terminal, item)
+                    onTerminalGone: window.unregister(slot.pane)
+                    onFocusTaken: workspace.focusPane(slot.pane)
+                    onFinished: window.closePane(slot.pane)
+                    onAction: name => window.run(name)
+                    onHook: (event, extra) => window.fireHook(slot.pane, event, extra)
+                }
+            }
+
+            Repeater {
+                model: dividerModel
+
+                delegate: Divider {
+                    area: area
+                    workspace: workspace
+                    color: window.border
+                }
+            }
+        }
+
+        // Every binding the config file names, as a window-wide shortcut:
+        // it wins over the terminal, which never claims a key first.
+        Repeater {
+            model: Settings.bindingActions.length
+
+            delegate: Item {
+                id: binding
+
+                required property int index
+
+                Shortcut {
+                    sequence: Settings.bindingSequences[binding.index]
+                    context: Qt.WindowShortcut
+                    onActivated: window.run(Settings.bindingActions[binding.index])
+                }
+            }
+        }
+
+        // What was wrong with the config file, until dismissed.
+        Problems {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 12
+            problems: Settings.problems
+            background: window.background
+            foreground: window.foreground
+        }
+    }
+
+    Component.onCompleted: {
+        // First, so the first panes are told where it is.
+        App.serve(window);
+        if (!window.restoreSession())
+            window.newTab(App.workingDirectory, App.command);
+        if (App.dropdown)
+            window.showDropdown();
+    }
+}

@@ -1,0 +1,40 @@
+[package]
+name = "hof"
+description = "Ljós Hof: a fast terminal with splits, tabs and a dropdown, its UI in QML on ljos."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "hof"
+path = "src/main.rs"
+
+[dependencies]
+hof_qml.workspace = true
+hof_config.workspace = true
+hof_session.workspace = true
+hof_mcp.workspace = true
+hof_agent.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+notify.workspace = true
+ljos = { workspace = true, features = ["shell"] }
+anyhow.workspace = true
+clap.workspace = true
+
+# The QML is compiled ahead of time against `ljostypes.json`, which
+# `tests/types.rs` writes: the program links no QML parser.
+[build-dependencies]
+ljos = { workspace = true, features = ["build"] }
+
+[dev-dependencies]
+ljos = { workspace = true, features = ["shell", "testing"] }
+tempfile.workspace = true
+hof_remote.workspace = true
+
+[lints]
+workspace = true

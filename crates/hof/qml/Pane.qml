@@ -1,0 +1,228 @@
+import QtQuick
+import Hof
+import Hof.App
+
+// One pane: a terminal, its scrollbar, and what to say when its program
+// could not start. Made once per pane; Main moves and resizes it.
+Item {
+    id: root
+
+    required property int pane
+    // The focused pane of its tab, and whether that tab is the one shown:
+    // only both together take the keys.
+    required property bool focused
+    required property bool shown
+    // `{ directory, command, replay }`: where the program starts and what
+    // it is, empty for the shell, and what a restored pane showed.
+    property var start: ({})
+    property real fontSize: 11
+    property color background
+    property color foreground
+
+    // The find bar is showing.
+    readonly property bool searching: search.visible
+    // A paste is waiting for the user to say yes.
+    readonly property bool confirmingPaste: confirm.visible
+
+    signal terminalReady(Terminal terminal, Item pane)
+    signal terminalGone
+    signal focusTaken
+    signal finished
+    signal action(string name)
+    // Something happened that `[hooks]` may want, with what it says as
+    // `NAME=value` each.
+    signal hook(string event, var extra)
+
+    // The command the shell is running, for its hook when it finishes.
+    property string command: ""
+    // The `[hosts]` machine the program runs on; empty for this one. What
+    // the config says of this machine's shell and directories is not for
+    // that one, which uses its own.
+    readonly property string host: root.start.host ?? ""
+    readonly property bool remote: root.host.length > 0
+
+    clip: true
+
+    function openSearch() {
+        search.open();
+    }
+
+    onFocusedChanged: if (root.focused && root.shown)
+        terminal.forceActiveFocus()
+    onShownChanged: if (root.focused && root.shown)
+        terminal.forceActiveFocus()
+
+    Terminal {
+        id: terminal
+
+        anchors.fill: parent
+        font.family: Settings.fontFamily
+        // Points to pixels, as at 96 dpi; the Terminal's own default font
+        // is in pixels, which a point size would not win over.
+        font.pixelSize: Math.max(1, Math.round(root.fontSize * 4 / 3))
+        padding: Settings.padding
+        backgroundColor: root.background
+        foregroundColor: root.foreground
+        cursorColor: Settings.cursor
+        selectionColor: Settings.selection
+        palette: Settings.palette
+        boldIsBright: Settings.boldIsBright
+        cursorBlink: Settings.cursorBlink
+        cursorShape: Settings.cursorShape
+        scrollback: Settings.scrollback
+        copyOnSelect: Settings.copyOnSelect
+        confirmPaste: Settings.confirmUnsafePaste
+        // Main's shortcuts own the keys the config binds.
+        shortcuts: false
+        program: {
+            const command = root.start.command ?? [];
+            return command.length > 0 ? command[0] : root.remote ? "" : Settings.shell;
+        }
+        arguments: {
+            const command = root.start.command ?? [];
+            return command.length > 0 ? command.slice(1) : root.remote ? [] : Settings.shellArguments;
+        }
+        // Scripts in the pane find it, and Hof, by these (`hof ctl`); not
+        // on another machine, where this one's socket is nowhere.
+        environment: Settings.environment.concat(root.start.environment ?? [], root.remote ? [] : ["HOF_PANE_ID=" + root.pane, "HOF_SOCKET=" + App.controlSocket])
+        startDirectory: {
+            const d = root.start.directory ?? "";
+            return d.length > 0 || root.remote ? d : Settings.workingDirectory;
+        }
+        host: root.host
+        // A restored pane's program, which ran on while Hof was away.
+        remotePane: root.start.remote ?? -1
+        // The scrollback of a restored pane, drawn before its program starts.
+        replay: root.start.replay ?? ""
+        autoStart: true
+
+        onActiveFocusChanged: if (terminal.activeFocus)
+            root.focusTaken()
+        onCellWidthChanged: if (terminal.cellWidth > 0)
+            root.terminalReady(terminal, root)
+        onCellHeightChanged: if (terminal.cellHeight > 0)
+            root.terminalReady(terminal, root)
+        onExited: root.finished()
+        onPasteBlocked: text => confirm.ask(text)
+        onBell: root.hook("bell", [])
+        onCommandStarted: command => {
+            root.command = command;
+            root.hook("command-started", ["HOF_COMMAND=" + command]);
+        }
+        onCommandFinished: code => root.hook("command-finished", ["HOF_COMMAND=" + root.command, "HOF_EXIT_CODE=" + (code < 0 ? "" : code)])
+        onNotification: (title, body) => root.hook("notification", ["HOF_TITLE=" + title, "HOF_BODY=" + body])
+        onTitleChanged: root.hook("title-changed", ["HOF_TITLE=" + terminal.title])
+        onWorkingDirectoryChanged: root.hook("directory-changed", ["HOF_DIRECTORY=" + terminal.workingDirectory])
+
+        Component.onCompleted: {
+            root.terminalReady(terminal, root);
+            if (root.focused && root.shown)
+                terminal.forceActiveFocus();
+        }
+        Component.onDestruction: root.terminalGone()
+    }
+
+    // A dimmer over the panes that do not have the keys, when there are
+    // others to tell them from.
+    Rectangle {
+        anchors.fill: parent
+        visible: !root.focused && root.width < root.parent.width
+        color: root.background
+        opacity: 0.25
+    }
+
+    Scrollbar {
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        terminal: terminal
+        color: root.foreground
+    }
+
+    SearchBar {
+        id: search
+
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 8
+        z: 2
+        terminal: terminal
+        background: root.background
+        foreground: root.foreground
+        border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+        fontFamily: Settings.fontFamily
+        fontSize: root.fontSize
+    }
+
+    PasteConfirm {
+        id: confirm
+
+        anchors.centerIn: parent
+        z: 3
+        terminal: terminal
+        background: root.background
+        foreground: root.foreground
+        border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+        fontFamily: Settings.fontFamily
+        fontSize: root.fontSize
+    }
+
+    // Which machine a remote pane is on.
+    Text {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 6
+        visible: root.remote && terminal.connection === "up"
+        text: root.host
+        color: root.foreground
+        opacity: 0.45
+        font.family: Settings.fontFamily
+        font.pointSize: Math.max(1, root.fontSize - 2)
+    }
+
+    // The connection is being made, again or for the first time; the
+    // screen stays as it was meanwhile.
+    Rectangle {
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.topMargin: 8
+        z: 1
+        visible: terminal.connection === "connecting" || terminal.connection === "down"
+        width: Math.min(parent.width - 16, linkText.implicitWidth + 24)
+        height: linkText.implicitHeight + 12
+        radius: 4
+        color: Qt.darker(root.background, 1.3)
+        border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+
+        Text {
+            id: linkText
+
+            anchors.centerIn: parent
+            width: parent.width - 24
+            text: {
+                const why = terminal.connectionMessage;
+                if (terminal.connection === "down")
+                    return "Reconnecting to " + root.host + (why.length > 0 ? ": " + why : "…");
+                return "Connecting to " + root.host + "…";
+            }
+            color: root.foreground
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignHCenter
+            font.family: Settings.fontFamily
+            font.pointSize: Math.max(1, root.fontSize - 1)
+        }
+    }
+
+    // Why the program did not start.
+    Text {
+        anchors.centerIn: parent
+        width: parent.width - 48
+        visible: terminal.error.length > 0
+        text: terminal.error
+        color: root.foreground
+        font.family: Settings.fontFamily
+        font.pointSize: root.fontSize
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.Wrap
+    }
+}

@@ -1,0 +1,1771 @@
+{
+  "format": 2,
+  "modules": [
+    {
+      "uri": "Hof",
+      "versions": [
+        "1.0"
+      ],
+      "types": [
+        {
+          "name": "Terminal",
+          "since": "1.0",
+          "base": "Item",
+          "baseModule": "QtQuick",
+          "singleton": false,
+          "enums": [],
+          "creatable": true,
+          "defaultProperty": null,
+          "attached": null,
+          "properties": [
+            {
+              "name": "font",
+              "type": "font",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "fontChanged"
+            },
+            {
+              "name": "padding",
+              "type": "real",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "paddingChanged"
+            },
+            {
+              "name": "backgroundColor",
+              "type": "color",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "backgroundColorChanged"
+            },
+            {
+              "name": "foregroundColor",
+              "type": "color",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "foregroundColorChanged"
+            },
+            {
+              "name": "cursorColor",
+              "type": "color",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "cursorColorChanged"
+            },
+            {
+              "name": "selectionColor",
+              "type": "color",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "selectionColorChanged"
+            },
+            {
+              "name": "matchColor",
+              "type": "color",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "matchColorChanged"
+            },
+            {
+              "name": "currentMatchColor",
+              "type": "color",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "currentMatchColorChanged"
+            },
+            {
+              "name": "palette",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "paletteChanged"
+            },
+            {
+              "name": "boldIsBright",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "boldIsBrightChanged"
+            },
+            {
+              "name": "macModifiers",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "macModifiersChanged"
+            },
+            {
+              "name": "cursorShape",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "cursorShapeChanged"
+            },
+            {
+              "name": "cursorBlink",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "cursorBlinkChanged"
+            },
+            {
+              "name": "shortcuts",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "shortcutsChanged"
+            },
+            {
+              "name": "scrollback",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "scrollbackChanged"
+            },
+            {
+              "name": "copyOnSelect",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "copyOnSelectChanged"
+            },
+            {
+              "name": "confirmPaste",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "confirmPasteChanged"
+            },
+            {
+              "name": "program",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "programChanged"
+            },
+            {
+              "name": "arguments",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "argumentsChanged"
+            },
+            {
+              "name": "startDirectory",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "startDirectoryChanged"
+            },
+            {
+              "name": "environment",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "environmentChanged"
+            },
+            {
+              "name": "autoStart",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "autoStartChanged"
+            },
+            {
+              "name": "external",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "externalChanged"
+            },
+            {
+              "name": "answers",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "answersChanged"
+            },
+            {
+              "name": "replay",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "replayChanged"
+            },
+            {
+              "name": "host",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "hostChanged"
+            },
+            {
+              "name": "remotePane",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": false,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "remotePaneChanged"
+            },
+            {
+              "name": "columns",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "columnsChanged"
+            },
+            {
+              "name": "rows",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "rowsChanged"
+            },
+            {
+              "name": "cellWidth",
+              "type": "real",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "cellWidthChanged"
+            },
+            {
+              "name": "cellHeight",
+              "type": "real",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "cellHeightChanged"
+            },
+            {
+              "name": "scrollTotal",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "scrollTotalChanged"
+            },
+            {
+              "name": "scrollOffset",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "scrollOffsetChanged"
+            },
+            {
+              "name": "scrollVisible",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "scrollVisibleChanged"
+            },
+            {
+              "name": "atBottom",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "atBottomChanged"
+            },
+            {
+              "name": "title",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "titleChanged"
+            },
+            {
+              "name": "workingDirectory",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "workingDirectoryChanged"
+            },
+            {
+              "name": "hasSelection",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "hasSelectionChanged"
+            },
+            {
+              "name": "mouseTracking",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "mouseTrackingChanged"
+            },
+            {
+              "name": "running",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "runningChanged"
+            },
+            {
+              "name": "exitCode",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "exitCodeChanged"
+            },
+            {
+              "name": "error",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "errorChanged"
+            },
+            {
+              "name": "connection",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "connectionChanged"
+            },
+            {
+              "name": "connectionMessage",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "connectionMessageChanged"
+            },
+            {
+              "name": "progressState",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "progressStateChanged"
+            },
+            {
+              "name": "progressValue",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "progressValueChanged"
+            },
+            {
+              "name": "shellIntegration",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "shellIntegrationChanged"
+            },
+            {
+              "name": "commandRunning",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "commandRunningChanged"
+            },
+            {
+              "name": "searching",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "searchingChanged"
+            },
+            {
+              "name": "searchTotal",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "searchTotalChanged"
+            },
+            {
+              "name": "searchCurrent",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "searchCurrentChanged"
+            }
+          ],
+          "signals": [
+            {
+              "name": "input",
+              "parameters": [
+                {
+                  "name": "data",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "name": "resized",
+              "parameters": [
+                {
+                  "name": "columns",
+                  "type": "int"
+                },
+                {
+                  "name": "rows",
+                  "type": "int"
+                }
+              ]
+            },
+            {
+              "name": "bell",
+              "parameters": []
+            },
+            {
+              "name": "notification",
+              "parameters": [
+                {
+                  "name": "title",
+                  "type": "string"
+                },
+                {
+                  "name": "body",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "name": "commandStarted",
+              "parameters": [
+                {
+                  "name": "command",
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "name": "commandFinished",
+              "parameters": [
+                {
+                  "name": "exitCode",
+                  "type": "int"
+                }
+              ]
+            },
+            {
+              "name": "exited",
+              "parameters": [
+                {
+                  "name": "exitCode",
+                  "type": "int"
+                }
+              ]
+            },
+            {
+              "name": "pasteBlocked",
+              "parameters": [
+                {
+                  "name": "text",
+                  "type": "string"
+                }
+              ]
+            }
+          ],
+          "methods": [
+            {
+              "name": "write",
+              "parameters": [
+                {
+                  "name": "data",
+                  "type": "string"
+                }
+              ],
+              "returnType": "void"
+            },
+            {
+              "name": "send",
+              "parameters": [
+                {
+                  "name": "data",
+                  "type": "string"
+                }
+              ],
+              "returnType": "void"
+            },
+            {
+              "name": "text",
+              "parameters": [],
+              "returnType": "string"
+            },
+            {
+              "name": "screenText",
+              "parameters": [],
+              "returnType": "string"
+            },
+            {
+              "name": "markCommand",
+              "parameters": [],
+              "returnType": "bool"
+            },
+            {
+              "name": "commandOutput",
+              "parameters": [],
+              "returnType": "string"
+            },
+            {
+              "name": "endCommand",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "selectedText",
+              "parameters": [],
+              "returnType": "string"
+            },
+            {
+              "name": "copy",
+              "parameters": [],
+              "returnType": "bool"
+            },
+            {
+              "name": "paste",
+              "parameters": [],
+              "returnType": "bool"
+            },
+            {
+              "name": "pasteText",
+              "parameters": [
+                {
+                  "name": "text",
+                  "type": "string"
+                }
+              ],
+              "returnType": "bool"
+            },
+            {
+              "name": "forcePaste",
+              "parameters": [
+                {
+                  "name": "text",
+                  "type": "string"
+                }
+              ],
+              "returnType": "bool"
+            },
+            {
+              "name": "clearSelection",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "selectAll",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "scrollLines",
+              "parameters": [
+                {
+                  "name": "lines",
+                  "type": "int"
+                }
+              ],
+              "returnType": "void"
+            },
+            {
+              "name": "scrollTo",
+              "parameters": [
+                {
+                  "name": "offset",
+                  "type": "real"
+                }
+              ],
+              "returnType": "void"
+            },
+            {
+              "name": "scrollToTop",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "scrollToBottom",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "scrollToPrompt",
+              "parameters": [
+                {
+                  "name": "by",
+                  "type": "int"
+                }
+              ],
+              "returnType": "void"
+            },
+            {
+              "name": "find",
+              "parameters": [
+                {
+                  "name": "text",
+                  "type": "string"
+                }
+              ],
+              "returnType": "int"
+            },
+            {
+              "name": "findNext",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "findPrevious",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "endFind",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "reset",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "snapshot",
+              "parameters": [],
+              "returnType": "string"
+            },
+            {
+              "name": "restore",
+              "parameters": [
+                {
+                  "name": "snapshot",
+                  "type": "string"
+                }
+              ],
+              "returnType": "void"
+            },
+            {
+              "name": "start",
+              "parameters": [],
+              "returnType": "bool"
+            },
+            {
+              "name": "stop",
+              "parameters": [],
+              "returnType": "void"
+            }
+          ]
+        },
+        {
+          "name": "Workspace",
+          "since": "1.0",
+          "base": "QtObject",
+          "baseModule": "QtQml",
+          "singleton": false,
+          "enums": [],
+          "creatable": true,
+          "defaultProperty": null,
+          "attached": null,
+          "properties": [
+            {
+              "name": "tabCount",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "tabCountChanged"
+            },
+            {
+              "name": "currentTab",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "currentTabChanged"
+            },
+            {
+              "name": "focusedPane",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "focusedPaneChanged"
+            },
+            {
+              "name": "zoomed",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "zoomedChanged"
+            },
+            {
+              "name": "revision",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "revisionChanged"
+            }
+          ],
+          "signals": [],
+          "methods": [
+            {
+              "name": "newTab",
+              "parameters": [],
+              "returnType": "int"
+            },
+            {
+              "name": "split",
+              "parameters": [
+                {
+                  "name": "toward",
+                  "type": "string"
+                }
+              ],
+              "returnType": "int"
+            },
+            {
+              "name": "closePane",
+              "parameters": [
+                {
+                  "name": "id",
+                  "type": "int"
+                }
+              ],
+              "returnType": "string"
+            },
+            {
+              "name": "closeTab",
+              "parameters": [],
+              "returnType": "var"
+            },
+            {
+              "name": "focusPane",
+              "parameters": [
+                {
+                  "name": "id",
+                  "type": "int"
+                }
+              ],
+              "returnType": "bool"
+            },
+            {
+              "name": "focusToward",
+              "parameters": [
+                {
+                  "name": "dir",
+                  "type": "string"
+                }
+              ],
+              "returnType": "bool"
+            },
+            {
+              "name": "selectTab",
+              "parameters": [
+                {
+                  "name": "index",
+                  "type": "int"
+                }
+              ],
+              "returnType": "bool"
+            },
+            {
+              "name": "nextTab",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "previousTab",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "moveTab",
+              "parameters": [
+                {
+                  "name": "index",
+                  "type": "int"
+                }
+              ],
+              "returnType": "bool"
+            },
+            {
+              "name": "toggleZoom",
+              "parameters": [],
+              "returnType": "bool"
+            },
+            {
+              "name": "grow",
+              "parameters": [
+                {
+                  "name": "dir",
+                  "type": "string"
+                },
+                {
+                  "name": "by",
+                  "type": "real"
+                }
+              ],
+              "returnType": "bool"
+            },
+            {
+              "name": "setRatio",
+              "parameters": [
+                {
+                  "name": "path",
+                  "type": "string"
+                },
+                {
+                  "name": "ratio",
+                  "type": "real"
+                }
+              ],
+              "returnType": "bool"
+            },
+            {
+              "name": "panes",
+              "parameters": [],
+              "returnType": "var"
+            },
+            {
+              "name": "dividers",
+              "parameters": [],
+              "returnType": "var"
+            },
+            {
+              "name": "tabPanes",
+              "parameters": [
+                {
+                  "name": "index",
+                  "type": "int"
+                }
+              ],
+              "returnType": "var"
+            },
+            {
+              "name": "tabFocus",
+              "parameters": [
+                {
+                  "name": "index",
+                  "type": "int"
+                }
+              ],
+              "returnType": "int"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "uri": "Hof.App",
+      "versions": [
+        "1.0"
+      ],
+      "types": [
+        {
+          "name": "App",
+          "since": "1.0",
+          "base": "QtObject",
+          "baseModule": "QtQml",
+          "singleton": true,
+          "enums": [],
+          "creatable": true,
+          "defaultProperty": null,
+          "attached": null,
+          "properties": [
+            {
+              "name": "dropdown",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": null
+            },
+            {
+              "name": "command",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": null
+            },
+            {
+              "name": "workingDirectory",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": null
+            },
+            {
+              "name": "version",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": null
+            },
+            {
+              "name": "controlSocket",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "controlSocketChanged"
+            },
+            {
+              "name": "mcpSocket",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "mcpSocketChanged"
+            }
+          ],
+          "signals": [
+            {
+              "name": "toggleRequested",
+              "parameters": []
+            },
+            {
+              "name": "tabRequested",
+              "parameters": [
+                {
+                  "name": "command",
+                  "type": "var"
+                },
+                {
+                  "name": "directory",
+                  "type": "string"
+                }
+              ]
+            }
+          ],
+          "methods": [
+            {
+              "name": "saveSession",
+              "parameters": [
+                {
+                  "name": "workspace",
+                  "type": "QtObject"
+                },
+                {
+                  "name": "panes",
+                  "type": "string"
+                },
+                {
+                  "name": "width",
+                  "type": "real"
+                },
+                {
+                  "name": "height",
+                  "type": "real"
+                }
+              ],
+              "returnType": "bool"
+            },
+            {
+              "name": "restoreSession",
+              "parameters": [
+                {
+                  "name": "workspace",
+                  "type": "QtObject"
+                }
+              ],
+              "returnType": "string"
+            },
+            {
+              "name": "clearSession",
+              "parameters": [],
+              "returnType": "void"
+            },
+            {
+              "name": "serve",
+              "parameters": [
+                {
+                  "name": "window",
+                  "type": "QtObject"
+                }
+              ],
+              "returnType": "void"
+            },
+            {
+              "name": "spawn",
+              "parameters": [
+                {
+                  "name": "command",
+                  "type": "var"
+                },
+                {
+                  "name": "environment",
+                  "type": "var"
+                },
+                {
+                  "name": "directory",
+                  "type": "string"
+                }
+              ],
+              "returnType": "bool"
+            }
+          ]
+        },
+        {
+          "name": "Settings",
+          "since": "1.0",
+          "base": "QtObject",
+          "baseModule": "QtQml",
+          "singleton": true,
+          "enums": [],
+          "creatable": true,
+          "defaultProperty": null,
+          "attached": null,
+          "properties": [
+            {
+              "name": "path",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "pathChanged"
+            },
+            {
+              "name": "fontFamily",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "fontFamilyChanged"
+            },
+            {
+              "name": "fontSize",
+              "type": "real",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "fontSizeChanged"
+            },
+            {
+              "name": "boldIsBright",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "boldIsBrightChanged"
+            },
+            {
+              "name": "padding",
+              "type": "real",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "paddingChanged"
+            },
+            {
+              "name": "opacity",
+              "type": "real",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "opacityChanged"
+            },
+            {
+              "name": "decorations",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "decorationsChanged"
+            },
+            {
+              "name": "title",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "titleChanged"
+            },
+            {
+              "name": "columns",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "columnsChanged"
+            },
+            {
+              "name": "rows",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "rowsChanged"
+            },
+            {
+              "name": "foreground",
+              "type": "color",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "foregroundChanged"
+            },
+            {
+              "name": "background",
+              "type": "color",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "backgroundChanged"
+            },
+            {
+              "name": "cursor",
+              "type": "color",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "cursorChanged"
+            },
+            {
+              "name": "selection",
+              "type": "color",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "selectionChanged"
+            },
+            {
+              "name": "palette",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "paletteChanged"
+            },
+            {
+              "name": "shell",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "shellChanged"
+            },
+            {
+              "name": "shellArguments",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "shellArgumentsChanged"
+            },
+            {
+              "name": "environment",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "environmentChanged"
+            },
+            {
+              "name": "workingDirectory",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "workingDirectoryChanged"
+            },
+            {
+              "name": "scrollback",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "scrollbackChanged"
+            },
+            {
+              "name": "cursorBlink",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "cursorBlinkChanged"
+            },
+            {
+              "name": "cursorShape",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "cursorShapeChanged"
+            },
+            {
+              "name": "copyOnSelect",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "copyOnSelectChanged"
+            },
+            {
+              "name": "confirmUnsafePaste",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "confirmUnsafePasteChanged"
+            },
+            {
+              "name": "dropdownWidth",
+              "type": "real",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "dropdownWidthChanged"
+            },
+            {
+              "name": "dropdownHeight",
+              "type": "real",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "dropdownHeightChanged"
+            },
+            {
+              "name": "dropdownBottom",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "dropdownBottomChanged"
+            },
+            {
+              "name": "hideOnFocusLoss",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "hideOnFocusLossChanged"
+            },
+            {
+              "name": "animationMs",
+              "type": "int",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "animationMsChanged"
+            },
+            {
+              "name": "sessionRestore",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "sessionRestoreChanged"
+            },
+            {
+              "name": "sessionSaveScrollback",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "sessionSaveScrollbackChanged"
+            },
+            {
+              "name": "bindingActions",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "bindingActionsChanged"
+            },
+            {
+              "name": "bindingSequences",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "bindingSequencesChanged"
+            },
+            {
+              "name": "commands",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "commandsChanged"
+            },
+            {
+              "name": "hooks",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "hooksChanged"
+            },
+            {
+              "name": "hosts",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "hostsChanged"
+            },
+            {
+              "name": "problems",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "problemsChanged"
+            }
+          ],
+          "signals": [
+            {
+              "name": "reloaded",
+              "parameters": []
+            }
+          ],
+          "methods": [
+            {
+              "name": "reload",
+              "parameters": [],
+              "returnType": "void"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "unnamed": []
+}
