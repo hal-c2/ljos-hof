@@ -59,6 +59,31 @@ fn plugin_dir(plugin: Option<&Plugin>) -> String {
         .unwrap_or_default()
 }
 
+/// A program may produce events faster than the desktop can act on them.
+/// Keep their side effects from taking every process and thread the user has.
+const MOST_BACKGROUND: usize = 64;
+static BACKGROUND: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[derive(Debug)]
+struct Slot<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl Drop for Slot<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
+fn take_slot(count: &std::sync::atomic::AtomicUsize) -> io::Result<Slot<'_>> {
+    count
+        .fetch_update(
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+            |used| (used < MOST_BACKGROUND).then_some(used + 1),
+        )
+        .map(|_| Slot(count))
+        .map_err(|_| io::Error::new(io::ErrorKind::WouldBlock, "too many background programs"))
+}
+
 /// Starts `command` with Hof's environment and `environment` (`NAME=value`
 /// each) on top, in `directory` when it is one, and forgets it: its output
 /// is Hof's, and a thread reaps it when it ends.
@@ -66,6 +91,7 @@ pub(crate) fn spawn(command: &[String], environment: &[String], directory: &str)
     let (program, arguments) = command
         .split_first()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no program to run"))?;
+    let slot = take_slot(&BACKGROUND)?;
     let mut child = Command::new(program);
     child
         .args(arguments)
@@ -80,6 +106,7 @@ pub(crate) fn spawn(command: &[String], environment: &[String], directory: &str)
     std::thread::Builder::new()
         .name("hof-reap".into())
         .spawn(move || {
+            let _slot = slot;
             let _ = child.wait();
         })?;
     Ok(())
@@ -113,6 +140,21 @@ mod tests {
         assert_eq!(json["top"]["run"], json!(["htop"]));
         assert_eq!(json["top"]["in"], "split-down");
         assert_eq!(json["top"]["send"], Value::Null);
+    }
+
+    #[test]
+    fn background_program_slots_are_bounded_and_reused() {
+        let count = std::sync::atomic::AtomicUsize::new(0);
+        let mut slots = Vec::new();
+        for _ in 0..MOST_BACKGROUND {
+            slots.push(take_slot(&count).unwrap());
+        }
+        assert_eq!(
+            take_slot(&count).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        drop(slots.pop());
+        take_slot(&count).unwrap();
     }
 
     #[test]

@@ -91,6 +91,10 @@ pub(crate) struct Signals {
     waker: Waker,
 }
 
+/// A hostile program can report events faster than the UI can drain them.
+/// Bound that work; state reports coalesce, and exit/connection news survives.
+const MOST_EVENTS: usize = 256;
+
 impl Signals {
     pub fn new(waker: Waker) -> Self {
         Self {
@@ -109,10 +113,28 @@ impl Signals {
     }
 
     pub fn push(&self, event: Event) {
-        self.events
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(event);
+        let mut event = event;
+        let mut events = self.events.lock().unwrap_or_else(|e| e.into_inner());
+        let merged = match (&mut event, events.last_mut()) {
+            (Event::Agent(new), Some(Event::Agent(old))) => {
+                std::mem::swap(new, old);
+                true
+            }
+            (Event::Progress(new), Some(Event::Progress(old))) => {
+                std::mem::swap(new, old);
+                true
+            }
+            _ => false,
+        };
+        if !merged {
+            if events.len() < MOST_EVENTS {
+                events.push(event);
+            } else if matches!(event, Event::Exited(_) | Event::Link(_)) {
+                events.remove(0);
+                events.push(event);
+            }
+        }
+        drop(events);
         self.mark(Changes::EVENTS);
     }
 
@@ -189,6 +211,39 @@ mod tests {
         signals.set_held(false);
         signals.kick();
         assert_eq!(wakes.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn an_event_flood_is_bounded_and_state_reports_coalesce() {
+        let (signals, _) = counting();
+        for i in 0..1000 {
+            signals.push(Event::Agent(crate::report::Report {
+                state: i.to_string(),
+                name: "agent".into(),
+            }));
+        }
+        let events = signals.take_events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0],
+            Event::Agent(crate::report::Report {
+                state: "999".into(),
+                name: "agent".into(),
+            })
+        );
+
+        for _ in 0..1000 {
+            signals.push(Event::Notification {
+                title: "title".into(),
+                body: "body".into(),
+            });
+        }
+        assert_eq!(signals.take_events().len(), MOST_EVENTS);
+        signals.push(Event::Exited(Some(0)));
+        assert!(matches!(
+            signals.take_events().last(),
+            Some(Event::Exited(Some(0)))
+        ));
     }
 
     #[test]
