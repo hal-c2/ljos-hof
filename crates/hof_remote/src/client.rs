@@ -202,12 +202,24 @@ pub fn spawn(argv: &[String], noted: Option<Arc<Mutex<Ended>>>) -> io::Result<Co
     })
 }
 
+/// The most of one diagnostic line kept. The rest is discarded as it is
+/// read, so a peer that never writes a newline cannot grow this string.
+const MOST_LINE: usize = 4 * 1024;
+
 /// The last few lines a program wrote, for saying why it failed.
 fn keep_last_lines(from: impl Read, into: &Mutex<VecDeque<String>>) {
-    use std::io::BufRead;
-    for line in io::BufReader::new(from).lines() {
-        let Ok(line) = line else { break };
-        let line = line.trim().to_owned();
+    let mut reader = io::BufReader::new(from);
+    loop {
+        let mut line = Vec::new();
+        let read = match read_capped_line(&mut reader, &mut line) {
+            Ok(read) => read,
+            Err(_) => break,
+        };
+        if read == 0 {
+            break;
+        }
+        let line = String::from_utf8_lossy(&line);
+        let line = line.trim();
         if line.is_empty() {
             continue;
         }
@@ -215,7 +227,24 @@ fn keep_last_lines(from: impl Read, into: &Mutex<VecDeque<String>>) {
         if lines.len() == 3 {
             lines.pop_front();
         }
-        lines.push_back(line);
+        lines.push_back(line.to_owned());
+    }
+}
+
+fn read_capped_line(reader: &mut impl io::BufRead, out: &mut Vec<u8>) -> io::Result<usize> {
+    let mut total = 0;
+    loop {
+        let mut byte = [0];
+        if reader.read(&mut byte)? == 0 {
+            return Ok(total);
+        }
+        total += 1;
+        if byte[0] == b'\n' {
+            return Ok(total);
+        }
+        if out.len() < MOST_LINE {
+            out.push(byte[0]);
+        }
     }
 }
 
@@ -1184,5 +1213,14 @@ mod tests {
             }),
             356
         );
+    }
+
+    #[test]
+    fn a_stderr_line_without_an_end_stays_bounded() {
+        let lines = Mutex::new(VecDeque::new());
+        keep_last_lines(io::repeat(b'x').take((3 * MOST_LINE + 100) as u64), &lines);
+        let lines = lines.lock().unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].len(), MOST_LINE);
     }
 }

@@ -30,6 +30,8 @@ const COPY_WAIT: Duration = Duration::from_secs(120);
 const ASK_WAIT: Duration = Duration::from_secs(30);
 /// Copies that failed before Hof stops trying, until it starts again.
 const MOST_TRIES: u32 = 3;
+/// The most output kept from one bootstrap command; the rest is drained.
+const MOST_OUTPUT: usize = 64 * 1024;
 
 /// What the snippet says when the machine has no Hof, before the machine.
 const MISSING: &str = "Hof is not on this machine";
@@ -291,11 +293,17 @@ fn run(argv: &[String], input: Option<Vec<u8>>, within: Duration) -> Result<Stri
     });
     let reader = |r: Option<Box<dyn Read + Send>>| {
         std::thread::spawn(move || {
-            let mut all = String::new();
+            let mut all = Vec::new();
             if let Some(mut r) = r {
-                let _ = r.read_to_string(&mut all);
+                {
+                    let mut kept = (&mut r).take(MOST_OUTPUT as u64);
+                    let _ = kept.read_to_end(&mut all);
+                }
+                // The command may not stop writing: drain it without
+                // letting its output take over this process's memory.
+                let _ = io::copy(&mut r, &mut io::sink());
             }
-            all
+            String::from_utf8_lossy(&all).into_owned()
         })
     };
     let out = reader(child.stdout.take().map(|o| Box::new(o) as _));
@@ -352,6 +360,17 @@ mod tests {
         assert!(script.contains(&format!("/hof/{}", version_dir())));
         assert!(script.contains("command -v ~/bin/hof"));
         assert_eq!(ssh("it's").agent_command(), Err(BadHof("it's".into())));
+    }
+
+    #[test]
+    fn a_bootstrap_commands_output_is_bounded() {
+        let argv = vec![
+            "sh".to_owned(),
+            "-c".to_owned(),
+            "head -c 100000 /dev/zero".to_owned(),
+        ];
+        let out = run(&argv, None, ASK_WAIT).unwrap();
+        assert_eq!(out.len(), MOST_OUTPUT);
     }
 
     #[test]
