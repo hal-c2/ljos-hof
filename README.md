@@ -21,7 +21,8 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   Cmd+D, Cmd+1 to 9, Cmd+C and Cmd+V, and every Ctrl and Option chord is
   the terminal's. Elsewhere Ctrl+Shift: Ctrl+Shift+T, Ctrl+Shift+W, Alt+1
   to 9, Ctrl+Shift+C, so plain Ctrl chords (fzf's Ctrl+T, say) reach the
-  shell. Any of it can be rebound in `[keys]`.
+  shell. Any of it can be rebound in `[keys]`. On a Mac the menu bar
+  lists the actions with their keys, rebound or not.
 - **One TOML file** where every key is optional. A key Hof doesn't know is
   a warning, not an error. `reload-config` applies the file without a
   restart. See [`hof.example.toml`](crates/hof_config/hof.example.toml).
