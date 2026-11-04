@@ -18,6 +18,9 @@ pub const VERSION: u32 = 1;
 /// output, so a frame is never larger than one read of a busy pane, less
 /// than would let a broken peer make the other allocate without end.
 pub const MAX_FRAME: usize = 16 * 1024 * 1024;
+/// A list's objects take much more memory than its bytes. Keep a valid
+/// frame from turning a huge count into a huge allocation.
+const MAX_LIST: usize = 4096;
 
 /// A pane on the agent's machine, by the number the agent gave it.
 pub type PaneId = u32;
@@ -229,6 +232,8 @@ const HANGUP: u8 = 24;
 pub enum Error {
     #[error("a frame of {0} bytes, more than {MAX_FRAME}")]
     TooLarge(usize),
+    #[error("a frame has a list of {0} items, more than {MAX_LIST}")]
+    TooMany(usize),
     #[error("a frame ends inside its fields")]
     Short,
     #[error("a frame has {0} bytes after its fields")]
@@ -465,6 +470,9 @@ impl Message {
             LIST => Message::List,
             PANES => {
                 let n = r.u32()? as usize;
+                if n > MAX_LIST {
+                    return Err(Error::TooMany(n));
+                }
                 // Each takes at least 13 bytes, so a count no frame could
                 // hold allocates nothing.
                 let mut panes = Vec::with_capacity(n.min(r.0.len() / 13));
@@ -598,6 +606,9 @@ impl<'a> Reader<'a> {
     }
     fn strs(&mut self) -> Result<Vec<String>, Error> {
         let n = self.u32()? as usize;
+        if n > MAX_LIST {
+            return Err(Error::TooMany(n));
+        }
         // Each takes at least its 4-byte length.
         let mut v = Vec::with_capacity(n.min(self.0.len() / 4));
         for _ in 0..n {
@@ -852,6 +863,12 @@ mod tests {
         assert_eq!(Message::decode(&frame), Err(Error::Short));
         // A list claiming a billion strings allocates nothing for them.
         let frame = [OPEN, 0, 0, 0, 1, 0x40, 0, 0, 0];
-        assert_eq!(Message::decode(&frame), Err(Error::Short));
+        assert_eq!(Message::decode(&frame), Err(Error::TooMany(1 << 30)));
+    }
+
+    #[test]
+    fn a_list_count_is_refused_before_its_objects_are_allocated() {
+        let frame = [PANES, 0, 0, 0x10, 1];
+        assert_eq!(Message::decode(&frame), Err(Error::TooMany(4097)));
     }
 }
