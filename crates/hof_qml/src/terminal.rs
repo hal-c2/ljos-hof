@@ -63,8 +63,8 @@ pub struct Terminal {
     pub palette: Vec<Color>,
     #[qml(notify)]
     pub bold_is_bright: bool,
-    /// Treat Command as Command and Control as Control (macOS), rather than
-    /// as Qt swaps them.
+    /// Treat Command as Command and Control as Control, rather than as Qt
+    /// swaps them. On by default on macOS, where the swap happens.
     #[qml(notify)]
     pub mac_modifiers: bool,
     /// The cursor programs start with and get back on reset: "block",
@@ -242,7 +242,8 @@ impl Default for Terminal {
             current_match_color: Color::INVALID,
             palette: Vec::new(),
             bold_is_bright: false,
-            mac_modifiers: false,
+            // Qt swaps them there, and Ljós UI with it.
+            mac_modifiers: cfg!(target_os = "macos"),
             cursor_shape: "block".into(),
             cursor_blink: false,
             shortcuts: true,

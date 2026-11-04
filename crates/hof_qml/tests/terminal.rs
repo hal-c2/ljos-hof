@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use hof_qml::{Terminal, register};
 use ljos::item::{
-    DisplayList, DrawOp, Font, KeyEvent, MouseButtons, Paint, PointerEvent, Rgba, WheelEvent, key,
-    kurbo,
+    DisplayList, DrawOp, Font, KeyEvent, Modifiers, MouseButtons, Paint, PointerEvent, Rgba,
+    WheelEvent, key, kurbo,
 };
 use ljos::prelude::*;
 use ljos::testing::TestWindow;
@@ -165,6 +165,36 @@ fn typing_leaves_as_input() {
         .map(|a| a[0].to_js_string().as_str().to_owned())
         .collect();
     assert_eq!(typed, "a\r");
+}
+
+#[test]
+fn the_control_key_reaches_the_program_as_control() {
+    let mut f = shown();
+    let input = f.record("input");
+    let p = f.at(0, 0);
+    let now = f.window.now();
+    f.window.pointer(&PointerEvent::press(p.x, p.y, now));
+    f.window.pointer(&PointerEvent::release(p.x, p.y, now));
+    input.borrow_mut().clear();
+    // The key marked Control, which Qt calls Meta on a Mac.
+    let control = if cfg!(target_os = "macos") {
+        Modifiers::META
+    } else {
+        Modifiers::CONTROL
+    };
+    assert!(
+        f.window.key(
+            &KeyEvent::press(key::A + 2)
+                .with_modifiers(control)
+                .with_text("\u{3}")
+        )
+    );
+    let typed: String = input
+        .borrow()
+        .iter()
+        .map(|a| a[0].to_js_string().as_str().to_owned())
+        .collect();
+    assert_eq!(typed, "\u{3}");
 }
 
 #[test]
