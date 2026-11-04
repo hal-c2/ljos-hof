@@ -132,9 +132,9 @@ pub struct Settings {
     #[qml(notify, readonly)]
     pub notify_agent_waiting: bool,
 
-    /// Each host's name and the command that reaches it, for the terminals.
+    /// Each host's name and how it is reached, for the terminals.
     #[qml(skip)]
-    pub transports: Vec<(String, Vec<String>)>,
+    pub transports: Vec<(String, hof_qml::remote::Reach)>,
     /// The `[agents]` tables, for the terminals.
     #[qml(skip)]
     pub agents: Vec<hof_qml::agents::Table>,
@@ -293,7 +293,14 @@ impl Settings {
             transports: config
                 .hosts
                 .iter()
-                .map(|(name, host)| (name.clone(), host.transport(name)))
+                .map(|(name, host)| {
+                    let reach = hof_qml::remote::Reach {
+                        transport: host.transport(name),
+                        x11: host.x11,
+                        sound: host.sound,
+                    };
+                    (name.clone(), reach)
+                })
                 .collect(),
             agents: config
                 .agents()

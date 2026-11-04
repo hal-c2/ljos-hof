@@ -12,11 +12,45 @@ use std::sync::{Arc, Mutex, PoisonError};
 use hof_remote::client::{self, Host, Pane, Screen, Spawned, Start, State};
 use hof_vt::{Feed, Link, Outlet, Size};
 
+/// How to reach a host from the config, and what its programs may reach
+/// here.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Reach {
+    /// The command whose stdin and stdout reach `hof agent --stdio` there.
+    pub transport: Vec<String>,
+    /// Programs there may open windows on the X server here.
+    pub x11: bool,
+    /// Programs there may play sound here.
+    pub sound: bool,
+}
+
+impl Reach {
+    fn options(&self) -> client::Options {
+        let mut services: Vec<Arc<dyn client::Service>> = Vec::new();
+        // Looked for when the host is first reached: a desktop with no X
+        // server offers none.
+        if self.x11
+            && let Some(x) = hof_remote::x11::Forward::from_env()
+        {
+            services.push(Arc::new(x));
+        }
+        if self.sound
+            && let Some(sound) = hof_remote::pulse::Forward::from_env()
+        {
+            services.push(Arc::new(sound));
+        }
+        client::Options {
+            services,
+            ..client::Options::default()
+        }
+    }
+}
+
 /// A name a pane's `host` can take.
 struct Known {
-    /// The command that reaches it, for a host from the config; `None`
-    /// for one given whole to [`set_host`].
-    transport: Option<Vec<String>>,
+    /// How it is reached, for a host from the config; `None` for one given
+    /// whole to [`set_host`].
+    transport: Option<Reach>,
     /// Made when a pane first wants it.
     host: Option<Arc<Host>>,
 }
@@ -27,11 +61,10 @@ static HOSTS: Mutex<BTreeMap<String, Known>> = Mutex::new(BTreeMap::new());
 /// machine, to attach to again, rather than ending it.
 static KEEP: AtomicBool = AtomicBool::new(false);
 
-/// The hosts of the config: each name, and the command whose stdin and
-/// stdout reach `hof agent --stdio` there. A host whose command is the same
-/// as before keeps its connection; panes already on a host that changed or
-/// went keep theirs until they close.
-pub fn set_hosts(hosts: impl IntoIterator<Item = (String, Vec<String>)>) {
+/// The hosts of the config: each name, and how it is reached. A host
+/// reached the same way as before keeps its connection; panes already on
+/// a host that changed or went keep theirs until they close.
+pub fn set_hosts(hosts: impl IntoIterator<Item = (String, Reach)>) {
     let mut known = HOSTS.lock().unwrap_or_else(PoisonError::into_inner);
     let mut new: BTreeMap<String, Known> = known
         .iter()
@@ -103,10 +136,13 @@ pub(crate) fn host(name: &str) -> Option<Arc<Host>> {
     let mut known = HOSTS.lock().unwrap_or_else(PoisonError::into_inner);
     let k = known.get_mut(name)?;
     if k.host.is_none() {
-        let argv = k.transport.clone()?;
+        let reach = k.transport.clone()?;
+        let options = reach.options();
         k.host = Some(Arc::new(Host::new(
-            Spawned { argv },
-            client::Options::default(),
+            Spawned {
+                argv: reach.transport,
+            },
+            options,
         )));
     }
     k.host.clone()
