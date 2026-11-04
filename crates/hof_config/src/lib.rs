@@ -25,9 +25,13 @@ pub use config::{
     Terminal, ThemeConfig, Window,
 };
 pub use error::{Error, Warning, WarningKind};
-pub use keys::{Action, BadChord, Chord, Keys, UnknownAction};
+pub use keys::{Action, BadChord, Chord, Keys, Platform, UnknownAction};
 pub use scripts::{Binding, Command, Hook, Hooks, Place, Plugin, Plugins, Program};
 pub use theme::{BadColour, DEFAULT_THEME, Rgba, Theme, builtin, themes};
+
+/// The example file: every key, commented out, at its default. What
+/// `edit-config` writes when there is no file yet.
+pub const EXAMPLE: &str = include_str!("../hof.example.toml");
 
 /// A configuration that Hof can use, with what it had to ignore or adjust
 /// to get there.

@@ -64,7 +64,9 @@ animation-ms = 150            # length of the slide in milliseconds; 0 for none
 # ctrl, shift, alt and super; keys are single characters or enter, tab,
 # space, escape, backspace, delete, insert, home, end, pageup, pagedown,
 # up, down, left, right, plus, minus, menu, print, pause and f1 to f35.
-# Setting an action replaces all of its default chords. The defaults:
+# super is the logo key, and Command on a Mac (cmd works too); alt is
+# Option there. Setting an action replaces all of its default chords. The
+# defaults, off macOS:
 #
 # new-tab = "ctrl+shift+t"
 # close-tab = "none"
@@ -103,6 +105,73 @@ animation-ms = 150            # length of the slide in milliseconds; 0 for none
 # new-tab-on-host = "ctrl+shift+h"
 # split-right-on-host = "none"
 # split-down-on-host = "none"
+# focus-next = "none"
+# focus-previous = "none"
+# tab-1 = "alt+1"
+# tab-2 = "alt+2"
+# tab-3 = "alt+3"
+# tab-4 = "alt+4"
+# tab-5 = "alt+5"
+# tab-6 = "alt+6"
+# tab-7 = "alt+7"
+# tab-8 = "alt+8"
+# last-tab = "alt+9"
+# edit-config = "none"
+# quit = "ctrl+shift+q"
+#
+# On macOS, where Command is the application's and every Ctrl and Option
+# chord the terminal's:
+#
+#   new-tab = "cmd+t"
+#   close-tab = "cmd+alt+w"
+#   next-tab = ["ctrl+tab", "cmd+shift+right"]
+#   previous-tab = ["ctrl+shift+tab", "cmd+shift+left"]
+#   split-right = "cmd+d"
+#   split-down = "cmd+shift+d"
+#   close-pane = "cmd+w"
+#   focus-left = "cmd+alt+left"
+#   focus-right = "cmd+alt+right"
+#   focus-up = "cmd+alt+up"
+#   focus-down = "cmd+alt+down"
+#   grow-left = "cmd+ctrl+left"
+#   grow-right = "cmd+ctrl+right"
+#   grow-up = "cmd+ctrl+up"
+#   grow-down = "cmd+ctrl+down"
+#   zoom-pane = "cmd+shift+enter"
+#   copy = "cmd+c"
+#   paste = "cmd+v"
+#   select-all = "cmd+a"
+#   scroll-page-up = ["shift+pageup", "cmd+pageup"]
+#   scroll-page-down = ["shift+pagedown", "cmd+pagedown"]
+#   scroll-top = ["shift+home", "cmd+home"]
+#   scroll-bottom = ["shift+end", "cmd+end"]
+#   previous-prompt = "cmd+up"
+#   next-prompt = "cmd+down"
+#   font-bigger = ["cmd+plus", "cmd+="]
+#   font-smaller = "cmd+minus"
+#   font-reset = "cmd+0"
+#   search = "cmd+f"
+#   reset = "none"
+#   reload-config = "cmd+shift+r"
+#   toggle-dropdown = "none"
+#   toggle-fullscreen = "cmd+ctrl+f"
+#   next-waiting = "cmd+shift+a"
+#   new-tab-on-host = "cmd+shift+h"
+#   split-right-on-host = "none"
+#   split-down-on-host = "none"
+#   focus-next = "cmd+]"
+#   focus-previous = "cmd+["
+#   tab-1 = "cmd+1"
+#   tab-2 = "cmd+2"
+#   tab-3 = "cmd+3"
+#   tab-4 = "cmd+4"
+#   tab-5 = "cmd+5"
+#   tab-6 = "cmd+6"
+#   tab-7 = "cmd+7"
+#   tab-8 = "cmd+8"
+#   last-tab = "cmd+9"
+#   edit-config = "cmd+,"
+#   quit = "cmd+q"
 
 [session]
 restore = false               # reopen the last session's windows, tabs and panes

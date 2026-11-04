@@ -81,9 +81,36 @@ pub enum Action {
     SplitRightOnHost,
     /// Pick a machine and split the pane downward with a pane there.
     SplitDownOnHost,
+    /// Move focus to the next pane of the tab, in reading order.
+    FocusNext,
+    /// Move focus to the previous pane of the tab, in reading order.
+    FocusPrevious,
+    /// Go to the first tab.
+    Tab1,
+    /// Go to the second tab.
+    Tab2,
+    /// Go to the third tab.
+    Tab3,
+    /// Go to the fourth tab.
+    Tab4,
+    /// Go to the fifth tab.
+    Tab5,
+    /// Go to the sixth tab.
+    Tab6,
+    /// Go to the seventh tab.
+    Tab7,
+    /// Go to the eighth tab.
+    Tab8,
+    /// Go to the last tab.
+    LastTab,
+    /// Open the configuration file, writing the example there first when
+    /// there is none.
+    EditConfig,
+    /// Close the window, and with it every pane.
+    Quit,
 }
 
-const ACTION_NAMES: [(Action, &str); 37] = [
+const ACTION_NAMES: [(Action, &str); 50] = [
     (Action::NewTab, "new-tab"),
     (Action::CloseTab, "close-tab"),
     (Action::NextTab, "next-tab"),
@@ -121,6 +148,19 @@ const ACTION_NAMES: [(Action, &str); 37] = [
     (Action::NewTabOnHost, "new-tab-on-host"),
     (Action::SplitRightOnHost, "split-right-on-host"),
     (Action::SplitDownOnHost, "split-down-on-host"),
+    (Action::FocusNext, "focus-next"),
+    (Action::FocusPrevious, "focus-previous"),
+    (Action::Tab1, "tab-1"),
+    (Action::Tab2, "tab-2"),
+    (Action::Tab3, "tab-3"),
+    (Action::Tab4, "tab-4"),
+    (Action::Tab5, "tab-5"),
+    (Action::Tab6, "tab-6"),
+    (Action::Tab7, "tab-7"),
+    (Action::Tab8, "tab-8"),
+    (Action::LastTab, "last-tab"),
+    (Action::EditConfig, "edit-config"),
+    (Action::Quit, "quit"),
 ];
 
 impl Action {
@@ -332,8 +372,36 @@ impl fmt::Display for Chord {
     }
 }
 
+/// Which default bindings apply: macOS has a key of its own for the
+/// application, Command, which programs in a terminal never see.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Platform {
+    /// Linux and the rest: Ctrl+Shift.
+    #[default]
+    Other,
+    /// Command, as every Mac application does.
+    MacOs,
+}
+
+impl Platform {
+    /// The platform Hof was built for.
+    pub const CURRENT: Platform = if cfg!(target_os = "macos") {
+        Platform::MacOs
+    } else {
+        Platform::Other
+    };
+
+    fn defaults(self) -> &'static [(Action, &'static [&'static str])] {
+        match self {
+            Platform::Other => DEFAULTS,
+            Platform::MacOs => MAC_DEFAULTS,
+        }
+    }
+}
+
 // Ctrl+Shift for anything a shell or a TUI might want for itself, so plain
-// Ctrl and Alt chords reach the program running in the terminal.
+// Ctrl and Alt chords reach the program running in the terminal. Plain
+// Ctrl+T is fzf's file picker and readline's transpose, for one.
 const DEFAULTS: &[(Action, &[&str])] = &[
     (Action::NewTab, &["ctrl+shift+t"]),
     (Action::NextTab, &["ctrl+tab", "ctrl+pagedown"]),
@@ -367,20 +435,108 @@ const DEFAULTS: &[(Action, &[&str])] = &[
     (Action::ToggleFullscreen, &["f11"]),
     (Action::NextWaiting, &["ctrl+shift+a"]),
     (Action::NewTabOnHost, &["ctrl+shift+h"]),
+    // As GNOME's terminal and many others have it: Alt with a digit is
+    // rarely more than a count in readline.
+    (Action::Tab1, &["alt+1"]),
+    (Action::Tab2, &["alt+2"]),
+    (Action::Tab3, &["alt+3"]),
+    (Action::Tab4, &["alt+4"]),
+    (Action::Tab5, &["alt+5"]),
+    (Action::Tab6, &["alt+6"]),
+    (Action::Tab7, &["alt+7"]),
+    (Action::Tab8, &["alt+8"]),
+    (Action::LastTab, &["alt+9"]),
+    (Action::Quit, &["ctrl+shift+q"]),
+];
+
+// Command for everything, as a Mac user expects of any application, so
+// every Ctrl and Option chord is the terminal's. `ctrl` here is the
+// Control key.
+const MAC_DEFAULTS: &[(Action, &[&str])] = &[
+    (Action::NewTab, &["cmd+t"]),
+    (Action::CloseTab, &["cmd+alt+w"]),
+    (Action::NextTab, &["ctrl+tab", "cmd+shift+right"]),
+    (Action::PreviousTab, &["ctrl+shift+tab", "cmd+shift+left"]),
+    (Action::SplitRight, &["cmd+d"]),
+    (Action::SplitDown, &["cmd+shift+d"]),
+    (Action::ClosePane, &["cmd+w"]),
+    (Action::FocusLeft, &["cmd+alt+left"]),
+    (Action::FocusRight, &["cmd+alt+right"]),
+    (Action::FocusUp, &["cmd+alt+up"]),
+    (Action::FocusDown, &["cmd+alt+down"]),
+    (Action::FocusNext, &["cmd+]"]),
+    (Action::FocusPrevious, &["cmd+["]),
+    (Action::GrowLeft, &["cmd+ctrl+left"]),
+    (Action::GrowRight, &["cmd+ctrl+right"]),
+    (Action::GrowUp, &["cmd+ctrl+up"]),
+    (Action::GrowDown, &["cmd+ctrl+down"]),
+    (Action::ZoomPane, &["cmd+shift+enter"]),
+    (Action::Copy, &["cmd+c"]),
+    (Action::Paste, &["cmd+v"]),
+    (Action::SelectAll, &["cmd+a"]),
+    (Action::ScrollPageUp, &["shift+pageup", "cmd+pageup"]),
+    (Action::ScrollPageDown, &["shift+pagedown", "cmd+pagedown"]),
+    (Action::ScrollTop, &["shift+home", "cmd+home"]),
+    (Action::ScrollBottom, &["shift+end", "cmd+end"]),
+    (Action::PreviousPrompt, &["cmd+up"]),
+    (Action::NextPrompt, &["cmd+down"]),
+    (Action::FontBigger, &["cmd+plus", "cmd+="]),
+    (Action::FontSmaller, &["cmd+minus"]),
+    (Action::FontReset, &["cmd+0"]),
+    (Action::Search, &["cmd+f"]),
+    (Action::EditConfig, &["cmd+,"]),
+    (Action::ReloadConfig, &["cmd+shift+r"]),
+    (Action::ToggleFullscreen, &["cmd+ctrl+f"]),
+    (Action::NextWaiting, &["cmd+shift+a"]),
+    (Action::NewTabOnHost, &["cmd+shift+h"]),
+    (Action::Tab1, &["cmd+1"]),
+    (Action::Tab2, &["cmd+2"]),
+    (Action::Tab3, &["cmd+3"]),
+    (Action::Tab4, &["cmd+4"]),
+    (Action::Tab5, &["cmd+5"]),
+    (Action::Tab6, &["cmd+6"]),
+    (Action::Tab7, &["cmd+7"]),
+    (Action::Tab8, &["cmd+8"]),
+    (Action::LastTab, &["cmd+9"]),
+    (Action::Quit, &["cmd+q"]),
 ];
 
 /// The `[keys]` section: the user's changes to the default bindings.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keys {
     /// Actions the user rebound, with their chords. An empty list means the
     /// action was unbound with `"none"`.
     pub overrides: BTreeMap<Action, Vec<Chord>>,
+    /// Whose defaults the overrides change: [`Platform::CURRENT`]'s, unless
+    /// a test says otherwise.
+    pub platform: Platform,
+}
+
+impl Default for Keys {
+    fn default() -> Self {
+        Keys {
+            overrides: BTreeMap::new(),
+            platform: Platform::CURRENT,
+        }
+    }
 }
 
 impl Keys {
-    /// The bindings Hof has before any `[keys]` section.
+    /// The same changes to `platform`'s defaults.
+    pub fn on(mut self, platform: Platform) -> Self {
+        self.platform = platform;
+        self
+    }
+
+    /// The bindings Hof has before any `[keys]` section, here.
     pub fn defaults() -> Vec<(Chord, Action)> {
-        DEFAULTS
+        Self::defaults_on(Platform::CURRENT)
+    }
+
+    /// The bindings Hof has before any `[keys]` section on `platform`.
+    pub fn defaults_on(platform: Platform) -> Vec<(Chord, Action)> {
+        platform
+            .defaults()
             .iter()
             .flat_map(|(action, chords)| {
                 chords
@@ -405,7 +561,7 @@ impl Keys {
             }
         }
         let user_count = out.len();
-        for (chord, action) in Self::defaults() {
+        for (chord, action) in Self::defaults_on(self.platform) {
             let overridden = self.overrides.contains_key(&action);
             let taken = out[..user_count].iter().any(|(c, _)| *c == chord);
             if !overridden && !taken {
@@ -495,10 +651,20 @@ mod tests {
         assert_eq!(chord("alt+Ö").key, "ö");
     }
 
+    fn linux() -> Keys {
+        Keys::default().on(Platform::Other)
+    }
+
+    fn mac() -> Keys {
+        Keys::default().on(Platform::MacOs)
+    }
+
     #[test]
     fn printed_chords_parse_back_to_themselves() {
-        for (c, _) in Keys::defaults() {
-            assert_eq!(c.to_string().parse::<Chord>(), Ok(c));
+        for platform in [Platform::Other, Platform::MacOs] {
+            for (c, _) in Keys::defaults_on(platform) {
+                assert_eq!(c.to_string().parse::<Chord>(), Ok(c));
+            }
         }
     }
 
@@ -531,7 +697,7 @@ mod tests {
 
     #[test]
     fn the_defaults_bind_the_promised_chords() {
-        let keys = Keys::default();
+        let keys = linux();
         for (c, action) in [
             ("ctrl+shift+t", Action::NewTab),
             ("ctrl+shift+w", Action::ClosePane),
@@ -554,23 +720,64 @@ mod tests {
             ("shift+pagedown", Action::ScrollPageDown),
             ("shift+home", Action::ScrollTop),
             ("shift+end", Action::ScrollBottom),
+            ("alt+1", Action::Tab1),
+            ("alt+9", Action::LastTab),
         ] {
             assert_eq!(keys.action_for(&chord(c)), Some(action), "{c}");
         }
     }
 
     #[test]
+    fn on_a_mac_the_defaults_are_command_chords() {
+        let keys = mac();
+        for (c, action) in [
+            ("cmd+t", Action::NewTab),
+            ("cmd+w", Action::ClosePane),
+            ("cmd+d", Action::SplitRight),
+            ("cmd+shift+d", Action::SplitDown),
+            ("cmd+c", Action::Copy),
+            ("cmd+v", Action::Paste),
+            ("cmd+f", Action::Search),
+            ("cmd+plus", Action::FontBigger),
+            ("cmd+0", Action::FontReset),
+            ("cmd+1", Action::Tab1),
+            ("cmd+]", Action::FocusNext),
+            ("cmd+,", Action::EditConfig),
+            ("cmd+q", Action::Quit),
+            ("ctrl+tab", Action::NextTab),
+        ] {
+            assert_eq!(keys.action_for(&chord(c)), Some(action), "{c}");
+        }
+        // Control's chords are the terminal's there.
+        assert_eq!(keys.action_for(&chord("ctrl+shift+t")), None);
+        assert_eq!(keys.action_for(&chord("ctrl+shift+c")), None);
+    }
+
+    #[test]
+    fn a_mac_binds_no_ctrl_chord_a_program_could_want() {
+        for (c, action) in Keys::defaults_on(Platform::MacOs) {
+            let tab = c.key == "tab" && !c.alt && !c.super_;
+            assert!(!c.ctrl || c.super_ || tab, "{c} for {action}");
+        }
+    }
+
+    #[test]
     fn no_chord_is_bound_twice_by_default() {
-        let mut chords: Vec<_> = Keys::defaults().into_iter().map(|(c, _)| c).collect();
-        let n = chords.len();
-        chords.sort();
-        chords.dedup();
-        assert_eq!(chords.len(), n);
+        for platform in [Platform::Other, Platform::MacOs] {
+            let mut chords: Vec<_> = Keys::defaults_on(platform)
+                .into_iter()
+                .map(|(c, _)| c)
+                .collect();
+            let n = chords.len();
+            chords.sort();
+            chords.dedup();
+            assert_eq!(chords.len(), n, "{platform:?}");
+        }
     }
 
     #[test]
     fn rebinding_an_action_drops_its_default_chord() {
-        let mut keys = Keys::default();
+        let mut keys = linux();
         keys.overrides.insert(Action::NewTab, vec![chord("ctrl+t")]);
         assert_eq!(keys.action_for(&chord("ctrl+t")), Some(Action::NewTab));
         assert_eq!(keys.action_for(&chord("ctrl+shift+t")), None);
@@ -578,14 +785,14 @@ mod tests {
 
     #[test]
     fn an_empty_override_unbinds_the_action() {
-        let mut keys = Keys::default();
+        let mut keys = linux();
         keys.overrides.insert(Action::Search, vec![]);
         assert!(keys.bindings().iter().all(|(_, a)| *a != Action::Search));
     }
 
     #[test]
     fn a_user_chord_takes_over_from_a_default_action() {
-        let mut keys = Keys::default();
+        let mut keys = linux();
         keys.overrides
             .insert(Action::NewTab, vec![chord("ctrl+shift+w")]);
         assert_eq!(

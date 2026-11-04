@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hof_config::{
-    Action, Binding, Chord, Config, CursorShape, Error, Keys, Permission, Place, Position, Program,
-    Rgba, WarningKind, builtin, load, parse,
+    Action, Binding, Chord, Config, CursorShape, Error, Keys, Permission, Place, Platform,
+    Position, Program, Rgba, WarningKind, builtin, load, parse,
 };
 
 fn ok(text: &str) -> hof_config::Loaded {
@@ -99,8 +99,9 @@ fn the_example_file_is_exactly_the_defaults() {
     assert_eq!(loaded.config, Config::default());
 }
 
-#[test]
-fn the_key_defaults_listed_in_the_example_are_the_real_ones() {
+/// The `[keys]` entries the example lists after `prefix`, as a file of
+/// their own.
+fn listed_keys(prefix: &str) -> String {
     let text = include_str!("../hof.example.toml");
     let section = text
         .split("[keys]")
@@ -111,7 +112,7 @@ fn the_key_defaults_listed_in_the_example_are_the_real_ones() {
         .unwrap();
     let mut uncommented = String::from("[keys]\n");
     for line in section.lines() {
-        let entry = line.strip_prefix("# ").and_then(|l| {
+        let entry = line.strip_prefix(prefix).and_then(|l| {
             let (name, _) = l.split_once(" = ")?;
             name.parse::<Action>().is_ok().then_some(l)
         });
@@ -120,12 +121,20 @@ fn the_key_defaults_listed_in_the_example_are_the_real_ones() {
             uncommented.push('\n');
         }
     }
-    let loaded = ok(&uncommented);
-    assert_eq!(loaded.warnings, vec![]);
-    let listed: BTreeSet<_> = loaded.config.keys.bindings().into_iter().collect();
-    let real: BTreeSet<_> = Keys::defaults().into_iter().collect();
-    assert_eq!(listed, real);
-    assert_eq!(loaded.config.keys.overrides.len(), Action::all().count());
+    uncommented
+}
+
+#[test]
+fn the_key_defaults_listed_in_the_example_are_the_real_ones() {
+    for (prefix, platform) in [("# ", Platform::Other), ("#   ", Platform::MacOs)] {
+        let loaded = ok(&listed_keys(prefix));
+        assert_eq!(loaded.warnings, vec![], "{platform:?}");
+        let keys = loaded.config.keys.on(platform);
+        let listed: BTreeSet<_> = keys.bindings().into_iter().collect();
+        let real: BTreeSet<_> = Keys::defaults_on(platform).into_iter().collect();
+        assert_eq!(listed, real, "{platform:?}");
+        assert_eq!(keys.overrides.len(), Action::all().count(), "{platform:?}");
+    }
 }
 
 // Every key
@@ -533,7 +542,10 @@ fn a_file_that_cannot_be_read_is_an_error() {
 
 #[test]
 fn a_key_entry_replaces_the_default_for_that_action() {
-    let keys = ok("[keys]\nnew-tab = \"ctrl+alt+t\"\n").config.keys;
+    let keys = ok("[keys]\nnew-tab = \"ctrl+alt+t\"\n")
+        .config
+        .keys
+        .on(Platform::Other);
     assert_eq!(keys.action_for(&chord("ctrl+alt+t")), Some(Action::NewTab));
     assert_eq!(keys.action_for(&chord("ctrl+shift+t")), None);
     assert_eq!(
@@ -574,7 +586,12 @@ fn an_unknown_action_is_a_warning() {
 fn a_bad_chord_is_a_warning_and_the_default_stays() {
     let loaded = ok("[keys]\nnew-tab = \"ctrl+shoft+t\"\n");
     assert_eq!(
-        loaded.config.keys.action_for(&chord("ctrl+shift+t")),
+        loaded
+            .config
+            .keys
+            .clone()
+            .on(Platform::Other)
+            .action_for(&chord("ctrl+shift+t")),
         Some(Action::NewTab)
     );
     assert!(
@@ -592,7 +609,7 @@ fn a_binding_that_is_not_text_is_a_warning() {
 #[test]
 fn one_chord_for_two_actions_is_a_warning_and_the_earlier_action_keeps_it() {
     let loaded = ok("[keys]\nsearch = \"ctrl+f\"\nnew-tab = \"ctrl+f\"\n");
-    let keys = &loaded.config.keys;
+    let keys = loaded.config.keys.clone().on(Platform::Other);
     assert_eq!(keys.action_for(&chord("ctrl+f")), Some(Action::NewTab));
     // Search lost its only chord to the conflict, so it keeps its default.
     assert_eq!(
@@ -773,6 +790,10 @@ fn a_command_s_chord_is_its_own_and_takes_the_place_of_a_default() {
         keys = ["ctrl+shift+t", "ctrl+alt+t"]
     "#)
     .config;
+    let c = Config {
+        keys: c.keys.on(Platform::Other),
+        ..c
+    };
     let bound = |chord_text: &str| {
         c.bindings()
             .into_iter()
@@ -959,7 +980,9 @@ fn an_agent_hook_and_the_key_to_the_next_waiting_agent_are_there() {
     let c = ok("[hooks]\nagent-changed = \"echo $HOF_AGENT_STATE\"\n").config;
     assert_eq!(c.hooks.of("agent-changed").len(), 1);
     assert_eq!(
-        Keys::default().action_for(&chord("ctrl+shift+a")),
+        Keys::default()
+            .on(Platform::Other)
+            .action_for(&chord("ctrl+shift+a")),
         Some(Action::NextWaiting)
     );
 }
