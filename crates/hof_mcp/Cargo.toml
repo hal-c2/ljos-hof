@@ -12,6 +12,8 @@ publish.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# Who is on the other end of a socket.
+hof_remote.workspace = true
 # `net` for shutting the listening socket down, which wakes a blocked accept.
 rustix = { workspace = true, features = ["net"] }
 

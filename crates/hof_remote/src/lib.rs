@@ -17,6 +17,7 @@
 
 pub mod bootstrap;
 pub mod client;
+pub mod peer;
 pub mod pulse;
 mod queue;
 pub mod relay;

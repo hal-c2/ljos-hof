@@ -65,17 +65,7 @@ impl Socket for UnixStream {
     }
 
     fn same_user(&self) -> io::Result<()> {
-        #[cfg(target_os = "linux")]
-        {
-            let credentials = rustix::net::sockopt::socket_peercred(self)?;
-            if credentials.uid != rustix::process::getuid() {
-                return Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "the socket peer belongs to another user",
-                ));
-            }
-        }
-        Ok(())
+        crate::peer::same_user(self)
     }
 }
 

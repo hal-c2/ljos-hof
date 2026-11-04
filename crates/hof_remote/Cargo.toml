@@ -12,6 +12,10 @@ publish.workspace = true
 thiserror.workspace = true
 rustix = { workspace = true, features = ["net"] }
 
+# `getpeereid`, which rustix lacks, for the sockets' peers off Linux.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile.workspace = true
 

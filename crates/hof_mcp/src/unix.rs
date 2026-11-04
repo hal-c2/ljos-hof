@@ -6,6 +6,9 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
+pub use hof_remote::peer::same_user;
+use hof_remote::peer::same_user_as;
+
 pub fn fallback_dir(temp_dir: &Path, uid: u32) -> PathBuf {
     temp_dir.join(format!("hof-{uid}"))
 }
@@ -60,33 +63,6 @@ fn connect_as(path: &Path, expected_uid: u32) -> io::Result<UnixStream> {
     Ok(stream)
 }
 
-pub fn same_user(stream: &UnixStream) -> io::Result<()> {
-    same_user_as(stream, rustix::process::getuid().as_raw())
-}
-
-#[cfg(target_os = "linux")]
-fn same_user_as(stream: &UnixStream, expected_uid: u32) -> io::Result<()> {
-    let credentials = rustix::net::sockopt::socket_peercred(stream)?;
-    if credentials.uid.as_raw() == expected_uid {
-        Ok(())
-    } else {
-        Err(foreign_peer())
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn same_user_as(_stream: &UnixStream, _expected_uid: u32) -> io::Result<()> {
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn foreign_peer() -> io::Error {
-    io::Error::new(
-        io::ErrorKind::PermissionDenied,
-        "the socket peer belongs to another user",
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,17 +80,5 @@ mod tests {
         fs::remove_dir(&dir).unwrap();
         std::os::unix::fs::symlink(temp.path(), &dir).unwrap();
         assert!(ensure_private_dir(&dir, 1000).is_err());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn a_peer_with_another_users_identity_is_refused() {
-        let (stream, _other) = UnixStream::pair().unwrap();
-        let uid = rustix::process::getuid().as_raw();
-        same_user_as(&stream, uid).unwrap();
-        assert_eq!(
-            same_user_as(&stream, uid + 1).unwrap_err().kind(),
-            io::ErrorKind::PermissionDenied
-        );
     }
 }
