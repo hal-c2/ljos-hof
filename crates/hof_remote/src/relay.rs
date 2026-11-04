@@ -20,7 +20,7 @@ use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, mpsc};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
@@ -93,7 +93,7 @@ impl Socket for TcpStream {
     }
 }
 
-type Sender = Box<dyn Fn(Message) -> bool + Send + Sync>;
+type Sender = Arc<dyn Fn(Message) -> bool + Send + Sync>;
 
 /// One connection's channels. Clones share them.
 #[derive(Clone)]
@@ -111,7 +111,7 @@ struct Channel {
     /// To the thread that writes to the socket; taken when the other end
     /// hangs up, so the writer ends once it has written what came. Two
     /// windows leave room for an honest window and writer scheduling.
-    to_write: Mutex<Option<mpsc::SyncSender<Vec<u8>>>>,
+    to_write: Mutex<Option<Arc<crate::queue::Queue>>>,
     /// Read and sent, and not acknowledged yet.
     unacked: Mutex<usize>,
     room: Condvar,
@@ -122,7 +122,9 @@ impl Channel {
     fn close(&self) {
         // Before the socket is looked at: one connected after this sees it.
         self.closed.store(true, Ordering::Release);
-        lock(&self.to_write).take();
+        if let Some(queue) = lock(&self.to_write).take() {
+            queue.close();
+        }
         if let Some(socket) = lock(&self.socket).as_ref() {
             socket.close();
         }
@@ -141,15 +143,16 @@ impl Relays {
     /// it could send.
     pub fn new(send: impl Fn(Message) -> bool + Send + Sync + 'static) -> Self {
         Self(Arc::new(Shared {
-            send: Mutex::new(Some(Box::new(send))),
+            send: Mutex::new(Some(Arc::new(send))),
             channels: Mutex::default(),
         }))
     }
 
     fn send(&self, message: Message) -> bool {
-        lock(&self.0.send)
-            .as_ref()
-            .is_some_and(|send| send(message))
+        let send = lock(&self.0.send).clone();
+        // A transport may apply backpressure, but never while holding the
+        // lock that shutdown needs to take the sender away.
+        send.is_some_and(|send| send(message))
     }
 
     /// A program here connected to `service` and began with `opening`:
@@ -180,10 +183,10 @@ impl Relays {
     where
         F: FnOnce() -> io::Result<(Box<dyn Socket>, Vec<u8>)> + Send + 'static,
     {
-        let (to_write, written) = mpsc::sync_channel(2 * WINDOW / PIECE);
+        let written = Arc::new(crate::queue::Queue::default());
         let ch = Arc::new(Channel {
             socket: Mutex::new(None),
-            to_write: Mutex::new(Some(to_write)),
+            to_write: Mutex::new(Some(written.clone())),
             unacked: Mutex::new(0),
             room: Condvar::new(),
             closed: AtomicBool::new(false),
@@ -219,7 +222,7 @@ impl Relays {
         id: ChannelId,
         channel: &Arc<Channel>,
         connect: F,
-        written: &mpsc::Receiver<Vec<u8>>,
+        written: &crate::queue::Queue,
     ) where
         F: FnOnce() -> io::Result<(Box<dyn Socket>, Vec<u8>)>,
     {
@@ -243,7 +246,7 @@ impl Relays {
             return;
         }
         let mut failed = !first.is_empty() && writer.write_all(&first).is_err();
-        while !failed && let Ok(bytes) = written.recv() {
+        while !failed && let Some(bytes) = written.read() {
             if writer
                 .write_all(&bytes)
                 .and_then(|()| writer.flush())
@@ -338,7 +341,7 @@ impl Relays {
                 let accepted = bytes.len() <= PIECE
                     && lock(&channel.to_write)
                         .as_ref()
-                        .is_some_and(|to_write| to_write.try_send(bytes).is_ok());
+                        .is_some_and(|to_write| to_write.push(bytes, 2 * WINDOW, false));
                 if !accepted {
                     self.end_if(id, &channel);
                 }
@@ -365,7 +368,9 @@ impl Relays {
     pub fn hang_up(&self, id: ChannelId) {
         let channel = lock(&self.0.channels).remove(&id);
         if let Some(channel) = channel {
-            lock(&channel.to_write).take();
+            if let Some(queue) = lock(&channel.to_write).take() {
+                queue.close();
+            }
             // Stop reading at once: nothing more is wanted from it.
             channel.closed.store(true, Ordering::Release);
             let _unacked = lock(&channel.unacked);
@@ -379,7 +384,6 @@ impl Relays {
         lock(&self.0.send).take();
         let channels: Vec<_> = lock(&self.0.channels).drain().map(|(_, c)| c).collect();
         for channel in channels {
-            lock(&channel.to_write).take();
             channel.close();
         }
     }
@@ -397,6 +401,7 @@ impl Relays {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
 
     /// Two ends whose messages go to each other, as over a connection.
     fn pair() -> (Relays, Relays) {
@@ -474,6 +479,18 @@ mod tests {
         let writer = thread::spawn(move || here.write_all(&sending).map(|()| here));
         let got = read_n(&mut there, data.len());
         assert!(got == data, "the bytes came as they went");
+        writer.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn many_small_pieces_inside_the_window_still_flow() {
+        let (a, b) = pair();
+        let (mut here, mut there) = channel(&a, &b, b"");
+        let data = vec![7; 33 * 4096];
+        let sending = data.clone();
+        let writer = thread::spawn(move || here.write_all(&sending).map(|()| here));
+        let got = read_n(&mut there, data.len());
+        assert_eq!(got, data);
         writer.join().unwrap().unwrap();
     }
 
