@@ -2,7 +2,6 @@
 
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::thread;
 
@@ -23,7 +22,7 @@ where
     W: Write,
 {
     let socket_path = socket_path.as_ref();
-    let socket = UnixStream::connect(socket_path).map_err(|error| {
+    let socket = crate::unix::connect(socket_path).map_err(|error| {
         io::Error::new(
             error.kind(),
             format!(

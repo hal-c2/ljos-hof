@@ -19,6 +19,7 @@ mod host;
 mod protocol;
 mod server;
 mod tools;
+mod unix;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -33,8 +34,8 @@ pub use server::{Server, serve_unix};
 pub use tools::Policy;
 
 /// Where the app listens unless configured otherwise:
-/// `$XDG_RUNTIME_DIR/hof-mcp.sock`, else `hof-mcp-<uid>.sock` in the
-/// temporary directory, named for the user because that one is shared.
+/// `$XDG_RUNTIME_DIR/hof-mcp.sock`, else `mcp.sock` in a private directory
+/// for this user in the temporary directory.
 pub fn socket_path() -> PathBuf {
     socket_path_in(
         std::env::var_os("XDG_RUNTIME_DIR"),
@@ -47,7 +48,7 @@ fn socket_path_in(runtime_dir: Option<OsString>, temp_dir: PathBuf, uid: u32) ->
     match runtime_dir.map(PathBuf::from) {
         // The spec says to ignore a relative one.
         Some(dir) if dir.is_absolute() => dir.join("hof-mcp.sock"),
-        _ => temp_dir.join(format!("hof-mcp-{uid}.sock")),
+        _ => unix::fallback_dir(&temp_dir, uid).join("mcp.sock"),
     }
 }
 
@@ -62,14 +63,14 @@ mod tests {
     }
 
     #[test]
-    fn without_a_runtime_directory_the_socket_is_named_for_the_user_in_the_temp_directory() {
+    fn without_a_runtime_directory_the_socket_is_in_a_private_user_directory() {
         assert_eq!(
             socket_path_in(None, "/tmp".into(), 1000),
-            PathBuf::from("/tmp/hof-mcp-1000.sock")
+            PathBuf::from("/tmp/hof-1000/mcp.sock")
         );
         assert_eq!(
             socket_path_in(Some("relative".into()), "/tmp".into(), 7),
-            PathBuf::from("/tmp/hof-mcp-7.sock")
+            PathBuf::from("/tmp/hof-7/mcp.sock")
         );
     }
 }

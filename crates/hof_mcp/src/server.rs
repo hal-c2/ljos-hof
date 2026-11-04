@@ -50,6 +50,7 @@ pub fn serve_unix(
     policy: Policy,
 ) -> io::Result<Server> {
     let path = path.as_ref().to_path_buf();
+    crate::unix::prepare_parent(&path)?;
     clear_stale_socket(&path)?;
     let listener = bind_private(&path)?;
     let metadata = fs::symlink_metadata(&path)?;
@@ -140,7 +141,7 @@ fn clear_stale_socket(path: &Path) -> io::Result<()> {
             format!("{} exists and is not a socket", path.display()),
         ));
     }
-    match UnixStream::connect(path) {
+    match crate::unix::connect(path) {
         Ok(_) => Err(io::Error::new(
             io::ErrorKind::AddrInUse,
             format!("something is already serving on {}", path.display()),
@@ -196,6 +197,9 @@ fn accept_loop(
                 continue;
             }
         };
+        if crate::unix::same_user(&stream).is_err() {
+            continue;
+        }
         let Some(id) = register(connections, &stream, stopping) else {
             return;
         };

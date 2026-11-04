@@ -2,7 +2,6 @@
 //! an agent has, without an MCP client.
 
 use std::io::{self, BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 
 use serde_json::{Value, json};
@@ -19,7 +18,7 @@ pub struct Answer {
 /// `Err` when nothing answers there or the reply is not a tool's; a tool
 /// that fails is an `Ok` [`Answer`] with `is_error` set.
 pub fn call(socket: impl AsRef<Path>, name: &str, arguments: Value) -> io::Result<Answer> {
-    let mut stream = UnixStream::connect(socket)?;
+    let mut stream = crate::unix::connect(socket.as_ref())?;
     let request = json!({
         "jsonrpc": "2.0",
         "id": 1,
