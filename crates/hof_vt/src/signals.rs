@@ -44,6 +44,13 @@ pub enum Event {
     Link(crate::remote::Link),
     /// The program said how its agent is, in Hof's own sequence.
     Agent(crate::report::Report),
+    /// The program put text on a clipboard (OSC 52); empty clears it. The
+    /// UI decides whether to let it.
+    Copy { to: crate::Clipboard, text: String },
+    /// The program asked what is on a clipboard (OSC 52 `?`). The UI asks
+    /// the user, or knows the answer, and answers with
+    /// [`crate::read_answer`]; nothing answers it before.
+    ClipboardRead(crate::Clipboard),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

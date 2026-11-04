@@ -8,9 +8,9 @@ use libghostty_vt::key;
 use libghostty_vt::mouse;
 use libghostty_vt::screen::TrackedGridRef;
 use libghostty_vt::terminal::{
-    ColorScheme, ConformanceLevel, DeviceAttributeFeature, DeviceAttributes, DeviceType,
-    PrimaryDeviceAttributes, ProgressState, SecondaryDeviceAttributes, SemanticPromptKind,
-    SizeReportSize, TertiaryDeviceAttributes,
+    ClipboardLocation, ClipboardWriteError, ColorScheme, ConformanceLevel, DeviceAttributeFeature,
+    DeviceAttributes, DeviceType, PrimaryDeviceAttributes, ProgressState,
+    SecondaryDeviceAttributes, SemanticPromptKind, SizeReportSize, TertiaryDeviceAttributes,
 };
 
 use crate::signals::{Changes, Event, Progress, PromptMark, Signals};
@@ -155,8 +155,12 @@ impl Vt {
     pub fn output(&mut self, bytes: &[u8]) {
         self.term.vt_write(bytes);
         let signals = &self.signals;
-        self.reports
-            .scan(bytes, |report| signals.push(Event::Agent(report)));
+        self.reports.scan(bytes, |found| {
+            signals.push(match found {
+                crate::report::Found::Report(report) => Event::Agent(report),
+                crate::report::Found::ClipboardRead(from) => Event::ClipboardRead(from),
+            })
+        });
     }
 
     pub fn resize(&mut self, size: Size) -> Result<(), Error> {
@@ -282,6 +286,36 @@ fn install_callbacks(
             title: String::from_utf8_lossy(n.title()).into_owned(),
             body: String::from_utf8_lossy(n.body()).into_owned(),
         });
+    })?;
+
+    let s = signals.clone();
+    term.on_clipboard_write(move |_, write| {
+        let to = match write.location() {
+            ClipboardLocation::Standard => crate::Clipboard::Standard,
+            ClipboardLocation::Selection | ClipboardLocation::Primary => {
+                crate::Clipboard::Selection
+            }
+        };
+        // Plain text if it offers it, else any text; a write of nothing
+        // clears the clipboard.
+        let text = {
+            let mut contents = write.contents();
+            let plain = contents.clone().find(|c| c.mime.starts_with(b"text/plain"));
+            match plain.or_else(|| contents.find(|c| c.mime.starts_with(b"text/"))) {
+                Some(c) => Some(String::from_utf8_lossy(c.data).into_owned()),
+                None if write.contents().len() == 0 => Some(String::new()),
+                None => None,
+            }
+        };
+        match text {
+            Some(text) => {
+                s.push(Event::Copy { to, text });
+                // The UI may still refuse it; OSC 52, the protocol programs
+                // use, has no answer to a write, so the program is not told.
+                write.reply(Ok(()), false);
+            }
+            None => write.reply(Err(ClipboardWriteError::Unsupported), false),
+        }
     })?;
 
     let s = signals.clone();

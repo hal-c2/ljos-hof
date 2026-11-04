@@ -10,6 +10,9 @@
 //! sequence travels in the output, it reaches Hof from a program on any
 //! machine, through `hof agent` and back, with nothing more to set up.
 //!
+//! The same scanner picks out OSC 52 clipboard reads, which libghostty is
+//! left to pass over too; see [`crate::clipboard`].
+//!
 //! The output comes in chunks that can split a sequence anywhere, so the
 //! scanner keeps where it was from one chunk to the next.
 
@@ -17,8 +20,12 @@
 pub const OSC: u16 = 7701;
 
 /// The most a sequence may hold between its number and its end: more, and
-/// it is something else, never ending, and is let go.
+/// it is something else, never ending, or a clipboard write, which is
+/// libghostty's, and is let go.
 const MOST: usize = 256;
+
+/// OSC 52, the clipboard's.
+const CLIPBOARD: u32 = 52;
 
 const ESC: u8 = 0x1b;
 const BEL: u8 = 0x07;
@@ -31,6 +38,13 @@ pub struct Report {
     pub name: String,
 }
 
+/// What the scanner finds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Found {
+    Report(Report),
+    ClipboardRead(crate::Clipboard),
+}
+
 #[derive(Debug, Default)]
 enum At {
     /// Outside any sequence of ours.
@@ -38,28 +52,27 @@ enum At {
     Ground,
     /// Just after an ESC.
     Escape,
-    /// After `ESC ]`, this many bytes of `7701;` matched.
-    Number(usize),
-    /// In the body.
+    /// After `ESC ]`, the number so far and how many digits it has.
+    Number(u32, u8),
+    /// In the body of the sequence with this number.
     Body,
     /// An ESC in the body: the start of ST, or the sequence is cut.
     BodyEscape,
 }
 
-/// Finds reports in output, across chunks.
+/// Finds reports and clipboard reads in output, across chunks.
 #[derive(Debug, Default)]
 pub(crate) struct Scanner {
     at: At,
+    /// The number of the sequence whose body this is.
+    number: u32,
     body: Vec<u8>,
 }
 
-/// How the bytes after `ESC ]` start, for a report.
-const PREFIX: &[u8] = b"7701;";
-
 impl Scanner {
     /// Looks through `bytes`, the output that follows what it saw last,
-    /// and gives each report it finishes to `found`.
-    pub fn scan(&mut self, bytes: &[u8], mut found: impl FnMut(Report)) {
+    /// and gives each sequence of interest it finishes to `found`.
+    pub fn scan(&mut self, bytes: &[u8], mut found: impl FnMut(Found)) {
         let mut i = 0;
         while i < bytes.len() {
             if matches!(self.at, At::Ground) {
@@ -77,19 +90,19 @@ impl Scanner {
             i += 1;
             self.at = match std::mem::take(&mut self.at) {
                 At::Ground => unreachable!("handled above"),
-                At::Escape if b == b']' => At::Number(0),
+                At::Escape if b == b']' => At::Number(0, 0),
                 At::Escape if b == ESC => At::Escape,
                 At::Escape => At::Ground,
-                At::Number(n) if b == PREFIX[n] => {
-                    if n + 1 == PREFIX.len() {
-                        self.body.clear();
-                        At::Body
-                    } else {
-                        At::Number(n + 1)
-                    }
+                At::Number(n, digits) if b.is_ascii_digit() && digits < 5 => {
+                    At::Number(n * 10 + u32::from(b - b'0'), digits + 1)
                 }
-                At::Number(_) if b == ESC => At::Escape,
-                At::Number(_) => At::Ground,
+                At::Number(n, digits) if b == b';' && digits > 0 && wanted(n) => {
+                    self.number = n;
+                    self.body.clear();
+                    At::Body
+                }
+                At::Number(..) if b == ESC => At::Escape,
+                At::Number(..) => At::Ground,
                 At::Body if b == BEL => {
                     self.finish(&mut found);
                     At::Ground
@@ -105,34 +118,55 @@ impl Scanner {
                     At::Ground
                 }
                 // A new sequence began before this one ended.
-                At::BodyEscape if b == b']' => At::Number(0),
+                At::BodyEscape if b == b']' => At::Number(0, 0),
                 At::BodyEscape => At::Ground,
             };
         }
     }
 
-    fn finish(&mut self, found: &mut impl FnMut(Report)) {
-        let body = String::from_utf8_lossy(&self.body);
-        let (state, name) = body.split_once(';').unwrap_or((&body, ""));
-        found(Report {
-            state: state.trim().to_owned(),
-            name: name.trim().to_owned(),
-        });
+    fn finish(&mut self, found: &mut impl FnMut(Found)) {
+        if self.number == CLIPBOARD {
+            if let Some(from) = crate::clipboard::read_of(&self.body) {
+                found(Found::ClipboardRead(from));
+            }
+        } else {
+            let body = String::from_utf8_lossy(&self.body);
+            let (state, name) = body.split_once(';').unwrap_or((&body, ""));
+            found(Found::Report(Report {
+                state: state.trim().to_owned(),
+                name: name.trim().to_owned(),
+            }));
+        }
         self.body.clear();
     }
+}
+
+/// Whether `ESC ] n ;` starts a sequence of interest.
+fn wanted(n: u32) -> bool {
+    n == u32::from(OSC) || n == CLIPBOARD
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn reports(chunks: &[&[u8]]) -> Vec<Report> {
+    fn found(chunks: &[&[u8]]) -> Vec<Found> {
         let mut scanner = Scanner::default();
         let mut out = Vec::new();
         for chunk in chunks {
-            scanner.scan(chunk, |r| out.push(r));
+            scanner.scan(chunk, |f| out.push(f));
         }
         out
+    }
+
+    fn reports(chunks: &[&[u8]]) -> Vec<Report> {
+        found(chunks)
+            .into_iter()
+            .filter_map(|f| match f {
+                Found::Report(r) => Some(r),
+                Found::ClipboardRead(_) => None,
+            })
+            .collect()
     }
 
     fn report(state: &str, name: &str) -> Report {
@@ -178,6 +212,15 @@ mod tests {
         long.extend(std::iter::repeat_n(b'x', MOST + 10));
         long.extend(b"\x07\x1b]7701;idle\x07");
         assert_eq!(reports(&[&long]), [report("idle", "")]);
+    }
+
+    #[test]
+    fn a_clipboard_read_is_found_and_a_write_however_long_is_not() {
+        let mut write = b"\x1b]52;c;".to_vec();
+        write.extend(std::iter::repeat_n(b'A', MOST * 4));
+        write.extend(b"\x07");
+        let reads = found(&[&write, b"\x1b]52;c;aGk=\x07", b"\x1b]52;p;?\x1b\\"]);
+        assert_eq!(reads, [Found::ClipboardRead(crate::Clipboard::Selection)]);
     }
 
     #[test]

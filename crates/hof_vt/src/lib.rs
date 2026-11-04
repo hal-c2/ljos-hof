@@ -18,6 +18,7 @@
 //! machine: the connection writes the output in through a [`Feed`], and
 //! takes what the user types from an [`Outlet`].
 
+mod clipboard;
 mod error;
 mod find;
 mod grid;
@@ -30,6 +31,7 @@ mod session;
 mod signals;
 mod vt;
 
+pub use clipboard::{Clipboard, read_answer};
 pub use error::Error;
 pub use find::{Found, Highlight};
 pub use grid::{Attrs, Cell, Colors, Cursor, CursorShape, Damage, Grid, Line, Rgb};

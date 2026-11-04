@@ -656,3 +656,33 @@ fn what_a_program_reports_of_its_agent_is_an_event_and_draws_nothing() {
     );
     assert_eq!(session.screen_text().trim_end(), "beforeafter");
 }
+
+#[test]
+fn a_program_s_clipboard_write_and_read_reach_the_ui_unanswered() {
+    let (session, _) = detached(30, 3);
+    // "ljós", and a read of the primary selection.
+    session.feed(b"\x1b]52;c;bGrDs3M=\x07\x1b]52;p;?\x1b\\");
+    assert_eq!(
+        session.take_events(),
+        [
+            Event::Copy {
+                to: hof_vt::Clipboard::Standard,
+                text: "ljós".into(),
+            },
+            Event::ClipboardRead(hof_vt::Clipboard::Selection),
+        ]
+    );
+}
+
+#[test]
+fn a_clipboard_write_of_nothing_clears_it() {
+    let (session, _) = detached(30, 3);
+    session.feed(b"\x1b]52;s;\x07");
+    assert_eq!(
+        session.take_events(),
+        [Event::Copy {
+            to: hof_vt::Clipboard::Selection,
+            text: String::new(),
+        }]
+    );
+}
