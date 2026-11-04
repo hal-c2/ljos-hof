@@ -12,6 +12,9 @@
 //!   cover. Fontique falls back by script, and that area has none, so they
 //!   are boxes unless a font in the stack has them. Where none does, the
 //!   stack ends with a Nerd Font that is installed.
+//!
+//! Both belong in Ljós UI's text engine, and go from here once it has them:
+//! hal-c2/ljos-ui#189 and hal-c2/ljos-ui#190.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
