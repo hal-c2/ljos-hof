@@ -429,10 +429,14 @@ struct Slot {
     over: bool,
 }
 
+/// Bytes of encoded output waiting for the transport. Relay readers wait
+/// for room; the driver drops a connection whose control traffic can't go.
+const TRANSPORT_MEMORY: usize = 4 * 1024 * 1024;
+
 /// The connection that is up.
 struct Live {
     generation: u64,
-    frames: mpsc::SyncSender<Vec<u8>>,
+    frames: Arc<crate::queue::Queue>,
     /// Says when the writer has written all it was given, or can't.
     written: mpsc::Receiver<()>,
     end: Option<Box<dyn FnOnce() -> Option<String> + Send>>,
@@ -594,13 +598,14 @@ impl Driver {
             writer,
             end,
         } = connection;
-        let (frames, out) = mpsc::sync_channel::<Vec<u8>>(16);
+        let frames = Arc::new(crate::queue::Queue::default());
         let (wrote, written) = mpsc::channel();
         let to = self.to.clone();
+        let writing = frames.clone();
         let started = thread::Builder::new()
             .name("hof-remote-write".into())
             .spawn(move || {
-                write_frames(writer, &out, &to, generation);
+                write_frames(writer, &writing, &to, generation);
                 let _ = wrote.send(());
             })
             .and_then(|_| {
@@ -615,7 +620,7 @@ impl Driver {
         let relays = Relays::new(move |message| {
             let mut frame = Vec::new();
             message.encode(&mut frame);
-            to_relay.send(frame).is_ok()
+            to_relay.push(frame, TRANSPORT_MEMORY, true)
         });
         self.live = Some(Live {
             generation,
@@ -671,9 +676,9 @@ impl Driver {
         } = self.live.take()?;
         // They go with it, and let go of the writer.
         relays.close_all();
-        // What was sent last (a close, often) goes before the connection
-        // does, unless it is stuck.
-        drop(frames);
+        // Closing wakes relay senders as well as the transport writer.
+        // What was sent last still drains before the connection ends.
+        frames.close();
         let _ = written.recv_timeout(Duration::from_secs(1));
         // Closed while it opened: whether it did is lost with the answer.
         self.slots.retain(|_, s| !s.close_when_opened);
@@ -696,18 +701,13 @@ impl Driver {
     }
 
     fn send(&mut self, message: Message) {
-        let full = {
+        let sent = {
             let Some(live) = &self.live else { return };
             let mut frame = Vec::new();
             message.encode(&mut frame);
-            match live.frames.try_send(frame) {
-                Ok(()) => false,
-                Err(mpsc::TrySendError::Full(_)) => true,
-                // A writer gone says so itself, as the connection's end.
-                Err(mpsc::TrySendError::Disconnected(_)) => false,
-            }
+            live.frames.push(frame, TRANSPORT_MEMORY, false)
         };
-        if full {
+        if !sent {
             self.lost(Some("the agent is not reading".into()));
         }
     }
@@ -1168,18 +1168,13 @@ fn message_weight(message: &Message) -> usize {
 
 fn write_frames(
     mut writer: Box<dyn Write + Send>,
-    frames: &mpsc::Receiver<Vec<u8>>,
+    frames: &crate::queue::Queue,
     to: &mpsc::Sender<Event>,
     generation: u64,
 ) {
-    // Ends when the connection does: its sender goes with it.
-    while let Ok(frame) = frames.recv() {
-        let mut batch = frame;
-        // Keystrokes come one frame each; a flush per batch is enough.
-        while let Ok(more) = frames.try_recv() {
-            batch.extend(more);
-        }
-        if let Err(e) = writer.write_all(&batch).and_then(|()| writer.flush()) {
+    // Ends when the connection closes and everything before it has drained.
+    while let Some(frame) = frames.read() {
+        if let Err(e) = writer.write_all(&frame).and_then(|()| writer.flush()) {
             let _ = to.send(Event::Ended(generation, Some(e.to_string())));
             return;
         }

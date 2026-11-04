@@ -566,6 +566,26 @@ mod tests {
     }
 
     #[test]
+    fn closing_does_not_wait_for_a_blocked_sender() {
+        let (release, waiting) = mpsc::channel();
+        let waiting = Arc::new(Mutex::new(waiting));
+        let relays = Relays::new(move |_| waiting.lock().unwrap().recv().is_ok());
+        let sending = {
+            let relays = relays.clone();
+            thread::spawn(move || relays.send(Message::List))
+        };
+        thread::sleep(Duration::from_millis(20));
+        assert!(!sending.is_finished());
+        let closing = thread::spawn(move || relays.close_all());
+        thread::sleep(Duration::from_millis(20));
+        let returned = closing.is_finished();
+        release.send(()).unwrap();
+        closing.join().unwrap();
+        assert!(returned, "shutdown did not wait for the sender to return");
+        sending.join().unwrap();
+    }
+
+    #[test]
     fn a_socket_that_cannot_be_reached_ends_the_channel() {
         let (a, b) = pair();
         let (here, at_a) = UnixStream::pair().unwrap();
