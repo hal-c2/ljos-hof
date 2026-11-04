@@ -95,6 +95,11 @@ pub struct Terminal {
     /// Whether a program may put text on the clipboard (OSC 52).
     #[qml(notify)]
     pub clipboard_write: bool,
+    /// Whether a program may have a URL opened here (`hof open`): "ask",
+    /// through `openRequested`; "allow"; or "deny". A remote program's
+    /// `file:` URL names a file there, which is not opened here.
+    #[qml(notify)]
+    pub open_urls: String,
 
     /// What to run; empty for the user's shell.
     #[qml(notify)]
@@ -241,6 +246,7 @@ impl Default for Terminal {
             confirm_paste: true,
             clipboard_read: "ask".into(),
             clipboard_write: true,
+            open_urls: "ask".into(),
             program: String::new(),
             arguments: Vec::new(),
             start_directory: String::new(),
@@ -310,17 +316,31 @@ pub(crate) struct Shared {
     /// not reached it yet: should that pane be gone, a new one starts.
     pub attaching: Cell<bool>,
     pub agent: RefCell<agents::Watch>,
-    pub clipboard: RefCell<ClipboardReads>,
+    pub clipboard: RefCell<Asked<hof_vt::Clipboard>>,
+    pub opens: RefCell<Asked<String>>,
 }
 
-/// The program's clipboard reads waiting for the user.
-#[derive(Debug, Default)]
-pub(crate) struct ClipboardReads {
-    /// Each read asked, in order; each gets its answer.
-    pub waiting: Vec<hof_vt::Clipboard>,
-    /// The user said to let this pane's program read, from now on.
+/// What the program asked that waits for the user.
+#[derive(Debug)]
+pub(crate) struct Asked<T> {
+    /// Each ask, in order; each gets its answer.
+    pub waiting: Vec<T>,
+    /// The user said to let this pane's program, from now on.
     pub always: bool,
 }
+
+impl<T> Default for Asked<T> {
+    fn default() -> Self {
+        Self {
+            waiting: Vec::new(),
+            always: false,
+        }
+    }
+}
+
+/// The most requests to open that may wait: a program asking for more is
+/// up to no good, and the rest are dropped.
+const MOST_OPENS: usize = 8;
 
 /// How long a blinking cursor stays shown, and hidden.
 const BLINK: Duration = Duration::from_millis(600);
@@ -409,6 +429,12 @@ impl Terminal {
     /// `answerClipboard`. Further reads wait with it, unsaid.
     #[qml(signal)]
     fn clipboard_requested(clipboard: String);
+
+    /// The program asks to open `url` here and `openUrls` says to ask.
+    /// `answerOpen` answers it; a request after it waits, and is asked
+    /// for once this one is answered.
+    #[qml(signal)]
+    fn open_requested(url: String);
 
     #[qml(on_complete)]
     fn completed(cx: &Cx) -> Result<(), EngineError> {
@@ -538,6 +564,41 @@ impl Terminal {
             answer_read(cx.engine, cx.this, from, allow);
         }
         flush_input(cx.engine, cx.this);
+    }
+
+    /// Opens the URL `openRequested` asked for if `allow`, and lets the
+    /// program open any from now on if `always` too.
+    #[qml(invokable)]
+    fn answer_open(cx: &Cx, allow: bool, always: bool) {
+        let (e, me) = (cx.engine, cx.this);
+        let Some(shared) = shared_of(e, me) else {
+            return;
+        };
+        let (url, next) = {
+            let mut opens = shared.opens.borrow_mut();
+            if opens.waiting.is_empty() {
+                return;
+            }
+            opens.always |= allow && always;
+            let url = opens.waiting.remove(0);
+            // Let always, those that wait go too.
+            let rest = if opens.always {
+                std::mem::take(&mut opens.waiting)
+            } else {
+                Vec::new()
+            };
+            (url, (rest, opens.waiting.first().cloned()))
+        };
+        if allow {
+            open_url(e, &url);
+        }
+        let (rest, next) = next;
+        for url in rest {
+            open_url(e, &url);
+        }
+        if let Some(url) = next {
+            let _ = Terminal::emit_open_requested(cx, url);
+        }
     }
 
     /// Pastes `text` even if it could run commands.
@@ -1105,6 +1166,7 @@ fn drain(engine: &Engine, me: ObjectId) {
                 }
             }
             Event::ClipboardRead(from) => read_asked(engine, me, from),
+            Event::Open(url) => open_asked(engine, me, url),
             Event::Exited(code) => {
                 let code = code.unwrap_or(-1);
                 forget_agent(engine, me);
@@ -1254,6 +1316,43 @@ fn path_of(url: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// The program asked to open `url`: opens it, or asks the user.
+fn open_asked(engine: &Engine, me: ObjectId, url: String) {
+    let Some(shared) = shared_of(engine, me) else {
+        return;
+    };
+    if url.starts_with("file:") && shared.remote.borrow().is_some() {
+        // A file on the other machine; until its files can be reached
+        // from here, there is nothing to open.
+        return;
+    }
+    let policy: String = engine.untrack(|| item::prop(engine, me, Terminal::OPEN_URLS));
+    let first = {
+        let mut opens = shared.opens.borrow_mut();
+        match policy.as_str() {
+            "deny" => return,
+            "allow" => None,
+            _ if opens.always => None,
+            _ if opens.waiting.len() >= MOST_OPENS => return,
+            _ => {
+                opens.waiting.push(url.clone());
+                Some(opens.waiting.len() == 1)
+            }
+        }
+    };
+    match first {
+        None => open_url(engine, &url),
+        Some(true) => {
+            let _ = Terminal::emit_open_requested(&cx(engine, me), url);
+        }
+        Some(false) => {}
+    }
+}
+
+fn open_url(engine: &Engine, url: &str) {
+    Platform::of(engine).open_url().open(url);
+}
+
 fn mode_of(clipboard: hof_vt::Clipboard) -> ClipboardMode {
     match clipboard {
         hof_vt::Clipboard::Standard => ClipboardMode::Clipboard,
@@ -1303,7 +1402,7 @@ fn answer_read(engine: &Engine, me: ObjectId, from: hof_vt::Clipboard, allow: bo
     } else {
         String::new()
     };
-    with_session(engine, me, |s| s.write(&hof_vt::read_answer(from, &text)));
+    with_session(engine, me, |s| s.write(&hof_vt::carrying(from, &text)));
 }
 
 pub(crate) fn copy_selection(engine: &Engine, me: ObjectId, mode: ClipboardMode) -> bool {

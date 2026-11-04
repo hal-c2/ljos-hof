@@ -547,3 +547,61 @@ fn a_read_let_always_or_by_policy_is_answered_unasked() {
     assert!(asked.borrow().is_empty());
     assert_eq!(sent(&input), "\x1b]52;c;\x1b\\");
 }
+
+fn recording_opens(f: &Fixture) -> RecordedUrls {
+    let urls = RecordedUrls::default();
+    Platform::of(&f.engine).set_open_url(Rc::new(urls.clone()));
+    urls
+}
+
+fn open(url: &str) -> String {
+    String::from_utf8(hof_vt::open_request(url)).unwrap()
+}
+
+#[test]
+fn a_url_the_program_asks_to_open_opens_once_the_user_lets_it() {
+    let mut f = shown();
+    let urls = recording_opens(&f);
+    let asked = f.record("openRequested");
+    f.write(&format!(
+        "{}{}",
+        open("https://a.example"),
+        open("https://b.example")
+    ));
+    assert_eq!(asked.borrow().len(), 1, "one at a time");
+    assert_eq!(
+        asked.borrow()[0][0].to_js_string().as_str(),
+        "https://a.example"
+    );
+    assert!(urls.urls().is_empty(), "nothing opens before the user says");
+
+    f.invoke("answerOpen", &[Value::from(false), Value::from(false)]);
+    assert!(urls.urls().is_empty(), "turned down");
+    assert_eq!(asked.borrow().len(), 2, "then the next is asked");
+    assert_eq!(
+        asked.borrow()[1][0].to_js_string().as_str(),
+        "https://b.example"
+    );
+
+    f.invoke("answerOpen", &[Value::from(true), Value::from(true)]);
+    f.write(&open("https://c.example"));
+    assert_eq!(urls.urls(), ["https://b.example", "https://c.example"]);
+    assert_eq!(asked.borrow().len(), 2, "always is not asked again");
+}
+
+#[test]
+fn a_program_may_open_urls_or_not_as_the_terminal_says() {
+    let mut f = shown();
+    let urls = recording_opens(&f);
+    let asked = f.record("openRequested");
+    f.engine
+        .set(f.t, Terminal::OPEN_URLS, "deny".to_owned())
+        .unwrap();
+    f.write(&open("https://a.example"));
+    f.engine
+        .set(f.t, Terminal::OPEN_URLS, "allow".to_owned())
+        .unwrap();
+    f.write(&open("file:///tmp/x"));
+    assert!(asked.borrow().is_empty());
+    assert_eq!(urls.urls(), ["file:///tmp/x"]);
+}
