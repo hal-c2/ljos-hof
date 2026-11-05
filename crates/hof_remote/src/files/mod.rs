@@ -16,7 +16,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 pub use client::Client;
-pub use mirror::Mirror;
+pub use mirror::{FOLDER_BYTES, FOLDER_FILES, FolderCopy, Mirror, Opened};
 pub use server::serve;
 
 use crate::relay::Socket;

@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use hof_agent::{Agent, Options};
 use hof_remote::client::{self, Connection, Host, Screen, Start, State, Transport};
-use hof_remote::files::{self, Client, Mirror};
+use hof_remote::files::{self, Client, Mirror, Opened};
 
 const PATIENCE: Duration = Duration::from_secs(10);
 
@@ -175,5 +175,57 @@ fn a_file_that_is_not_there_is_said_so() {
     assert_eq!(err.kind(), io::ErrorKind::NotFound, "{err}");
     let dir = mirror.fetch(b"/").unwrap_err();
     assert_eq!(dir.kind(), io::ErrorKind::InvalidInput, "{dir}");
+    agent.remove_files();
+}
+
+#[test]
+fn an_opened_folder_is_copied_here_read_only_and_a_file_of_it_opened_alone_is_kept_the_same() {
+    let (agent, host) = host();
+    let there = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let folder = there.path().join("project");
+    std::fs::create_dir_all(folder.join("sub/deeper")).unwrap();
+    std::fs::write(folder.join("a.txt"), "a").unwrap();
+    std::fs::write(folder.join("sub/b.txt"), "b").unwrap();
+    std::fs::write(folder.join("sub/deeper/c.txt"), "c").unwrap();
+    std::os::unix::fs::symlink("a.txt", folder.join("link")).unwrap();
+
+    let mirror = Mirror::new(cache.path().join("hosts/test"), "test", move || {
+        host.connect(files::SERVICE, Vec::new())
+    });
+    let Opened::Folder(local, copied) = mirror.open(&bytes(&folder)).unwrap() else {
+        panic!("a folder is copied as one");
+    };
+    assert!(local.ends_with("project"), "{local:?}");
+    assert_eq!(copied.files, 3);
+    assert_eq!(copied.left_out, 1, "the link is left out");
+    assert_eq!(std::fs::read(local.join("sub/deeper/c.txt")).unwrap(), b"c");
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        mode(&local.join("a.txt")),
+        0o400,
+        "read-only: not kept the same"
+    );
+    assert!(!mirror.is_watched(&bytes(&folder.join("a.txt"))));
+
+    // One of its files opened by itself: writable, and kept the same.
+    let a = mirror.open(&bytes(&folder.join("a.txt"))).unwrap();
+    assert_eq!(a, Opened::File(local.join("a.txt")));
+    assert_eq!(mode(&local.join("a.txt")), 0o600);
+    std::fs::write(local.join("a.txt"), "a, edited here").unwrap();
+    until("the edit to reach the file there", || {
+        std::fs::read(folder.join("a.txt")).unwrap() == b"a, edited here"
+    });
+
+    // Copied again: what went there goes here, the file kept the same stays.
+    std::fs::remove_dir_all(folder.join("sub/deeper")).unwrap();
+    std::fs::write(folder.join("new.txt"), "new").unwrap();
+    let Opened::Folder(_, copied) = mirror.open(&bytes(&folder)).unwrap() else {
+        panic!("still a folder");
+    };
+    assert_eq!(copied.files, 3, "a.txt, new.txt and sub/b.txt");
+    assert!(!local.join("sub/deeper").exists());
+    assert_eq!(std::fs::read(local.join("new.txt")).unwrap(), b"new");
+    assert_eq!(mode(&local.join("a.txt")), 0o600, "still kept the same");
     agent.remove_files();
 }

@@ -9,6 +9,12 @@
 //!
 //! A copy is watched until it goes from here, or a day after it last
 //! changed, or Hof quits.
+//!
+//! A folder asked for is copied as it is, at its place in the same tree,
+//! and not kept the same: its files are read-only here, so nothing saved
+//! in them is lost unseen, and one opened by itself later becomes a copy
+//! kept the same like any other. A large folder is copied a level at a
+//! time until [`FOLDER_FILES`] or [`FOLDER_BYTES`] is reached.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufWriter};
@@ -35,6 +41,45 @@ const RETRY: Duration = Duration::from_secs(5);
 const MOST: usize = 64;
 /// How long one request may take before the channel counts as gone.
 const PATIENCE: Duration = Duration::from_secs(30);
+/// The most files copied of a folder.
+pub const FOLDER_FILES: usize = 2000;
+/// The most bytes copied of a folder.
+pub const FOLDER_BYTES: u64 = 256 * 1024 * 1024;
+
+/// `d_type`s in a folder's listing.
+const DT_DIR: u8 = 4;
+const DT_REG: u8 = 8;
+/// `S_IFMT` and `S_IFDIR` of a mode.
+const S_IFMT: u32 = 0o170_000;
+const S_IFDIR: u32 = 0o040_000;
+
+/// What [`Mirror::open`] made here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Opened {
+    /// A copy of a file, kept the same as it.
+    File(PathBuf),
+    /// A copy of a folder as it is now.
+    Folder(PathBuf, FolderCopy),
+}
+
+impl Opened {
+    /// Where the copy is.
+    pub fn path(&self) -> &Path {
+        match self {
+            Opened::File(path) | Opened::Folder(path, _) => path,
+        }
+    }
+}
+
+/// How much of a folder was copied.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FolderCopy {
+    /// Files copied, or already here as copies kept the same.
+    pub files: usize,
+    /// Files and folders left out: past the limits, or neither a file nor
+    /// a folder (links, devices).
+    pub left_out: usize,
+}
 
 type Connect = dyn Fn() -> io::Result<UnixStream> + Send + Sync;
 
@@ -213,12 +258,122 @@ impl Mirror {
         Ok(local)
     }
 
+    /// Copies `remote` here: a file with [`fetch`](Self::fetch), a folder
+    /// with [`fetch_folder`](Self::fetch_folder).
+    pub fn open(self: &Arc<Self>, remote: &[u8]) -> io::Result<Opened> {
+        // One already kept the same is a file, and not asked about again.
+        if self.find(remote).is_none() {
+            self.local_of(remote)?;
+            let attr = self.with_client(|c| c.stat(remote))?;
+            if attr.mode & S_IFMT == S_IFDIR {
+                let (local, copied) = self.fetch_folder(remote)?;
+                return Ok(Opened::Folder(local, copied));
+            }
+        }
+        self.fetch(remote).map(Opened::File)
+    }
+
+    /// Copies the folder at `remote` here as it is now, a level at a time
+    /// up to the limits: the copy's path, and how much of it there is.
+    /// Copies kept the same are left as they are; what is no longer there
+    /// goes from here, unless it is one of them.
+    pub fn fetch_folder(&self, remote: &[u8]) -> io::Result<(PathBuf, FolderCopy)> {
+        let top = self.local_of(remote)?;
+        let mut copied = FolderCopy::default();
+        let mut bytes = 0u64;
+        let mut level = vec![remote.to_vec()];
+        while !level.is_empty() {
+            let mut next = Vec::new();
+            for folder in level {
+                let local = self.local_of(&folder)?;
+                private_dirs(&local)?;
+                // The top must be listed; one below that can't be is left out.
+                let entries = match self.with_client(|c| c.list(&folder)) {
+                    Ok(entries) => entries,
+                    Err(e) if folder == remote => return Err(e),
+                    Err(_) => {
+                        copied.left_out += 1;
+                        continue;
+                    }
+                };
+                let mut names = Vec::new();
+                for entry in entries {
+                    if entry.name == b"." || entry.name == b".." {
+                        continue;
+                    }
+                    names.push(entry.name.clone());
+                    let mut path = folder.clone();
+                    if !path.ends_with(b"/") {
+                        path.push(b'/');
+                    }
+                    path.extend_from_slice(&entry.name);
+                    match entry.kind {
+                        DT_DIR => next.push(path),
+                        DT_REG if copied.files >= FOLDER_FILES => copied.left_out += 1,
+                        DT_REG if self.find(&path).is_some() => copied.files += 1,
+                        DT_REG => {
+                            let there = self.with_client(|c| c.stat(&path));
+                            match there {
+                                Ok(attr) if bytes + attr.size <= FOLDER_BYTES => {
+                                    let to = self.local_of(&path)?;
+                                    if self.with_client(|c| download(c, &path, &to)).is_ok() {
+                                        read_only(&to);
+                                        bytes += attr.size;
+                                        copied.files += 1;
+                                    } else {
+                                        copied.left_out += 1;
+                                    }
+                                }
+                                _ => copied.left_out += 1,
+                            }
+                        }
+                        _ => copied.left_out += 1,
+                    }
+                }
+                self.tidy(&local, &names);
+            }
+            if copied.files >= FOLDER_FILES || bytes >= FOLDER_BYTES {
+                copied.left_out += next.len();
+                break;
+            }
+            level = next;
+        }
+        Ok((top, copied))
+    }
+
+    /// Takes from the copy of a folder at `local` what is no longer in it
+    /// there (`names`), but not a copy kept the same.
+    fn tidy(&self, local: &Path, names: &[Vec<u8>]) {
+        let Ok(here) = fs::read_dir(local) else {
+            return;
+        };
+        let kept: Vec<PathBuf> = lock(&self.watched)
+            .copies
+            .iter()
+            .map(|(_, copy)| lock(copy).local.clone())
+            .collect();
+        for entry in here.flatten() {
+            let name = entry.file_name();
+            let path = entry.path();
+            if names.iter().any(|n| n.as_slice() == name.as_bytes())
+                || name.as_bytes().ends_with(b".hof-part")
+                || kept.iter().any(|k| k.starts_with(&path))
+            {
+                continue;
+            }
+            let _ = match entry.file_type() {
+                Ok(t) if t.is_dir() => fs::remove_dir_all(&path),
+                _ => fs::remove_file(&path),
+            };
+        }
+    }
+
     /// Whether `remote` is watched.
     pub fn is_watched(&self, remote: &[u8]) -> bool {
         self.find(remote).is_some()
     }
 
-    fn open(&self) -> io::Result<Client<UnixStream>> {
+    fn connect_client(&self) -> io::Result<Client<UnixStream>> {
         let socket = (self.connect)()?;
         socket.set_read_timeout(Some(PATIENCE))?;
         socket.set_write_timeout(Some(PATIENCE))?;
@@ -258,7 +413,7 @@ impl Mirror {
                 Some(client) => client,
                 none => {
                     fresh = true;
-                    match self.open() {
+                    match self.connect_client() {
                         Ok(client) => none.insert(client),
                         Err(e) => {
                             session.retry_at = Some(Instant::now() + RETRY);
@@ -309,6 +464,13 @@ impl Mirror {
         }
         Ok(())
     }
+}
+
+/// Makes a copy of a folder's file read-only, so that nothing saved in it
+/// is lost unseen when the folder is copied again.
+fn read_only(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o400));
 }
 
 /// Copies the file at `remote` to `local`, whole or not at all: what it
