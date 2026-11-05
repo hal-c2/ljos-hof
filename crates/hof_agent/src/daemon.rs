@@ -168,9 +168,15 @@ fn bind(path: &Path) -> io::Result<UnixListener> {
 
 /// Leaves the session and terminal it was started from, so the agent lives
 /// on when the ssh session that started it hangs up.
+///
+/// One that leads a session already (started so by systemd, say) has none
+/// to leave.
 pub fn detach() -> io::Result<()> {
-    rustix::process::setsid()?;
-    Ok(())
+    match rustix::process::setsid() {
+        Ok(_) => Ok(()),
+        Err(_) if rustix::process::getsid(None).ok() == Some(rustix::process::getpid()) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// Starts `program agent --detach --socket <path>` with no stdio of the
