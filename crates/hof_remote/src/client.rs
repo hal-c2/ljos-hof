@@ -162,6 +162,65 @@ impl Transport for Spawned {
     }
 }
 
+/// The agent on this machine, at its socket, for panes whose programs are
+/// to outlive Hof: `start` runs one when none answers there.
+pub struct Local {
+    pub socket: std::path::PathBuf,
+    pub start: Box<dyn FnMut() -> io::Result<()> + Send>,
+}
+
+/// How long [`Local`] waits for an agent it started to listen.
+const LOCAL_START_WAIT: Duration = Duration::from_secs(5);
+
+impl Transport for Local {
+    fn connect(&mut self) -> io::Result<Connection> {
+        let reach = |socket: &std::path::Path| {
+            let stream = UnixStream::connect(socket)?;
+            crate::peer::same_user(&stream)?;
+            Ok::<_, io::Error>(stream)
+        };
+        let stream = match reach(&self.socket) {
+            Ok(stream) => stream,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                ) =>
+            {
+                (self.start)()?;
+                let deadline = Instant::now() + LOCAL_START_WAIT;
+                loop {
+                    match reach(&self.socket) {
+                        Ok(stream) => break stream,
+                        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err(e),
+                        Err(e) if Instant::now() >= deadline => {
+                            return Err(io::Error::new(
+                                e.kind(),
+                                format!(
+                                    "the agent started did not listen at {}: {e}",
+                                    self.socket.display()
+                                ),
+                            ));
+                        }
+                        Err(_) => thread::sleep(Duration::from_millis(20)),
+                    }
+                }
+            }
+            Err(e) => return Err(e),
+        };
+        let reader = stream.try_clone()?;
+        let ender = stream.try_clone()?;
+        Ok(Connection {
+            reader: Box::new(reader),
+            writer: Box::new(stream),
+            end: Box::new(move || {
+                let _ = ender.shutdown(std::net::Shutdown::Both);
+                None
+            }),
+        })
+    }
+}
+
 /// How a spawned transport ended: its exit code and the last lines it
 /// wrote to stderr.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -1268,6 +1327,49 @@ fn write_frames(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_agent_here_is_started_when_none_answers_and_reached_after() {
+        use std::sync::atomic::AtomicUsize;
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("agent.sock");
+        let started = Arc::new(AtomicUsize::new(0));
+        let (count, at) = (started.clone(), socket.clone());
+        let mut here = Local {
+            socket,
+            start: Box::new(move || {
+                count.fetch_add(1, Ordering::SeqCst);
+                let listener = std::os::unix::net::UnixListener::bind(&at)?;
+                thread::spawn(move || {
+                    for mut c in listener.incoming().flatten() {
+                        let _ = c.write_all(b"agent");
+                    }
+                });
+                Ok(())
+            }),
+        };
+        for _ in 0..2 {
+            let mut c = here.connect().expect("reached");
+            let mut said = [0; 5];
+            c.reader.read_exact(&mut said).unwrap();
+            assert_eq!(&said, b"agent");
+            (c.end)();
+        }
+        assert_eq!(started.load(Ordering::SeqCst), 1, "started once");
+    }
+
+    #[test]
+    fn an_agent_here_that_cannot_start_is_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut here = Local {
+            socket: dir.path().join("agent.sock"),
+            start: Box::new(|| Err(io::Error::other("no hof here"))),
+        };
+        let Err(e) = here.connect() else {
+            panic!("reached nothing")
+        };
+        assert_eq!(e.to_string(), "no hof here");
+    }
 
     #[test]
     fn an_incoming_budget_blocks_the_reader_until_the_driver_catches_up() {

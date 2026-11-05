@@ -194,6 +194,72 @@ pub fn start(program: &Path, path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// [`start`], for the agent that runs this machine's own panes, which is
+/// to outlive the Hof that starts it: where systemd runs the user's
+/// session, in a scope of its own (`systemd-run --user --scope`), so that
+/// what ends the app's (closing it, as a desktop may do) leaves the agent
+/// be. It keeps Hof's environment either way. Waits until it listens, or
+/// until it is clear it won't.
+pub fn start_apart(program: &Path, path: &Path) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    if let Some(started) = start_scoped(program, path) {
+        return started;
+    }
+    start(program, path)
+}
+
+/// `None` when there is no systemd to ask, or it would not: then the agent
+/// is started as any other.
+#[cfg(target_os = "linux")]
+fn start_scoped(program: &Path, path: &Path) -> Option<io::Result<()>> {
+    let unit = format!("hof-agent-{}-{}", std::process::id(), instance_hint());
+    let mut child = Command::new("systemd-run")
+        .args(["--user", "--scope", "--quiet", "--collect", "--unit"])
+        .arg(&unit)
+        .arg("--")
+        .arg(program)
+        .args(["agent", "--detach", "--socket"])
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + START_WAIT;
+    loop {
+        if connect(path).is_ok() {
+            // `systemd-run --scope` became the agent: reaped when it goes.
+            let _ = thread::Builder::new()
+                .name("hof-agent-reap".into())
+                .spawn(move || {
+                    let _ = child.wait();
+                });
+            return Some(Ok(()));
+        }
+        match child.try_wait() {
+            // Ended at once: another agent listens already, or systemd
+            // would not, and then the agent is started without it.
+            Ok(Some(_)) => return connect(path).is_ok().then_some(Ok(())),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = thread::Builder::new()
+                    .name("hof-agent-reap".into())
+                    .spawn(move || {
+                        let _ = child.wait();
+                    });
+                return Some(Ok(()));
+            }
+        }
+    }
+}
+
+/// Tells two starts by one process apart, for the scope's name.
+#[cfg(target_os = "linux")]
+fn instance_hint() -> u32 {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// `hof agent --stdio`: joins stdin and stdout to the agent at `path`,
 /// starting one with `start` when none answers.
 pub fn bridge_stdio(path: &Path, start: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
