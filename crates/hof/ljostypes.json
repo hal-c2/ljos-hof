@@ -1010,6 +1010,11 @@
               "returnType": "void"
             },
             {
+              "name": "directory",
+              "parameters": [],
+              "returnType": "string"
+            },
+            {
               "name": "snapshot",
               "parameters": [],
               "returnType": "string"
@@ -1399,6 +1404,10 @@
                 {
                   "name": "height",
                   "type": "real"
+                },
+                {
+                  "name": "quitting",
+                  "type": "bool"
                 }
               ],
               "returnType": "bool"

@@ -76,16 +76,6 @@ impl Hof {
             .as_str()
             .to_owned()
     }
-
-    fn save(&mut self) {
-        let saved = self
-            .engine
-            .invoke_by_name(self.root, "saveSession", &[])
-            .unwrap()
-            .to_boolean();
-        assert!(saved, "the session is saved");
-        self.window.settle().unwrap();
-    }
 }
 
 #[test]
@@ -103,9 +93,18 @@ fn a_window_opens_again_as_it_was_until_everything_in_it_is_closed() {
     hof.run("split-right");
     hof.run("new-tab");
     hof.run("previous-tab");
-    hof.save();
+    // Kept as it goes: a moment after the tabs and splits changed.
+    assert!(!session().exists());
+    hof.window.advance(2500).unwrap();
+    assert!(session().exists(), "kept without closing the window");
+    let saved = std::fs::read_to_string(session()).unwrap();
+    let here = std::env::current_dir().unwrap().display().to_string();
+    assert!(
+        saved.contains(&format!("\"working_directory\": \"{here}\"")),
+        "where the shell is, though it never said (cat sends no OSC 7): {saved}"
+    );
+    // Ended without closing, as a crash or SIGKILL ends it.
     drop(hof);
-    assert!(session().exists());
 
     // Both tabs, the split, and what the first pane showed.
     let mut hof = opened();

@@ -21,6 +21,7 @@ hof_mcp.workspace = true
 hof_agent.workspace = true
 hof_remote.workspace = true
 rustix.workspace = true
+libc = "0.2"
 serde_json.workspace = true
 serde.workspace = true
 thiserror.workspace = true

@@ -76,6 +76,11 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   `[mcp]`.
 - **Optional session restore.** `[session] restore = true` reopens the
   windows, tabs, splits and directories, and optionally the scrollback.
+  The session is kept as Hof runs: a moment after the tabs and splits
+  change, and every half minute. So Hof ended by Ctrl+C, a signal or a
+  crash opens again as it was. A shell that never says where it is (bash
+  sends no OSC 7) is found where the system says it works. Closing every
+  pane forgets the session.
 - **Themes.** Nine are built in, and you can add your own as
   `themes/<name>.toml`.
 

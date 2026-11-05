@@ -87,8 +87,10 @@ Window {
     Workspace {
         id: workspace
 
-        onRevisionChanged: if (!window.holding)
-            window.sync()
+        onRevisionChanged: if (!window.holding) {
+            window.sync();
+            window.sessionChanged();
+        }
     }
 
     ListModel {
@@ -358,6 +360,8 @@ Window {
             window.newTab("", []);
         } else {
             // Everything was closed on purpose: the next start is a fresh one.
+            sessionSoon.stop();
+            sessionEvery.stop();
             if (Settings.sessionRestore)
                 App.clearSession();
             Qt.quit();
@@ -365,8 +369,8 @@ Window {
     }
 
     // Saves the tabs and splits, and where each pane was and what it
-    // showed, for the next start to open again.
-    function saveSession() {
+    // showed, for the next start to open again; `quitting` as Hof goes.
+    function saveSession(quitting) {
         const panes = {};
         for (const pane in window.terminals) {
             const t = window.terminals[pane];
@@ -377,12 +381,47 @@ Window {
                 title: t.title,
                 scrollback: Settings.sessionSaveScrollback ? t.snapshot() : "",
                 host: t.host,
-                // Its program runs on there, to attach to again.
-                remote: t.remotePane >= 0 ? t.remotePane : null
+                // Its program runs on there, to attach to again; a
+                // restored one not attached yet is still the one it was.
+                remote: t.remotePane >= 0 ? t.remotePane : (start.remote ?? null)
             };
         }
-        return App.saveSession(workspace, JSON.stringify(panes), window.width, window.height);
+        return App.saveSession(workspace, JSON.stringify(panes), window.width, window.height, quitting === true);
     }
+
+    // The session is kept as Hof runs, not only as it closes, the way
+    // tmux-continuum keeps tmux's: Hof ended by Ctrl+C where it was
+    // started, a crash, or the machine going down opens again as it was a
+    // moment before. Soon after the tabs and splits change, and every half
+    // minute for where the shells are and what they show.
+    readonly property bool keepingSession: Settings.sessionRestore && !App.dropdown
+
+    function sessionChanged() {
+        if (window.keepingSession && !window.holding)
+            sessionSoon.restart();
+    }
+
+    function keepSession() {
+        if (window.keepingSession && workspace.tabCount > 0)
+            window.saveSession(false);
+    }
+
+    Timer {
+        id: sessionSoon
+        interval: 2000
+        onTriggered: window.keepSession()
+    }
+
+    Timer {
+        id: sessionEvery
+        interval: 30000
+        repeat: true
+        running: window.keepingSession
+        onTriggered: window.keepSession()
+    }
+
+    onWidthChanged: window.sessionChanged()
+    onHeightChanged: window.sessionChanged()
 
     // Opens the last session in place of a first tab, when the settings
     // ask for it and the command line did not ask for something else.
@@ -407,8 +446,10 @@ Window {
     }
 
     onClosing: close => {
-        if (Settings.sessionRestore && !App.dropdown)
-            window.saveSession();
+        if (window.keepingSession) {
+            sessionSoon.stop();
+            window.saveSession(true);
+        }
     }
 
     function register(pane, terminal, item) {

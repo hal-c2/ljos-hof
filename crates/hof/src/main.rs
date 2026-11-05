@@ -120,6 +120,11 @@ fn main() -> Result<()> {
         }
     }
 
+    // Ctrl+C, SIGTERM or SIGHUP closes the window as Quit does, so the
+    // session is kept.
+    if let Err(e) = hof::catch_signals() {
+        eprintln!("hof: signals end Hof without saving its session: {e}");
+    }
     let ran = hof::app().run().context("the window");
     // Before the process goes: the remote panes' agents are told whether
     // to keep their programs, or the programs would outlive their panes.

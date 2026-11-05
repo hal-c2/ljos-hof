@@ -8,6 +8,7 @@ mod mcp;
 mod scripts;
 mod sessions;
 mod settings;
+mod signals;
 pub use hof_agent::tty;
 
 use std::path::PathBuf;
@@ -18,6 +19,7 @@ use ljos::prelude::*;
 pub use ipc::{Request, send as send_request, socket_path};
 pub use mcp::host as mcp_host;
 pub use settings::Settings;
+pub use signals::catch as catch_signals;
 
 /// How this run was started: what the command line said.
 #[derive(Clone, Debug, Default)]
@@ -103,7 +105,9 @@ impl App {
 
     /// Saves `workspace`'s tabs and splits as the session, with what
     /// `panes` (JSON: pane id to `{directory, command, title, scrollback}`)
-    /// says of each pane, and the window's size. Returns whether it saved.
+    /// says of each pane, and the window's size. `quitting` when Hof goes
+    /// now, rather than keeping the session as it runs. Returns whether it
+    /// saved.
     #[qml(invokable)]
     fn save_session(
         cx: &Cx,
@@ -111,14 +115,18 @@ impl App {
         panes: String,
         width: f64,
         height: f64,
+        quitting: bool,
     ) -> bool {
         let Some(layout) = workspace.and_then(|w| hof_qml::Workspace::layout(cx.engine, w)) else {
             return false;
         };
         let saved = sessions::save(&sessions::path(), &layout.borrow(), &panes, width, height);
         // Hof is going, with the session to come back to: the programs of
-        // remote panes run on, for the next start to attach to.
-        hof_qml::remote::keep_programs(saved.is_ok());
+        // remote panes run on, for the next start to attach to. Not while
+        // it runs, or closing a remote pane would leave its program behind.
+        if quitting {
+            hof_qml::remote::keep_programs(saved.is_ok());
+        }
         saved
             .inspect_err(|e| eprintln!("hof: the session was not saved: {e}"))
             .is_ok()
@@ -176,6 +184,7 @@ impl App {
             return;
         };
         let served = mcp::serve(cx.engine, window);
+        signals::close_on_signal(cx.engine, window);
         let text =
             |p: Option<std::path::PathBuf>| p.map(|p| p.display().to_string()).unwrap_or_default();
         let _ = cx

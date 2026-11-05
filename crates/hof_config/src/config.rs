@@ -322,7 +322,8 @@ impl Default for Dropdown {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Session {
-    /// Reopen the last session's windows, tabs and panes at start.
+    /// Reopen the last session's windows, tabs and panes at start. The
+    /// session is kept as Hof runs, not only when it quits.
     pub restore: bool,
     /// Keep each pane's scrollback with the saved session.
     pub save_scrollback: bool,
