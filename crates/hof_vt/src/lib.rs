@@ -21,6 +21,7 @@
 mod clipboard;
 mod error;
 mod find;
+mod freeze;
 mod grid;
 mod input;
 mod links;
@@ -35,6 +36,7 @@ mod vt;
 pub use clipboard::{Clipboard, answer_of, carrying, read_request};
 pub use error::Error;
 pub use find::{Found, Highlight};
+pub use freeze::{Frozen, freeze};
 pub use grid::{Attrs, Cell, Colors, Cursor, CursorShape, Damage, Grid, Line, Rgb};
 pub use input::{KeyInput, MouseAction, MouseButton, MouseInput};
 pub use links::{Hyperlink, LinkSpan, find_urls};
@@ -42,7 +44,7 @@ pub use process::{Process, directory_of};
 pub use pty::Spawn;
 pub use remote::{Feed, Link, Outlet};
 pub use report::{OPEN_KEY, OPEN_OSC, OSC as AGENT_OSC, Report, open_request, open_request_keyed};
-pub use session::{Options, PasteError, Scroll, Scrollbar, Selecting, Session, Tap, Theme};
+pub use session::{Handed, Options, PasteError, Scroll, Scrollbar, Selecting, Session, Tap, Theme};
 pub use signals::{Changes, Event, Progress, PromptMark};
 
 /// libghostty-vt itself, for the key names and modifiers in [`KeyInput`].

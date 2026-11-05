@@ -119,6 +119,8 @@ pub(crate) struct Shared {
     vt: Mutex<Vt>,
     pub(crate) signals: Arc<Signals>,
     pub(crate) alive: AtomicBool,
+    /// How the program ended, once it has.
+    exit: Mutex<Option<Option<i32>>>,
     /// A remote session's foreground, as its machine last said.
     pub(crate) remote_foreground: Mutex<Option<crate::Process>>,
 }
@@ -146,6 +148,46 @@ pub struct Session {
 struct Child {
     pid: u32,
     master: Arc<OwnedFd>,
+}
+
+/// A program on a pty, handed from another process: see
+/// [`Session::adopt_tapped`].
+pub struct Handed {
+    pub master: OwnedFd,
+    pub pid: u32,
+    /// Its `TERM`.
+    pub term: String,
+    pub screen: Vec<u8>,
+}
+
+/// How a session's program is waited for once its pty is done.
+enum Reap {
+    /// One this process started.
+    Child(std::process::Child),
+    /// One started by the process this one was before it became this
+    /// program: still a child, by its number.
+    Pid(u32),
+}
+
+impl Reap {
+    /// Its exit code, `None` for a signal (or when it can't be known).
+    fn wait(self) -> Option<i32> {
+        match self {
+            Reap::Child(mut child) => child.wait().ok().and_then(|status| status.code()),
+            Reap::Pid(pid) => {
+                let pid = rustix::process::Pid::from_raw(i32::try_from(pid).ok()?)?;
+                loop {
+                    match rustix::process::waitpid(Some(pid), rustix::process::WaitOptions::empty())
+                    {
+                        Ok(Some((_, status))) => return status.exit_status(),
+                        Ok(None) => return None,
+                        Err(rustix::io::Errno::INTR) => continue,
+                        Err(_) => return None,
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl Session {
@@ -182,8 +224,85 @@ impl Session {
         let (dark, replying) = (identity.scheme, identity.replies);
         shared.lock().tap = tap;
 
-        let Pty { master, mut child } = Pty::spawn(spawn, options.size.clamped())?;
+        let Pty { master, child } = Pty::spawn(spawn, options.size.clamped())?;
         let pid = child.id();
+        let child = Self::run_pty(&shared, input, master, pid, Reap::Child(child))?;
+        Ok(Self {
+            shared,
+            sink,
+            child: Some(child),
+            outlet: None,
+            dark,
+            replying,
+            replies: options.replies,
+        })
+    }
+
+    /// A session for a program another process started on a pty and
+    /// handed over, as it showed it: `master`, the pty's master side,
+    /// `pid`, the program, a child of this process, and `screen`, a
+    /// [`Session::snapshot`] of its terminal there. `tap` sees what the
+    /// program writes from now on.
+    pub fn adopt_tapped(
+        handed: Handed,
+        options: Options,
+        waker: impl Fn() + Send + Sync + 'static,
+        tap: Option<Tap>,
+    ) -> Result<Self, Error> {
+        let input = Arc::new(crate::vt::PtyInput::default());
+        let sink = Sink::Pty(input.clone());
+        let identity = Identity::of(&options);
+        let shared = Self::shared(
+            &options,
+            &handed.term,
+            sink.clone(),
+            Box::new(waker),
+            identity.clone(),
+        )?;
+        let (dark, replying) = (identity.scheme, identity.replies);
+        {
+            let mut vt = shared.lock();
+            vt.output(&handed.screen);
+            vt.tap = tap;
+        }
+        let child = Self::run_pty(
+            &shared,
+            input,
+            handed.master,
+            handed.pid,
+            Reap::Pid(handed.pid),
+        )?;
+        Ok(Self {
+            shared,
+            sink,
+            child: Some(child),
+            outlet: None,
+            dark,
+            replying,
+            replies: options.replies,
+        })
+    }
+
+    /// The pty's master side, for handing the program to another process.
+    pub fn master(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        use std::os::fd::AsFd;
+        self.child.as_ref().map(|c| c.master.as_fd())
+    }
+
+    /// How the program ended, once it has: its code, `None` for a signal.
+    pub fn exit_status(&self) -> Option<Option<i32>> {
+        *self.shared.exit.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Reads and writes the program's pty, on threads of their own, until
+    /// it ends, and then waits for it with `reap`.
+    fn run_pty(
+        shared: &Arc<Shared>,
+        input: Arc<crate::vt::PtyInput>,
+        master: OwnedFd,
+        pid: u32,
+        reap: Reap,
+    ) -> Result<Child, Error> {
         let master = Arc::new(master);
         let reader = master.try_clone().map_err(|e| Error::Pty("dup", e))?;
         let writer = master.try_clone().map_err(|e| Error::Pty("dup", e))?;
@@ -203,28 +322,27 @@ impl Session {
             .map_err(|e| Error::Thread("writer", e))?;
 
         let io = shared.clone();
-        std::thread::Builder::new()
+        crate::freeze::reader_started();
+        let started = std::thread::Builder::new()
             .name("hof-pty-read".into())
             .spawn(move || {
                 read_loop(&io, &reader);
-                let code = child.wait().ok().and_then(|status| status.code());
+                // Done with the output: a freeze need not wait for the
+                // program's end, which may be a while off.
+                crate::freeze::reader_ended();
+                let code = reap.wait();
+                *io.exit.lock().unwrap_or_else(|e| e.into_inner()) = Some(code);
                 io.alive.store(false, Ordering::Release);
                 io.signals.set_held(false);
                 io.signals.push(Event::Exited(code));
                 io.signals.mark(Changes::EXITED | Changes::SCREEN);
                 io.signals.kick();
-            })
-            .map_err(|e| Error::Thread("reader", e))?;
-
-        Ok(Self {
-            shared,
-            sink,
-            child: Some(Child { pid, master }),
-            outlet: None,
-            dark,
-            replying,
-            replies: options.replies,
-        })
+            });
+        if let Err(e) = started {
+            crate::freeze::reader_ended();
+            return Err(Error::Thread("reader", e));
+        }
+        Ok(Child { pid, master })
     }
 
     /// A session with no program. Output comes in through [`Session::feed`];
@@ -315,6 +433,7 @@ impl Session {
             vt: Mutex::new(vt),
             signals,
             alive: AtomicBool::new(true),
+            exit: Mutex::new(None),
             remote_foreground: Mutex::new(None),
         });
         Ok(shared)
@@ -1081,19 +1200,27 @@ fn read_loop(io: &Shared, fd: &OwnedFd) {
         tv_nsec: 0,
     };
     loop {
-        // Only while a program holds the screen do we need a timeout; the
-        // rest of the time the thread sleeps in `read` and costs nothing.
-        if io.signals.is_held() {
-            let mut fds = [PollFd::new(fd, PollFlags::IN)];
-            match rustix::event::poll(&mut fds, Some(&limit)) {
-                Ok(0) => {
-                    io.signals.set_held(false);
-                    io.signals.kick();
-                    continue;
-                }
-                Err(Errno::INTR) => continue,
-                _ => {}
+        // Output, or the word to stop reading it (a freeze), whichever
+        // comes first. Only while a program holds the screen is there a
+        // timeout as well.
+        let held = io.signals.is_held();
+        let wake = crate::freeze::wake_fd();
+        let mut fds = [
+            PollFd::new(fd, PollFlags::IN),
+            PollFd::new(&wake, PollFlags::IN),
+        ];
+        match rustix::event::poll(&mut fds, held.then_some(&limit)) {
+            Ok(0) => {
+                io.signals.set_held(false);
+                io.signals.kick();
+                continue;
             }
+            Err(Errno::INTR) => continue,
+            _ => {}
+        }
+        if !fds[1].revents().is_empty() {
+            crate::freeze::stop_while_frozen();
+            continue;
         }
         match rustix::io::read(fd, &mut buf) {
             Ok(0) => return,
