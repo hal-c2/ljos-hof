@@ -171,12 +171,83 @@ impl<S: Read + Write> Client<S> {
         }
     }
 
-    /// The attributes of the file at `path`.
+    /// The attributes of the file at `path`, in one round trip: the walk,
+    /// the asking and the letting go are sent together, and the server
+    /// answers them in order. A walk that stops short makes no fid, and
+    /// the two after it say so.
     pub fn stat(&mut self, path: &[u8]) -> io::Result<Attr> {
-        let fid = self.walk(path)?;
-        let attr = self.getattr(fid);
-        let _ = self.clunk(fid);
-        attr
+        let names = names_of(path);
+        if names.len() > MAXWELEM {
+            let fid = self.walk(path)?;
+            let attr = self.getattr(fid);
+            let _ = self.clunk(fid);
+            return attr;
+        }
+        let wanted = names.len();
+        let fid = self.fid();
+        let mut replies = self
+            .ask_all(vec![
+                Request::Walk {
+                    fid: ROOT,
+                    newfid: fid,
+                    names,
+                },
+                Request::GetAttr {
+                    fid,
+                    mask: ninep::GETATTR_BASIC,
+                },
+                Request::Clunk { fid },
+            ])?
+            .into_iter();
+        match replies.next() {
+            Some(Ok(Reply::Walk(qids))) if qids.len() == wanted => {}
+            Some(Ok(Reply::Walk(_))) => return Err(io::ErrorKind::NotFound.into()),
+            Some(Ok(other)) => return Err(protocol(&format!("{other:?} to Twalk"))),
+            Some(Err(e)) => return Err(e),
+            None => return Err(protocol("no reply to Twalk")),
+        }
+        match replies.next() {
+            Some(Ok(Reply::GetAttr(attr))) => Ok(*attr),
+            Some(Ok(other)) => Err(protocol(&format!("{other:?} to Tgetattr"))),
+            Some(Err(e)) => Err(e),
+            None => Err(protocol("no reply to Tgetattr")),
+        }
+    }
+
+    /// Sends `requests` together, and reads their replies, each the answer
+    /// or the error it was.
+    fn ask_all(&mut self, requests: Vec<Request>) -> io::Result<Vec<io::Result<Reply>>> {
+        if self.broken {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        let mut out = Vec::new();
+        let mut tags = Vec::with_capacity(requests.len());
+        for request in requests {
+            self.tag = self.tag.wrapping_add(1) % NOTAG;
+            request.encode(self.tag, &mut out);
+            tags.push(self.tag);
+        }
+        let replies = (|| {
+            self.socket.write_all(&out)?;
+            self.socket.flush()?;
+            let mut replies = Vec::with_capacity(tags.len());
+            for &tag in &tags {
+                let frame = ninep::read_frame(&mut self.socket, self.msize.max(MSIZE))?;
+                let (got, reply) = Reply::decode(&frame).map_err(|e| protocol(&e.to_string()))?;
+                if got != tag {
+                    return Err(protocol("a reply to another request"));
+                }
+                replies.push(match reply {
+                    Reply::Error(n) => Err(ninep::error_of(n)),
+                    reply => Ok(reply),
+                });
+            }
+            Ok(replies)
+        })();
+        if replies.is_err() {
+            self.broken = true;
+        }
+        replies
     }
 
     fn lopen(&mut self, fid: u32, flags: u32) -> io::Result<u32> {

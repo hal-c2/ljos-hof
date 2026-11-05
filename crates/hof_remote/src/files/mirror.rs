@@ -39,20 +39,34 @@ const PATIENCE: Duration = Duration::from_secs(30);
 type Connect = dyn Fn() -> io::Result<UnixStream> + Send + Sync;
 
 /// One host's copies.
+///
+/// Nothing waits on the network with the list of copies locked: a copy is
+/// locked while it is looked at, and the session while it is asked of. So
+/// opening a file waits for the one request in flight, not for a sweep of
+/// every copy, and is never held up by a lock the UI needs.
 pub struct Mirror {
     dir: PathBuf,
     host: String,
     connect: Box<Connect>,
-    state: Mutex<State>,
+    /// The 9P session: one request at a time.
+    session: Mutex<Session>,
+    watched: Mutex<Watching>,
 }
 
 #[derive(Default)]
-struct State {
+struct Session {
     client: Option<Client<UnixStream>>,
-    watched: Vec<Watched>,
-    watching: bool,
     /// Reaching the files failed; not tried again before this.
     retry_at: Option<Instant>,
+}
+
+#[derive(Default)]
+struct Watching {
+    /// By their paths there, which never change: found without waiting
+    /// for a copy that is being looked at.
+    copies: Vec<(Vec<u8>, Arc<Mutex<Watched>>)>,
+    /// The thread that looks at them is running.
+    running: bool,
 }
 
 /// What a copy here was, as far as telling it changed goes.
@@ -113,7 +127,8 @@ impl Mirror {
             dir,
             host: host.to_owned(),
             connect: Box::new(connect),
-            state: Mutex::default(),
+            session: Mutex::default(),
+            watched: Mutex::default(),
         })
     }
 
@@ -147,29 +162,31 @@ impl Mirror {
         Ok(local)
     }
 
+    fn find(&self, remote: &[u8]) -> Option<Arc<Mutex<Watched>>> {
+        lock(&self.watched)
+            .copies
+            .iter()
+            .find(|(path, _)| path == remote)
+            .map(|(_, copy)| copy.clone())
+    }
+
     /// Copies the file at `remote` here, and keeps the two the same from
     /// now on: the copy's path.
     pub fn fetch(self: &Arc<Self>, remote: &[u8]) -> io::Result<PathBuf> {
         let local = self.local_of(remote)?;
-        let mut state = lock(&self.state);
         // Asked for now: whatever failed before is tried again at once.
-        state.retry_at = None;
-        if let Some(i) = state.watched.iter().position(|w| w.remote == remote) {
-            let mut watched = state.watched.remove(i);
+        lock(&self.session).retry_at = None;
+        if let Some(copy) = self.find(remote) {
+            let mut watched = lock(&copy);
             // Looked at now, not when the tick comes.
             let now = Instant::now();
             watched.checked = now.checked_sub(LOOK_THERE).unwrap_or(now);
-            watched.touched = Instant::now();
-            let synced = self.sync(&mut state, &mut watched);
-            state.watched.push(watched);
-            return synced.map(|()| local);
+            watched.touched = now;
+            return self.sync(&mut watched).map(|()| local);
         }
-        let there = self.with_client(&mut state, |c| download(c, remote, &local))?;
+        let there = self.with_client(|c| download(c, remote, &local))?;
         let now = Instant::now();
-        if state.watched.len() >= MOST {
-            state.watched.remove(0);
-        }
-        state.watched.push(Watched {
+        let copy = Arc::new(Mutex::new(Watched {
             remote: remote.to_vec(),
             local: local.clone(),
             here: seen(&local)?,
@@ -177,20 +194,28 @@ impl Mirror {
             saving: None,
             checked: now,
             touched: now,
-        });
-        if !state.watching {
+        }));
+        let mut watching = lock(&self.watched);
+        // Asked for twice at once: one copy, watched once.
+        if !watching.copies.iter().any(|(path, _)| path == remote) {
+            if watching.copies.len() >= MOST {
+                watching.copies.remove(0);
+            }
+            watching.copies.push((remote.to_vec(), copy));
+        }
+        if !watching.running {
             let mirror = Arc::downgrade(self);
             let started = thread::Builder::new()
                 .name("hof-files-watch".into())
                 .spawn(move || watch(&mirror));
-            state.watching = started.is_ok();
+            watching.running = started.is_ok();
         }
         Ok(local)
     }
 
     /// Whether `remote` is watched.
     pub fn is_watched(&self, remote: &[u8]) -> bool {
-        lock(&self.state).watched.iter().any(|w| w.remote == remote)
+        self.find(remote).is_some()
     }
 
     fn open(&self) -> io::Result<Client<UnixStream>> {
@@ -218,10 +243,10 @@ impl Mirror {
     /// one if the one there was turns out to have gone.
     fn with_client<T>(
         &self,
-        state: &mut State,
         op: impl Fn(&mut Client<UnixStream>) -> io::Result<T>,
     ) -> io::Result<T> {
-        if state.retry_at.is_some_and(|at| Instant::now() < at) {
+        let mut session = lock(&self.session);
+        if session.retry_at.is_some_and(|at| Instant::now() < at) {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
                 format!("the files on {} can't be reached just now", self.host),
@@ -229,14 +254,14 @@ impl Mirror {
         }
         let mut fresh = false;
         loop {
-            let client = match &mut state.client {
+            let client = match &mut session.client {
                 Some(client) => client,
                 none => {
                     fresh = true;
                     match self.open() {
                         Ok(client) => none.insert(client),
                         Err(e) => {
-                            state.retry_at = Some(Instant::now() + RETRY);
+                            session.retry_at = Some(Instant::now() + RETRY);
                             return Err(e);
                         }
                     }
@@ -246,9 +271,9 @@ impl Mirror {
             if done.is_ok() || !client.is_broken() {
                 return done;
             }
-            state.client = None;
+            session.client = None;
             if fresh {
-                state.retry_at = Some(Instant::now() + RETRY);
+                session.retry_at = Some(Instant::now() + RETRY);
                 return done;
             }
         }
@@ -256,7 +281,7 @@ impl Mirror {
 
     /// Writes a copy saved here back there, or copies again a file changed
     /// there.
-    fn sync(&self, state: &mut State, w: &mut Watched) -> io::Result<()> {
+    fn sync(&self, w: &mut Watched) -> io::Result<()> {
         let now_here = seen(&w.local)?;
         if now_here != w.here {
             if w.saving != Some(now_here) {
@@ -264,7 +289,7 @@ impl Mirror {
                 return Ok(());
             }
             let bytes = fs::read(&w.local)?;
-            let attr = self.with_client(state, |c| c.write_file(&w.remote, &bytes))?;
+            let attr = self.with_client(|c| c.write_file(&w.remote, &bytes))?;
             w.there = there_of(&attr);
             w.here = now_here;
             w.saving = None;
@@ -276,9 +301,9 @@ impl Mirror {
             return Ok(());
         }
         w.checked = Instant::now();
-        let attr = self.with_client(state, |c| c.stat(&w.remote))?;
+        let attr = self.with_client(|c| c.stat(&w.remote))?;
         if there_of(&attr) != w.there {
-            w.there = self.with_client(state, |c| download(c, &w.remote, &w.local))?;
+            w.there = self.with_client(|c| download(c, &w.remote, &w.local))?;
             w.here = seen(&w.local)?;
             w.touched = Instant::now();
         }
@@ -319,24 +344,29 @@ fn watch(mirror: &Weak<Mirror>) {
     loop {
         thread::sleep(TICK);
         let Some(m) = mirror.upgrade() else { return };
-        let mut state = lock(&m.state);
+        // Looked at one at a time, the list let go meanwhile.
+        let copies: Vec<_> = lock(&m.watched)
+            .copies
+            .iter()
+            .map(|(_, copy)| copy.clone())
+            .collect();
         let mut failed = None;
-        let mut kept = Vec::new();
-        for mut w in std::mem::take(&mut state.watched) {
+        let mut gone = Vec::new();
+        for copy in &copies {
+            let mut w = lock(copy);
             if w.touched.elapsed() > FORGET {
+                gone.push(copy.clone());
                 continue;
             }
-            match m.sync(&mut state, &mut w) {
-                Ok(()) => kept.push(w),
+            match m.sync(&mut w) {
+                Ok(()) => {}
                 // The copy went from here: nothing more to keep the same.
-                Err(_) if !w.local.exists() => {}
+                Err(_) if !w.local.exists() => gone.push(copy.clone()),
                 Err(e) => {
                     failed.get_or_insert(e);
-                    kept.push(w);
                 }
             }
         }
-        state.watched = kept;
         match failed {
             Some(e) if !failing => {
                 failing = true;
@@ -345,9 +375,14 @@ fn watch(mirror: &Weak<Mirror>) {
             Some(_) => {}
             None => failing = false,
         }
-        if state.watched.is_empty() {
-            state.watching = false;
-            state.client = None;
+        let mut watching = lock(&m.watched);
+        watching
+            .copies
+            .retain(|(_, c)| !gone.iter().any(|g| Arc::ptr_eq(c, g)));
+        if watching.copies.is_empty() {
+            watching.running = false;
+            drop(watching);
+            lock(&m.session).client = None;
             return;
         }
     }
