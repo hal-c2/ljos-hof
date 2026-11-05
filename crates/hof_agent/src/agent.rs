@@ -675,6 +675,20 @@ fn catch_up(id: PaneId, pane: &Pane, sent: &mut Sent, out: &mut Vec<u8>) {
     }
 }
 
+/// The agent's end of a new sessions channel: a socket whose other end a
+/// thread serves from `places`.
+fn open_sessions(
+    places: hof_session::service::Places,
+) -> io::Result<(Box<dyn hof_remote::Socket>, Vec<u8>)> {
+    let (ours, theirs) = std::os::unix::net::UnixStream::pair()?;
+    std::thread::Builder::new()
+        .name("hof-sessions".into())
+        .spawn(move || {
+            let _ = hof_session::service::serve(theirs, &places);
+        })?;
+    Ok((Box::new(ours), Vec::new()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -750,18 +764,4 @@ mod tests {
         assert!(matches!(heard[9], Message::Hangup { channel: 1 }));
         assert_eq!(heard.len(), 10);
     }
-}
-
-/// The agent's end of a new sessions channel: a socket whose other end a
-/// thread serves from `places`.
-fn open_sessions(
-    places: hof_session::service::Places,
-) -> io::Result<(Box<dyn hof_remote::Socket>, Vec<u8>)> {
-    let (ours, theirs) = std::os::unix::net::UnixStream::pair()?;
-    std::thread::Builder::new()
-        .name("hof-sessions".into())
-        .spawn(move || {
-            let _ = hof_session::service::serve(theirs, &places);
-        })?;
-    Ok((Box::new(ours), Vec::new()))
 }
