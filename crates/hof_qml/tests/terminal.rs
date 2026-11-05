@@ -673,3 +673,50 @@ fn a_program_may_open_urls_or_not_as_the_terminal_says() {
     assert!(asked.borrow().is_empty());
     assert_eq!(urls.urls(), ["file:///tmp/x"]);
 }
+
+#[test]
+fn a_request_to_open_with_the_panes_key_is_the_users_and_is_not_asked() {
+    let engine = ljos::engine();
+    register(&engine);
+    let urls = RecordedUrls::default();
+    Platform::of(&engine).set_open_url(Rc::new(urls.clone()));
+    let mut window = TestWindow::new(&engine, WIDTH, HEIGHT);
+    let t = engine.create_by_name("Hof", "Terminal", None).unwrap();
+    engine
+        .set(t, Terminal::PROGRAM, "/bin/sh".to_owned())
+        .unwrap();
+    // As `hof open` says it, with the key from its environment; then as
+    // text printed with a key made up.
+    let script = r#"printf '\033]7702;key=%s;https://mine.example\033\\' "$HOF_OPEN_KEY"
+printf '\033]7702;key=0123abcd;https://printed.example\033\\'
+exec sleep 5"#;
+    engine
+        .set(
+            t,
+            Terminal::ARGUMENTS,
+            vec!["-c".to_owned(), script.to_owned()],
+        )
+        .unwrap();
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let into = Rc::clone(&asked);
+    engine
+        .connect_by_name(t, "openRequested", move |_, a| {
+            into.borrow_mut()
+                .push(a[0].to_js_string().as_str().to_owned());
+        })
+        .unwrap();
+    engine.set(t, Item::WIDTH, WIDTH).unwrap();
+    engine.set(t, Item::HEIGHT, HEIGHT).unwrap();
+    window.show(t).unwrap();
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while asked.borrow().is_empty() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        window.settle().unwrap();
+    }
+    assert_eq!(urls.urls(), ["https://mine.example"], "the user's opens");
+    assert_eq!(
+        *asked.borrow(),
+        ["https://printed.example"],
+        "the other is asked"
+    );
+}

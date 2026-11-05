@@ -63,9 +63,10 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   `HOF_SOCKET` and `HOF_PANE_ID` there.
 - **The clipboard from programs.** Programs may put text on the clipboard
   with OSC 52. When one asks to read it, Hof asks you first, as
-  `clipboard-read` says. `hof copy`, `hof paste` and `hof open URL|FILE` do
-  the same from the shell. They speak to the pane's terminal, so they work
-  in remote panes too.
+  `clipboard-read` says. `hof copy`, `hof paste` and `hof open URL|FILE|DIR`
+  do the same from the shell. They speak to the pane's terminal, so they
+  work in remote panes too. A program asking to open something is asked
+  about, as `open-urls` says; your own `hof open` is not.
 - **Links.** A program's own links (OSC 8) and URLs in the text are
   underlined under the pointer, which names them in the pane's corner.
   Ctrl+click (Cmd+click on a Mac) opens one. A URL that wraps onto the next row opens whole.
@@ -181,7 +182,8 @@ again at the next start. `hof copy`, `hof paste` and `hof open URL` there
 reach the clipboard and the browser where you sit. `hof open FILE` there,
 or a click on a program's `file:` link, copies the file here and opens
 the copy with what opens such files here. Each save goes back to the
-machine it came from, and a change there is copied again. Both ends need
+machine it came from, and a change there is copied again. `hof open DIR`
+there copies the folder here read-only, as it is then, and opens it. Both ends need
 this Hof; an older agent says to update it. With `x11 = true` and
 `sound = true` on the host, programs there open their windows on your
 display and play through your speakers, as with `ssh -X`, carried over

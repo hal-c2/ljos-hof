@@ -36,6 +36,9 @@ const MOST: usize = 256;
 /// The OSC number of a request to open a URL.
 pub const OPEN_OSC: u16 = 7702;
 
+/// The variable that holds a pane's key, for `hof open` to send back.
+pub const OPEN_KEY: &str = "HOF_OPEN_KEY";
+
 /// The most a request to open may hold: URLs run longer than reports.
 const MOST_URL: usize = 8192;
 
@@ -58,14 +61,29 @@ pub struct Report {
 pub(crate) enum Found {
     Report(Report),
     ClipboardRead(crate::Clipboard),
-    Open(String),
+    Open { url: String, key: Option<String> },
 }
 
 /// What asks the terminal to open `url`, with any control characters,
 /// which would end it early, taken out.
 pub fn open_request(url: &str) -> Vec<u8> {
+    open_request_keyed(url, None)
+}
+
+/// [`open_request`] with the pane's key (`HOF_OPEN_KEY`), which shows the
+/// request comes from a program the user ran in the pane, not from text it
+/// printed: `ESC ] 7702 ; key=KEY ; URL ST`. A key with anything but
+/// letters and digits in it is left out.
+pub fn open_request_keyed(url: &str, key: Option<&str>) -> Vec<u8> {
     let url: String = url.chars().filter(|c| !c.is_control()).collect();
-    format!("\x1b]{OPEN_OSC};{url}\x1b\\").into_bytes()
+    match key.filter(|k| is_key(k)) {
+        Some(key) => format!("\x1b]{OPEN_OSC};key={key};{url}\x1b\\").into_bytes(),
+        None => format!("\x1b]{OPEN_OSC};{url}\x1b\\").into_bytes(),
+    }
+}
+
+fn is_key(k: &str) -> bool {
+    !k.is_empty() && k.len() <= 64 && k.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
 #[derive(Debug, Default)]
@@ -157,9 +175,19 @@ impl Scanner {
 
     fn finish(&mut self, found: &mut impl FnMut(Found)) {
         if self.number == u32::from(OPEN_OSC) {
-            let url = String::from_utf8_lossy(&self.body).trim().to_owned();
+            let body = String::from_utf8_lossy(&self.body);
+            let (key, url) = match body.trim().strip_prefix("key=") {
+                Some(rest) => match rest.split_once(';') {
+                    Some((key, url)) if is_key(key) => (Some(key.to_owned()), url.trim()),
+                    _ => (None, ""),
+                },
+                None => (None, body.trim()),
+            };
             if !url.is_empty() {
-                found(Found::Open(url));
+                found(Found::Open {
+                    url: url.to_owned(),
+                    key,
+                });
             }
         } else if self.number == CLIPBOARD {
             if let Some(from) = crate::clipboard::read_of(&self.body) {
@@ -200,7 +228,7 @@ mod tests {
             .into_iter()
             .filter_map(|f| match f {
                 Found::Report(r) => Some(r),
-                Found::ClipboardRead(_) | Found::Open(_) => None,
+                Found::ClipboardRead(_) | Found::Open { .. } => None,
             })
             .collect()
     }
@@ -267,7 +295,37 @@ mod tests {
         out.extend(open_request("file:///tmp/a\x07b"));
         assert_eq!(
             found(&[&out]),
-            [Found::Open(long), Found::Open("file:///tmp/ab".into())]
+            [
+                Found::Open {
+                    url: long,
+                    key: None
+                },
+                Found::Open {
+                    url: "file:///tmp/ab".into(),
+                    key: None
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn a_request_to_open_carries_the_panes_key_if_it_has_one() {
+        let mut out = open_request_keyed("https://a.example/x;y", Some("abc123"));
+        out.extend(open_request_keyed("https://b.example", Some("not a key")));
+        // Text that only looks like a key in front is no URL to open.
+        out.extend(b"\x1b]7702;key=bad key;https://c.example\x1b\\");
+        assert_eq!(
+            found(&[&out]),
+            [
+                Found::Open {
+                    url: "https://a.example/x;y".into(),
+                    key: Some("abc123".into())
+                },
+                Found::Open {
+                    url: "https://b.example".into(),
+                    key: None
+                }
+            ]
         );
     }
 

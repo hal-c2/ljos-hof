@@ -325,6 +325,37 @@ pub(crate) struct Shared {
     pub agent: RefCell<agents::Watch>,
     pub clipboard: RefCell<Asked<hof_vt::Clipboard>>,
     pub opens: RefCell<Asked<String>>,
+    /// Given to the program as `HOF_OPEN_KEY`: a request to open that
+    /// carries it comes from a program the user ran (`hof open`), not from
+    /// text that was printed, and is not asked about.
+    pub open_key: OpenKey,
+}
+
+/// A pane's key: 128 random bits, in hex.
+pub(crate) struct OpenKey(pub String);
+
+impl Default for OpenKey {
+    fn default() -> Self {
+        use std::hash::{BuildHasher, Hasher};
+        use std::io::Read;
+        let mut bytes = [0u8; 16];
+        let random = std::fs::File::open("/dev/urandom")
+            .and_then(|mut f| f.read_exact(&mut bytes))
+            .is_ok();
+        if !random {
+            // No /dev/urandom: the standard library's random hash keys.
+            for half in bytes.chunks_mut(8) {
+                let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+                h.write_u128(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| d.as_nanos()),
+                );
+                half.copy_from_slice(&h.finish().to_le_bytes());
+            }
+        }
+        Self(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    }
 }
 
 /// What the program asked that waits for the user.
@@ -809,7 +840,8 @@ fn spawn_of(engine: &Engine, me: ObjectId) -> Spawn {
         let program = item::prop(engine, me, Terminal::PROGRAM);
         let args = item::prop(engine, me, Terminal::ARGUMENTS);
         let cwd = item::prop(engine, me, Terminal::START_DIRECTORY);
-        let environment = item::prop(engine, me, Terminal::ENVIRONMENT);
+        let mut environment: Vec<String> = item::prop(engine, me, Terminal::ENVIRONMENT);
+        environment.extend(key_variable(engine, me));
         Spawn {
             program: (!program.is_empty()).then(|| PathBuf::from(program)),
             args: args.into_iter().map(Into::into).collect(),
@@ -818,6 +850,11 @@ fn spawn_of(engine: &Engine, me: ObjectId) -> Spawn {
             ..Spawn::default()
         }
     })
+}
+
+/// `HOF_OPEN_KEY=…`, the pane's key for `hof open` to send back.
+fn key_variable(engine: &Engine, me: ObjectId) -> Option<String> {
+    shared_of(engine, me).map(|s| format!("{}={}", hof_vt::OPEN_KEY, s.open_key.0))
 }
 
 /// `NAME=value` pairs as variables; an entry without `=` or a name is
@@ -945,7 +982,11 @@ fn start_of(engine: &Engine, me: ObjectId, size: Size) -> Start {
         Start {
             command,
             directory: item::prop(engine, me, Terminal::START_DIRECTORY),
-            environment: item::prop(engine, me, Terminal::ENVIRONMENT),
+            environment: {
+                let mut environment: Vec<String> = item::prop(engine, me, Terminal::ENVIRONMENT);
+                environment.extend(key_variable(engine, me));
+                environment
+            },
             cols: size.cols,
             rows: size.rows,
         }
@@ -1199,7 +1240,7 @@ fn drain(engine: &Engine, me: ObjectId) {
                 }
             }
             Event::ClipboardRead(from) => read_asked(engine, me, from),
-            Event::Open(url) => open_asked(engine, me, url),
+            Event::Open { url, key } => open_asked(engine, me, url, key),
             Event::Exited(code) => {
                 let code = code.unwrap_or(-1);
                 forget_agent(engine, me);
@@ -1367,7 +1408,7 @@ fn names_a_file(url: &str) -> bool {
 }
 
 /// The program asked to open `url`: opens it, or asks the user.
-fn open_asked(engine: &Engine, me: ObjectId, url: String) {
+fn open_asked(engine: &Engine, me: ObjectId, url: String, key: Option<String>) {
     let Some(shared) = shared_of(engine, me) else {
         return;
     };
@@ -1380,11 +1421,14 @@ fn open_asked(engine: &Engine, me: ObjectId, url: String) {
         return;
     }
     let policy: String = engine.untrack(|| item::prop(engine, me, Terminal::OPEN_URLS));
+    // The user ran `hof open` in this pane: asked already.
+    let users = key.is_some_and(|k| k == shared.open_key.0);
     let first = {
         let mut opens = shared.opens.borrow_mut();
         match policy.as_str() {
             "deny" => return,
             "allow" => None,
+            _ if users => None,
             _ if opens.always => None,
             _ if opens.waiting.len() >= MOST_OPENS => return,
             _ => {
@@ -1456,11 +1500,17 @@ fn open_wanted(engine: &Engine, me: ObjectId, url: &str) {
     let fetching = std::thread::Builder::new()
         .name("hof-files-open".into())
         .spawn(move || {
-            let fetched = mirror.fetch(&path);
+            let fetched = mirror.open(&path);
             post.send(move |e: &Engine| match fetched {
-                Ok(local) => {
-                    let _ = Terminal::emit_notice(&cx(e, me), String::new());
-                    open_url(e, &hof_remote::files::file_url(&local));
+                Ok(opened) => {
+                    let said = match &opened {
+                        hof_remote::files::Opened::File(_) => String::new(),
+                        hof_remote::files::Opened::Folder(_, copied) => {
+                            folder_notice(&shown, &host, *copied)
+                        }
+                    };
+                    let _ = Terminal::emit_notice(&cx(e, me), said);
+                    open_url(e, &hof_remote::files::file_url(opened.path()));
                 }
                 Err(why) => {
                     let why = format!("Could not open {shown} from {host}: {why}");
@@ -1471,6 +1521,23 @@ fn open_wanted(engine: &Engine, me: ObjectId, url: &str) {
     if fetching.is_err() {
         let _ = Terminal::emit_notice(&cx(engine, me), String::new());
     }
+}
+
+/// What to say of a folder copied from `host`: that it is a copy as it
+/// is now, and how to have a file of it kept the same.
+fn folder_notice(shown: &str, host: &str, copied: hof_remote::files::FolderCopy) -> String {
+    let files = match copied.files {
+        1 => "1 file".to_owned(),
+        n => format!("{n} files"),
+    };
+    let left = match copied.left_out {
+        0 => String::new(),
+        n => format!(", {n} left out"),
+    };
+    format!(
+        "A read-only copy of {shown} from {host} as it is now ({files}{left}). \
+         `hof open FILE` there to edit one."
+    )
 }
 
 fn open_url(engine: &Engine, url: &str) {

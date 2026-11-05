@@ -180,7 +180,9 @@ pub struct Terminal {
     pub clipboard_read: Permission,
     /// Let programs put text on the clipboard (OSC 52).
     pub clipboard_write: bool,
-    /// Whether programs may have URLs opened here, as `hof open` asks.
+    /// Whether programs may have URLs and files opened here. `hof open`
+    /// run in the pane carries the pane's key and is not asked about;
+    /// `Deny` refuses it too.
     pub open_urls: Permission,
     /// Directory new terminals start in, with a leading `~` already
     /// expanded; `None` means Hof's own working directory.

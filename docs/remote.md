@@ -201,11 +201,24 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
 - **Open here:**
   - `hof open URL` writes Hof's OSC 7702 to `/dev/tty`, and Hof opens the
     URL locally, asking first unless `terminal.open-urls` says otherwise.
+  - Each pane's program gets `HOF_OPEN_KEY`, random and new per pane, and
+    `hof open` puts it in the request (`ESC ] 7702 ; key=KEY ; URL ST`).
+    A request with the pane's key is the user's own and is not asked
+    about; one without it, or with another key, is a program's and is.
+    `open-urls = "deny"` refuses both. A remote pane attached again after
+    Hof restarts keeps the key it started with, which Hof no longer
+    knows, so there it asks.
   - `hof open FILE` in a local pane opens the file. In a remote pane, as
     for a click on a program's `file:` link there, Hof copies the file
     here over a files channel and opens the copy with the local handler.
     The pane shows "Copying … from <host>…" meanwhile, and why, if it
     could not.
+  - `hof open DIR` in a remote pane copies the folder here as it is then,
+    level by level, at most 2000 files and 256 MiB; what is past that,
+    links, and anything not a file or folder are left out, and the pane
+    says how many. The copy's files are read-only and not watched. Copied
+    again, what went there goes here too. `hof open FILE` on one of its
+    files makes that one a watched, writable copy like any other.
   - The copy goes in the cache, at its path there:
     `$XDG_CACHE_HOME/hof/hosts/<name>/<path>`, else `~/.cache/hof/...`, or
     `~/Library/Caches/hof/...` on a Mac. Copies are readable by this user

@@ -54,8 +54,9 @@ pub enum Event {
     /// [`crate::carrying`]; nothing answers it before.
     ClipboardRead(crate::Clipboard),
     /// The program asked the terminal to open a URL (Hof's OSC 7702, what
-    /// `hof open` says). The UI decides whether to.
-    Open(String),
+    /// `hof open` says). The UI decides whether to; `key` is the pane's,
+    /// if the program knew it (`HOF_OPEN_KEY`), and so one the user ran.
+    Open { url: String, key: Option<String> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

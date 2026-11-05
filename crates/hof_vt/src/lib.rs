@@ -41,7 +41,7 @@ pub use links::{Hyperlink, LinkSpan, find_urls};
 pub use process::Process;
 pub use pty::Spawn;
 pub use remote::{Feed, Link, Outlet};
-pub use report::{OPEN_OSC, OSC as AGENT_OSC, Report, open_request};
+pub use report::{OPEN_KEY, OPEN_OSC, OSC as AGENT_OSC, Report, open_request, open_request_keyed};
 pub use session::{Options, PasteError, Scroll, Scrollbar, Selecting, Session, Tap, Theme};
 pub use signals::{Changes, Event, Progress, PromptMark};
 

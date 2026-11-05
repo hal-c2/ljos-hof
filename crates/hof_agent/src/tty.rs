@@ -79,9 +79,14 @@ pub fn paste(clipboard: Clipboard, timeout: Duration) -> Result<String, Error> {
 }
 
 /// Asks the terminal to open `target`, a URL or a file here, with what
-/// the user's desktop opens it with.
+/// the user's desktop opens it with. With the pane's key, which Hof gave
+/// the shell, Hof knows the user asked and does not ask again.
 pub fn open(target: &str) -> Result<(), Error> {
-    say(&hof_vt::open_request(&url_of(target)?))
+    let key = std::env::var(hof_vt::OPEN_KEY).ok();
+    say(&hof_vt::open_request_keyed(
+        &url_of(target)?,
+        key.as_deref(),
+    ))
 }
 
 /// `target` as a URL: as it is if it has a scheme, else as a file.

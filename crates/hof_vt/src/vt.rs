@@ -231,7 +231,7 @@ impl Vt {
             signals.push(match found {
                 crate::report::Found::Report(report) => Event::Agent(report),
                 crate::report::Found::ClipboardRead(from) => Event::ClipboardRead(from),
-                crate::report::Found::Open(url) => Event::Open(url),
+                crate::report::Found::Open { url, key } => Event::Open { url, key },
             })
         });
     }
