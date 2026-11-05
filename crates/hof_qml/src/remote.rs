@@ -297,6 +297,11 @@ pub fn keep_programs(keep: bool) {
     KEEP.store(keep, Ordering::Release);
 }
 
+/// What [`keep_programs`] said last.
+pub fn keeps_programs() -> bool {
+    KEEP.load(Ordering::Acquire)
+}
+
 /// Ends the programs of panes no window shows, as `hof forget` does for a
 /// session: `(host, pane)` each, the host a `[hosts]` name, or "" for the
 /// agent here. Each is attached first, so the close is sent only to an

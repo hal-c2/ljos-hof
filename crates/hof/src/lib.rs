@@ -163,8 +163,11 @@ impl App {
         // Hof is going, with the session to come back to: the programs of
         // remote panes run on, for the next start to attach to. Not while
         // it runs, or closing a remote pane would leave its program behind.
+        // Even when this last save failed (the machine it is kept on out of
+        // reach a moment, say): the one before names them, and a program
+        // left over is ended by `hof forget`, where one ended is lost.
         if quitting {
-            hof_qml::remote::keep_programs(saved.is_ok());
+            hof_qml::remote::keep_programs(true);
         }
         saved
             .inspect_err(|e| eprintln!("hof: the session was not saved: {e}"))
