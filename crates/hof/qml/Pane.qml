@@ -145,8 +145,12 @@ Item {
         replay: root.start.replay ?? ""
         autoStart: true
 
-        onActiveFocusChanged: if (terminal.activeFocus)
-            root.focusTaken()
+        // The keys back in the terminal, by a click or another pane's
+        // turn, are done with finding.
+        onActiveFocusChanged: if (terminal.activeFocus) {
+            search.close();
+            root.focusTaken();
+        }
         onCellWidthChanged: if (terminal.cellWidth > 0)
             root.terminalReady(terminal, root)
         onCellHeightChanged: if (terminal.cellHeight > 0)

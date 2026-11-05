@@ -420,6 +420,38 @@ fn searching_finds_as_you_type_and_escape_puts_it_away() {
     );
 }
 
+#[test]
+fn the_find_bar_goes_away_when_the_terminal_takes_the_keys_back_or_its_cross_is_clicked() {
+    let mut hof = opened();
+    let t = hof.current().unwrap();
+    hof.engine
+        .invoke_by_name(t, "write", &[Value::from("zqxj\r\n")])
+        .unwrap();
+    hof.run("search");
+    hof.type_text("zqxj");
+    assert!(hof.searching());
+    // A click in the terminal, say, to copy what was found.
+    hof.engine
+        .invoke_by_name(t, "forceActiveFocus", &[])
+        .unwrap();
+    hof.window.settle().unwrap();
+    assert!(!hof.searching(), "the bar goes with the keys");
+    assert!(!hof.engine.read_by_name(t, "searching").to_boolean());
+
+    hof.run("search");
+    assert!(hof.searching(), "and comes back");
+    let cross = hof.find("searchClose").unwrap();
+    let at = ljos::item::scene_rect(&hof.engine, cross).center();
+    let now = hof.window.now();
+    hof.window
+        .pointer(&ljos::item::PointerEvent::press(at.x, at.y, now));
+    hof.window
+        .pointer(&ljos::item::PointerEvent::release(at.x, at.y, now));
+    hof.window.settle().unwrap();
+    assert!(!hof.searching(), "the cross closes it");
+    assert!(hof.engine.read_by_name(t, "activeFocus").to_boolean());
+}
+
 /// `Qt::Key_Return`.
 const KEY_RETURN: i32 = 0x0100_0004;
 
