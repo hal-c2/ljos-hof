@@ -28,9 +28,13 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   there has the mouse; Shift+right click then). `[window] menu` chooses
   the bar, the button or neither.
 - **A settings window** (Ctrl+Shift+, or Cmd+,) for the theme, font,
-  opacity, cursor, clipboard, menu and session. Each change is written
-  into the config file at once, keeping your comments, and applies
-  straight away.
+  opacity, cursor, clipboard, menu and session, and the remote hosts: add
+  one, set its address, user and port, what it may share, or remove it.
+  Each change is written into the config file at once, keeping your
+  comments, and applies straight away. The controls take their colours
+  from the terminal's theme, and the test suite holds the settings, the
+  menus and the host picker to the Ljós design audit (contrast, names,
+  target sizes, text that is cut off).
 - **One TOML file** where every key is optional. A key Hof doesn't know is
   a warning, not an error. Saving the file applies it without a restart.
   See [`hof.example.toml`](crates/hof_config/hof.example.toml).
@@ -184,3 +188,6 @@ Hof's own connection.
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+The controls in `crates/hof/qml/Hof/Bricks` began as HAL-C2's. Their icons
+are [Lucide](https://lucide.dev)'s, under the ISC licence.

@@ -35,7 +35,9 @@ clap.workspace = true
 ljos = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
-ljos = { workspace = true, features = ["shell", "testing"] }
+ljos = { workspace = true, features = ["shell", "testing", "render"] }
+# The design audit tests/look.rs holds the settings window to.
+ljos_audit = { path = "../../third_party/ljos-ui/crates/ljos_audit" }
 tempfile.workspace = true
 
 [lints]
