@@ -373,7 +373,13 @@ impl Agent {
             Message::Data { channel, bytes } => relays.data(channel, bytes),
             Message::Ack { channel, bytes } => relays.ack(channel, bytes),
             Message::Hangup { channel } => relays.hang_up(channel),
-            // The agent takes the connections; Hof only passes them on.
+            // Hof reaching this machine's files.
+            Message::Connect {
+                channel, service, ..
+            } if service == hof_remote::files::SERVICE => {
+                relays.add(channel, hof_remote::files::open_server);
+            }
+            // The other connections the agent takes; Hof only passes them on.
             Message::Connect { channel, .. } => send(Message::Hangup { channel }),
             // What the agent sends, not what it is sent, and what it can't
             // read: nothing to do.

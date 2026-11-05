@@ -108,19 +108,7 @@ fn has_scheme(s: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
 }
 
-/// `file://` and `path`, with what a URL cannot hold escaped.
-pub fn file_url(path: &Path) -> String {
-    use std::os::unix::ffi::OsStrExt;
-    let mut url = String::from("file://");
-    for &b in path.as_os_str().as_bytes() {
-        if b.is_ascii_alphanumeric() || b"/-._~!$&'()*+,;=:@".contains(&b) {
-            url.push(char::from(b));
-        } else {
-            url.push_str(&format!("%{b:02X}"));
-        }
-    }
-    url
-}
+pub use hof_remote::files::file_url;
 
 fn open_tty() -> Result<File, Error> {
     std::fs::OpenOptions::new()

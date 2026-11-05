@@ -13,6 +13,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, Read, Write};
+use std::os::unix::net::UnixStream;
 use std::process::{self, Child, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -21,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use crate::relay::{Relays, Socket};
 use crate::stream::{Backlog, Received, Resume};
-use crate::wire::{Decoder, Message, PaneId, VERSION};
+use crate::wire::{ChannelId, Decoder, Message, PaneId, VERSION};
 
 /// Something here that programs on the host may connect to, through the
 /// agent: the X server, the sound server.
@@ -286,7 +287,15 @@ fn end_child(
 pub struct Host {
     to: mpsc::Sender<Event>,
     next: Arc<AtomicU32>,
+    next_channel: Arc<AtomicU32>,
 }
+
+/// The channels Hof opens have this bit set, the agent's not: neither end
+/// takes a number the other has.
+pub const HOF_CHANNEL: ChannelId = 1 << 31;
+
+/// How long [`Host::connect`] waits for the connection to be up.
+const CONNECT_WAIT: Duration = Duration::from_secs(2);
 
 /// One pane on a host. Dropping it neither closes nor keeps the program:
 /// say which with [`Pane::close`] or [`Pane::detach`].
@@ -307,7 +316,43 @@ impl Host {
         Self {
             to,
             next: Arc::new(AtomicU32::new(1)),
+            next_channel: Arc::new(AtomicU32::new(0)),
         }
+    }
+
+    /// A channel to the agent's `service`, begun with `opening`: what is
+    /// written to the socket this gives goes to it, and what it answers
+    /// comes back. Fails if the connection is not up within a moment;
+    /// an agent that has no such service hangs up, and the socket ends.
+    pub fn connect(&self, service: &str, opening: Vec<u8>) -> io::Result<UnixStream> {
+        let given_up = Instant::now() + CONNECT_WAIT;
+        let relays = loop {
+            let (answer, answered) = mpsc::channel();
+            if self.to.send(Event::Relays(answer)).is_err() {
+                return Err(io::ErrorKind::NotConnected.into());
+            }
+            match answered.recv_timeout(CONNECT_WAIT) {
+                Ok(Some(relays)) => break relays,
+                Ok(None) if Instant::now() < given_up => {
+                    thread::sleep(Duration::from_millis(100));
+                }
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotConnected,
+                        "not connected to the agent",
+                    ));
+                }
+            }
+        };
+        let (ours, theirs) = UnixStream::pair()?;
+        let n = self.next_channel.fetch_add(1, Ordering::Relaxed);
+        relays.connect_out(
+            HOF_CHANNEL | (n & !HOF_CHANNEL),
+            service,
+            opening,
+            Box::new(theirs),
+        );
+        Ok(ours)
     }
 
     /// A new pane running `start`.
@@ -402,6 +447,9 @@ enum Event {
     Heard(u64, Message),
     /// Connection `.0` ended, and why if it could tell.
     Ended(u64, Option<String>),
+    /// [`Host::connect`] wants the channels of the connection, once the
+    /// agent has said hello on it.
+    Relays(mpsc::Sender<Option<Relays>>),
     /// [`Host::finish`].
     Finish {
         keep: bool,
@@ -521,6 +569,14 @@ impl Driver {
                     return;
                 }
                 Some(Event::Pane(id, command)) => self.command(id, command),
+                Some(Event::Relays(answer)) => {
+                    let relays = self
+                        .live
+                        .as_ref()
+                        .filter(|l| l.greeted)
+                        .map(|l| l.relays.clone());
+                    let _ = answer.send(relays);
+                }
                 Some(Event::Heard(generation, message)) => {
                     self.incoming.give(message_weight(&message));
                     // What an old connection says comes too late to matter.

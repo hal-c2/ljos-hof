@@ -14,10 +14,12 @@
 //! Beside the panes, a connection carries other connections: X11 and
 //! sound clients on the agent's machine, passed on to the servers on
 //! Hof's ([`relay`], [`x11`], [`pulse`]), or served by Hof itself
-//! ([`yserver`] started for X11, [`sound`] for sound).
+//! ([`yserver`] started for X11, [`sound`] for sound). The other way, Hof
+//! reaches the files of the agent's machine ([`files`]).
 
 pub mod bootstrap;
 pub mod client;
+pub mod files;
 pub mod peer;
 mod program;
 pub mod pulse;
