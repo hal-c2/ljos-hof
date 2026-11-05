@@ -894,6 +894,10 @@ fn variables(entries: &[String]) -> Vec<(std::ffi::OsString, std::ffi::OsString)
         .collect()
 }
 
+/// What follows a saved session's scrollback: plain text, on a line of its
+/// own, so the old prompt stays above the new one rather than under it.
+const AFTER_REPLAY: &[u8] = b"\x1b[0m\r\n";
+
 /// Opens the session: `spawn`'s program, or a detached one for `None`.
 /// Returns whether it opened.
 fn open(engine: &Engine, me: ObjectId, spawn: Option<Spawn>) -> bool {
@@ -952,9 +956,7 @@ fn open(engine: &Engine, me: ObjectId, spawn: Option<Spawn>) -> bool {
     let replay = engine.untrack(|| item::prop(engine, me, Terminal::REPLAY));
     if !replay.is_empty() {
         session.feed(replay.as_bytes());
-        // Plain text, on a line of its own: the old prompt stays above the
-        // new one rather than under it.
-        session.feed(b"\x1b[0m\r\n");
+        session.feed(AFTER_REPLAY);
         let _ = engine.set_internal(me, Terminal::REPLAY, String::new());
     }
     *shared.session.borrow_mut() = Some(session);
@@ -989,13 +991,22 @@ fn open_remote(
         },
         Err(_) => Begin::Open(start_of(engine, me, size, apart)),
     };
+    let replay = engine.untrack(|| item::prop(engine, me, Terminal::REPLAY));
     let mut made = None;
     let session = Session::remote(options, waker, |feed| {
+        // Before the agent is asked for anything: its snapshot of a program
+        // that runs on stands for all it showed, what was saved here too,
+        // and is drawn in place of it.
+        if !replay.is_empty() {
+            feed.output(replay.as_bytes());
+            feed.output(AFTER_REPLAY);
+        }
         let r = Remote::new(to, feed, begin);
         made = Some(Arc::clone(&r));
         Arc::new(Out(r))
     })
     .map_err(|e| e.to_string())?;
+    let _ = engine.set_internal(me, Terminal::REPLAY, String::new());
     // The session it replaces keeps its own, and closes its pane as it goes.
     *shared.remote.borrow_mut() = made;
     shared.attaching.set(pane >= 0);

@@ -1268,7 +1268,14 @@ impl Slot {
             start,
             opening: false,
             close_when_opened: false,
-            received: Received::default(),
+            // A program that runs already is picked up as it is now, not
+            // from its start: what it showed before is on the screen here
+            // already, saved, and the snapshot is drawn in its place.
+            received: if remote.is_some() {
+                Received::snapshot_wanted()
+            } else {
+                Received::default()
+            },
             input: Backlog::new(options.input_backlog),
             cols,
             rows,

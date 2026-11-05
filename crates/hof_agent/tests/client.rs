@@ -262,8 +262,12 @@ fn a_detached_pane_runs_on_and_is_attached_again_by_number() {
     let again = Arc::new(Seen::default());
     let pane = other.attach(number, 40, 5, again.clone());
     again.wait_for_text("ready");
+    // Drawn from a snapshot of its screen, which stands for all it showed:
+    // what the window has of it already, saved, is not shown twice.
+    assert_eq!(again.inner.lock().unwrap().snapshots, 1);
     pane.input(b"x\r");
     again.wait_for_text("later:x");
+    assert_eq!(again.text().matches("ready").count(), 1, "{}", again.text());
     pane.close();
 }
 

@@ -114,6 +114,13 @@ impl Received {
         Self { end }
     }
 
+    /// None of a stream that has run a while, and none of it wanted but a
+    /// snapshot of where it is: told to the sender, past its end, it sends
+    /// one. Output before the snapshot is let go.
+    pub fn snapshot_wanted() -> Self {
+        Self { end: u64::MAX }
+    }
+
     /// The number of the next byte expected: what to tell the sender on
     /// reconnect.
     pub fn end(&self) -> u64 {
