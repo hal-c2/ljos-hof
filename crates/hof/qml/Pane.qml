@@ -210,10 +210,6 @@ Item {
 
         canCopy: terminal.hasSelection
         keyOf: root.keyOf
-        baseColor: root.background
-        textColor: root.foreground
-        fontFamily: Settings.fontFamily
-        fontSize: Math.max(8, Settings.fontSize - 1)
 
         onChose: name => root.action(name)
         onClosed: root.giveFocus()

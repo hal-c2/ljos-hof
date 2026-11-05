@@ -874,6 +874,8 @@ impl Hof {
         self.window
             .pointer(&ljos::item::PointerEvent::release(at.x, at.y, now).with_button(button));
         self.window.settle().unwrap();
+        // Long enough for a menu to fade in or out.
+        self.window.advance(200).unwrap();
     }
 
     fn flag(&self, name: &str) -> bool {
@@ -896,7 +898,10 @@ fn the_menu_button_opens_the_windows_menu_whose_items_do_their_actions() {
 
     let item = hof.find("menuItem:new-tab").unwrap();
     assert_eq!(
-        hof.engine.read_by_name(item, "key").to_js_string().as_str(),
+        hof.engine
+            .read_by_name(item, "shortcut")
+            .to_js_string()
+            .as_str(),
         "Ctrl+Shift+T",
         "the item shows its chord"
     );
@@ -927,6 +932,7 @@ fn a_right_click_in_a_pane_opens_its_menu() {
 
     hof.window.key(&KeyEvent::press(KEY_ESCAPE));
     hof.window.settle().unwrap();
+    hof.window.advance(200).unwrap();
     assert!(!hof.engine.read_by_name(menu, "opened").to_boolean());
     assert!(hof.has_keys(t), "the keys go back to the terminal");
 }

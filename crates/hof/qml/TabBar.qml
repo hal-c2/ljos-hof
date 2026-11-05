@@ -1,5 +1,6 @@
 import QtQuick
 import Hof
+import Hof.Bricks
 
 // The tabs, shown when there are two or more or when the menu is here:
 // click to select, middle click or × to close, + for a new one, and the
@@ -100,8 +101,21 @@ Item {
                     font.family: root.fontFamily
                 }
 
+                // The tab itself, beside its close button rather than
+                // around it. Tabs, like the buttons here, are for the
+                // pointer: the keyboard has its bindings for them.
                 MouseArea {
-                    anchors.fill: parent
+                    id: tabArea
+
+                    anchors.left: parent.left
+                    anchors.right: close.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    Accessible.role: Accessible.PageTab
+                    Accessible.name: tab.title.length > 0 ? tab.title : "Tab " + (tab.index + 1)
+                    Accessible.selected: tab.current
+                    Accessible.focusable: false
+                    Accessible.onPressAction: root.workspace.selectTab(tab.index)
                     acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                     onClicked: mouse => {
                         if (mouse.button === Qt.MiddleButton)
@@ -111,21 +125,39 @@ Item {
                     }
                 }
 
-                Text {
+                Item {
                     id: close
 
                     anchors.right: parent.right
-                    anchors.rightMargin: 8
+                    anchors.rightMargin: 3
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "×"
-                    color: root.foreground
-                    opacity: closeArea.containsMouse ? 1 : 0.4
+                    width: 24
+                    height: 24
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Close " + tabArea.Accessible.name
+                    Accessible.focusable: false
+                    Accessible.onPressAction: root.closeTab(tab.index)
+
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: 3
+                        radius: 4
+                        color: root.foreground
+                        opacity: closeArea.containsMouse ? 0.12 : 0
+                    }
+
+                    ShellIcon {
+                        anchors.centerIn: parent
+                        name: "x"
+                        size: 12
+                        color: root.foreground
+                        opacity: closeArea.containsMouse || tab.current ? 0.9 : 0.6
+                    }
 
                     MouseArea {
                         id: closeArea
 
                         anchors.fill: parent
-                        anchors.margins: -4
                         hoverEnabled: true
                         onClicked: root.closeTab(tab.index)
                     }
@@ -134,16 +166,33 @@ Item {
         }
     }
 
-    Text {
+    Item {
         id: add
 
         anchors.left: tabs.right
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
         width: 30
-        horizontalAlignment: Text.AlignHCenter
-        text: "+"
-        color: root.foreground
-        opacity: addArea.containsMouse ? 1 : 0.5
+        Accessible.role: Accessible.Button
+        Accessible.name: "New tab"
+        Accessible.focusable: false
+        Accessible.onPressAction: root.newTab()
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 3
+            radius: 4
+            color: root.foreground
+            opacity: addArea.containsMouse ? 0.1 : 0
+        }
+
+        ShellIcon {
+            anchors.centerIn: parent
+            name: "plus"
+            size: 14
+            color: root.foreground
+            opacity: addArea.containsMouse ? 0.95 : 0.7
+        }
 
         MouseArea {
             id: addArea
@@ -165,6 +214,10 @@ Item {
         anchors.bottom: parent.bottom
         width: root.menuButton ? 36 : 0
         visible: root.menuButton
+        Accessible.role: Accessible.ButtonMenu
+        Accessible.name: "Menu"
+        Accessible.focusable: false
+        Accessible.onPressAction: root.menuRequested(menu)
 
         Rectangle {
             anchors.fill: parent
@@ -174,21 +227,12 @@ Item {
             opacity: menuArea.pressed ? 0.18 : menuArea.containsMouse ? 0.1 : 0
         }
 
-        Column {
+        ShellIcon {
             anchors.centerIn: parent
-            spacing: 3
-
-            Repeater {
-                model: 3
-
-                delegate: Rectangle {
-                    width: 14
-                    height: 2
-                    radius: 1
-                    color: root.foreground
-                    opacity: menuArea.containsMouse ? 0.9 : 0.6
-                }
-            }
+            name: "menu"
+            size: 16
+            color: root.foreground
+            opacity: menuArea.containsMouse ? 0.95 : 0.7
         }
 
         MouseArea {

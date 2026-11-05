@@ -1,5 +1,5 @@
 import QtQuick
-import QtQuick.Controls
+import Hof.Bricks
 
 // What a right click in a pane offers.
 HofMenu {
@@ -13,14 +13,14 @@ HofMenu {
     HofMenuItem { owner: menu; name: "copy"; text: "Copy"; enabled: menu.canCopy }
     HofMenuItem { owner: menu; name: "paste"; text: "Paste" }
     HofMenuItem { owner: menu; name: "select-all"; text: "Select All" }
-    HofMenuSeparator { owner: menu }
+    ShellMenuSeparator {}
     HofMenuItem { owner: menu; name: "split-right"; text: "Split Right" }
     HofMenuItem { owner: menu; name: "split-down"; text: "Split Down" }
-    HofMenuItem { owner: menu; name: "new-tab"; text: "New Tab" }
-    HofMenuSeparator { owner: menu }
+    HofMenuItem { owner: menu; name: "new-tab"; text: "New Tab"; iconName: "plus" }
+    ShellMenuSeparator {}
     HofMenuItem { owner: menu; name: "search"; text: "Find…" }
     HofMenuItem { owner: menu; name: "reset"; text: "Reset Terminal" }
-    HofMenuSeparator { owner: menu }
-    HofMenuItem { owner: menu; name: "settings"; text: "Settings…" }
-    HofMenuItem { owner: menu; name: "close-pane"; text: "Close Pane" }
+    ShellMenuSeparator {}
+    HofMenuItem { owner: menu; name: "settings"; text: "Settings…"; iconName: "settings" }
+    HofMenuItem { owner: menu; name: "close-pane"; text: "Close Pane"; iconName: "x" }
 }

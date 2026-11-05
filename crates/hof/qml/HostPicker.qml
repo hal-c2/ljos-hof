@@ -1,32 +1,49 @@
 import QtQuick
+import QtQuick.Layouts
+import Hof.App
+import Hof.Bricks
 
 // Picks the machine a new tab or split runs on: this one, or a name from
 // `[hosts]`. Typing narrows the list, Up and Down move, Enter picks, and
-// Escape goes back to the pane without opening anything.
+// Escape goes back to the pane without opening anything. Each host shows
+// how it is reached, `user@address:port`, beside its name.
 Rectangle {
     id: root
 
     property var hosts: []
-    property color background
-    property color foreground
-    property color border
-    property string fontFamily
-    property real fontSize: 11
 
     // What the pick is for: "tab", "right" or "down".
     property string purpose: "tab"
     property int chosen: 0
 
+    // Each host's address, user and port, by name.
+    readonly property var details: {
+        const by = {};
+        for (const h of JSON.parse(Settings.hostDetails || "[]"))
+            by[h.name] = h;
+        return by;
+    }
+
     // This machine first, as the empty name, then the hosts that have
-    // what was typed in their name.
+    // what was typed in their name or their address.
     readonly property var shown: {
         const typed = field.text.toLowerCase();
         const all = [""].concat(root.hosts);
-        return all.filter(h => typed.length === 0 || (h.length === 0 ? "this machine" : h).toLowerCase().includes(typed));
+        return all.filter(h => typed.length === 0 || (h.length === 0 ? "this machine" : h + " " + root.reach(h)).toLowerCase().includes(typed));
     }
 
     signal picked(string host, string purpose)
     signal closed
+
+    // How a host is reached, as ssh would be told: `user@address:port`;
+    // empty when that is only its name.
+    function reach(name) {
+        const h = root.details[name];
+        if (!h)
+            return "";
+        const how = (h.user ? h.user + "@" : "") + (h.ssh || name) + (h.port ? ":" + h.port : "");
+        return how === name ? "" : how;
+    }
 
     function open(purpose) {
         root.purpose = purpose;
@@ -54,13 +71,15 @@ Rectangle {
     onShownChanged: root.chosen = Math.min(root.chosen, Math.max(0, root.shown.length - 1))
 
     visible: false
-    width: Math.min(parent.width - 32, 360)
+    width: Math.min(parent.width - 32, 400)
     height: column.implicitHeight + 16
-    radius: 6
-    color: root.background
-    border.color: root.border
+    radius: Theme.radius
+    color: Theme.palette.color("surfaceOverlay", "#18181b")
+    border.color: Theme.palette.color("border", "#27272a")
+    Accessible.role: Accessible.Dialog
+    Accessible.name: root.purpose === "tab" ? "New tab on" : "Split on"
 
-    Column {
+    ColumnLayout {
         id: column
 
         anchors.left: parent.left
@@ -70,23 +89,21 @@ Rectangle {
         spacing: 4
 
         Text {
-            width: parent.width
-            text: root.purpose === "tab" ? "New tab on" : "Split on"
-            color: root.foreground
-            opacity: 0.7
-            font.family: root.fontFamily
-            font.pointSize: root.fontSize
+            Layout.fillWidth: true
+            Layout.leftMargin: 2
+            text: root.Accessible.name
+            color: Theme.palette.color("textMuted", "#a1a1aa")
+            font.pixelSize: Math.round(12 * Theme.fontScale)
+            font.weight: Font.Medium
         }
 
-        TextInput {
+        ShellTextField {
             id: field
 
-            width: parent.width
-            color: root.foreground
-            selectionColor: root.border
-            font.family: root.fontFamily
-            font.pointSize: root.fontSize
-            clip: true
+            objectName: "hostPickerField"
+            Layout.fillWidth: true
+            placeholderText: "Host"
+            Accessible.name: "Host"
 
             Keys.onPressed: event => {
                 if (event.key === Qt.Key_Escape) {
@@ -103,15 +120,6 @@ Rectangle {
                     event.accepted = true;
                 }
             }
-
-            Text {
-                anchors.fill: parent
-                visible: field.text.length === 0
-                text: "Host"
-                color: root.foreground
-                opacity: 0.5
-                font: field.font
-            }
         }
 
         Repeater {
@@ -122,27 +130,60 @@ Rectangle {
 
                 required property string modelData
                 required property int index
+                readonly property bool here: entry.modelData.length === 0
 
-                width: column.width
-                height: name.implicitHeight + 6
-                radius: 3
-                color: entry.index === root.chosen ? root.border : "transparent"
+                objectName: "hostChoice:" + entry.modelData
+                Layout.fillWidth: true
+                implicitHeight: 32
+                radius: Math.max(0, Theme.radius - 2)
+                color: entry.index === root.chosen || area.containsMouse ? Theme.palette.color("accentSurface", "#27272a") : "transparent"
+                Accessible.role: Accessible.ListItem
+                Accessible.name: entry.here ? "This machine" : entry.modelData
+                Accessible.description: entry.here ? "" : root.reach(entry.modelData)
+                Accessible.selected: entry.index === root.chosen
+                Accessible.onPressAction: {
+                    root.chosen = entry.index;
+                    root.pick();
+                }
 
-                Text {
-                    id: name
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    spacing: 8
 
-                    anchors.left: parent.left
-                    anchors.leftMargin: 6
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: entry.modelData.length === 0 ? "this machine" : entry.modelData
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pointSize: root.fontSize
-                    font.italic: entry.modelData.length === 0
+                    ShellIcon {
+                        name: entry.here ? "monitor" : "server"
+                        size: 14
+                        color: Theme.palette.color("iconMuted", "#a1a1aa")
+                    }
+
+                    Text {
+                        text: entry.here ? "This machine" : entry.modelData
+                        color: Theme.palette.color("text", "#e4e4e7")
+                        font.pixelSize: Math.round(13 * Theme.fontScale)
+                        elide: Text.ElideRight
+                        Layout.fillWidth: entry.here
+                    }
+
+                    Text {
+                        visible: !entry.here
+                        text: entry.here ? "" : root.reach(entry.modelData)
+                        Layout.minimumWidth: 0
+                        color: Theme.palette.color("textMuted", "#a1a1aa")
+                        font.pixelSize: Math.round(12 * Theme.fontScale)
+                        horizontalAlignment: Text.AlignRight
+                        elide: Text.ElideMiddle
+                        Layout.fillWidth: true
+                    }
                 }
 
                 MouseArea {
+                    id: area
+
                     anchors.fill: parent
+                    hoverEnabled: true
+                    Accessible.ignored: true
                     onClicked: {
                         root.chosen = entry.index;
                         root.pick();
@@ -152,13 +193,14 @@ Rectangle {
         }
 
         Text {
-            width: parent.width
+            Layout.fillWidth: true
+            Layout.leftMargin: 8
+            Layout.topMargin: 4
+            Layout.bottomMargin: 4
             visible: root.shown.length === 0
             text: "No host by that name"
-            color: root.foreground
-            opacity: 0.5
-            font.family: root.fontFamily
-            font.pointSize: root.fontSize
+            color: Theme.palette.color("textMuted", "#a1a1aa")
+            font.pixelSize: Math.round(13 * Theme.fontScale)
         }
     }
 }

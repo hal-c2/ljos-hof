@@ -838,8 +838,11 @@ Window {
                     sequence: Settings.bindingSequences[binding.index]
                     // The menu bar's item has this chord, and the system
                     // gives the key to it; two of a chord would cancel out.
+                    // Nor do they reach past the settings, which are modal.
                     enabled: {
                         const action = Settings.bindingActions[binding.index];
+                        if (settingsDialog.opened)
+                            return false;
                         return !(window.menuBarShown && window.menuActions.includes(action) && Settings.bindingActions.indexOf(action) === binding.index);
                     }
                     context: Qt.WindowShortcut
@@ -856,11 +859,6 @@ Window {
             y: Math.round(parent.height / 5)
             z: 5
             hosts: Settings.hosts
-            background: window.background
-            foreground: window.foreground
-            border: Qt.rgba(window.foreground.r, window.foreground.g, window.foreground.b, 0.25)
-            fontFamily: Settings.fontFamily
-            fontSize: window.fontSize
 
             onPicked: (host, purpose) => {
                 if (purpose === "tab")
@@ -877,10 +875,6 @@ Window {
             id: windowMenu
 
             keyOf: window.menuKeyText
-            baseColor: window.background
-            textColor: window.foreground
-            fontFamily: Settings.fontFamily
-            fontSize: Math.max(8, Settings.fontSize - 1)
 
             onChose: name => window.run(name)
             onClosed: Qt.callLater(window.refocus)
@@ -888,11 +882,6 @@ Window {
 
         SettingsDialog {
             id: settingsDialog
-
-            baseColor: window.background
-            textColor: window.foreground
-            accent: Settings.palette.length > 4 ? Settings.palette[4] : "steelblue"
-            danger: Settings.palette.length > 1 ? Settings.palette[1] : "firebrick"
 
             onClosed: Qt.callLater(window.refocus)
         }
