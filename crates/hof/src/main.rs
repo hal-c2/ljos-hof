@@ -95,6 +95,12 @@ fn main() -> Result<()> {
         socket: cli.socket,
         watch_config: true,
         session: None,
+        // This same program, which is `hof agent` too; the socket a Hof
+        // elsewhere reaches it at, so it can attach these panes as well.
+        agent: std::env::current_exe().ok().map(|program| hof::AgentHere {
+            program,
+            socket: hof_agent::daemon::socket_path(),
+        }),
     });
 
     if cli.toggle || cli.tab {

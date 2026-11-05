@@ -92,6 +92,39 @@ A remote pane is a `Terminal` whose `host` names a `[hosts]` entry:
 - When Hof quits with a session to restore, remote panes detach rather
   than close, so their programs run on.
 
+### This machine's panes, under the agent here
+
+With `[session] restore` and `keep-running` on, a pane of this machine
+is a remote pane too. Its host is the agent here, reached at its socket
+(`$XDG_RUNTIME_DIR/hof-agent.sock`) with no ssh. So reattaching, the
+saved `remotePane` and detaching on quit work as they do for any host,
+and closing Hof leaves the programs running.
+
+- `hof_remote::client::Local` is the transport. When nothing answers at
+  the socket, it starts `hof agent --detach`, in a `systemd-run --user
+  --scope` of its own where systemd runs the session, else as a plain
+  child that leaves Hof's session. Either way the agent keeps Hof's
+  environment.
+- The program is started as Hof would start it itself:
+  - with Hof's variables (but `TERM` and its kin), then the pane's own;
+  - in Hof's directory when the pane names none.
+- The pane's `host` stays empty. Nothing keyed by a host's name reaches
+  the agent here, and its files are never mounted or copied: a file it
+  opens is a file here.
+- Its directory, for a shell that never says, is where its foreground
+  process works, as the system says.
+- The window that keeps a session listens for `hof ctl` at
+  `hof-session.sock`, where the next start listens too. So a program
+  that ran on still reaches the Hof that attached it.
+- Not yet:
+  - A program asking the terminal's colours (OSC 10/11) is answered by
+    the agent, which knows only the default theme. The same is true on
+    any host.
+  - The pane's `HOF_OPEN_KEY` is new at each start, so `hof open` in a
+    program that ran on is asked about like printed text.
+  - An agent left by an older Hof runs on until its panes close. A new
+    agent can't take over its programs yet.
+
 Search, selection, links, shell integration, hooks and painting are the
 same code a local pane runs.
 

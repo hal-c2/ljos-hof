@@ -316,9 +316,11 @@ pub(crate) struct Shared {
     /// What the input method is composing, shown at the cursor.
     pub preedit: RefCell<String>,
     pub blink: RefCell<Blink>,
-    /// The pane on another machine the session's program runs as, if it
-    /// runs on one.
+    /// The agent's pane the session's program runs as, if it runs under
+    /// one: on another machine, or on this one to outlive Hof.
     pub remote: RefCell<Option<Arc<Remote>>>,
+    /// The program runs on another machine: its files are there, not here.
+    pub apart: Cell<bool>,
     /// The session began by attaching to a pane that ran already, and has
     /// not reached it yet: should that pane be gone, a new one starts.
     pub attaching: Cell<bool>,
@@ -751,10 +753,18 @@ impl Terminal {
         if !said.is_empty() {
             return said;
         }
-        with_session(cx.engine, cx.this, |s| s.directory())
-            .flatten()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default()
+        let here = shared_of(cx.engine, cx.this).is_some_and(|s| !s.apart.get());
+        with_session(cx.engine, cx.this, |s| {
+            // Run by this machine's agent: where its foreground is.
+            s.directory().or_else(|| {
+                here.then(|| s.foreground())
+                    .flatten()
+                    .and_then(|p| hof_vt::directory_of(p.pid))
+            })
+        })
+        .flatten()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
     }
 
     /// The screen and scrollback as escape sequences that draw them again:
@@ -810,6 +820,7 @@ impl Terminal {
         if let Some(shared) = shared_of(cx.engine, cx.this) {
             shared.session.borrow_mut().take();
             shared.remote.borrow_mut().take();
+            shared.apart.set(false);
         }
         let _ = cx.engine.set_internal(cx.this, Terminal::RUNNING, false);
     }
@@ -903,14 +914,24 @@ fn open(engine: &Engine, me: ObjectId, spawn: Option<Spawn>) -> bool {
     });
     let host = engine.untrack(|| item::prop(engine, me, Terminal::HOST));
     let elsewhere = spawn.is_some() && !host.is_empty();
+    // Run by this machine's agent, to outlive Hof, when it runs one.
+    let here = match &spawn {
+        Some(_) if !elsewhere => remote::here(),
+        _ => None,
+    };
+    let agents = elsewhere || here.is_some();
     // The reader thread wakes the item through the inbox; one job is
     // posted per batch of news, however much the program writes.
     let post = Platform::of(engine).poster();
     let waker = move || post.send(move |e: &Engine| drain(e, me));
-    let opened = match &spawn {
-        _ if elsewhere => open_remote(engine, me, &shared, &host, options, waker),
-        Some(spawn) => Session::spawn(spawn, options, waker).map_err(|e| e.to_string()),
-        None => Session::detached(options, waker).map_err(|e| e.to_string()),
+    let opened = match (&spawn, here) {
+        _ if elsewhere => match remote::host(&host) {
+            Some(to) => open_remote(engine, me, &shared, (to, true), options, waker),
+            None => Err(format!("There is no host called \"{host}\" in [hosts].")),
+        },
+        (_, Some(to)) => open_remote(engine, me, &shared, (to, false), options, waker),
+        (Some(spawn), None) => Session::spawn(spawn, options, waker).map_err(|e| e.to_string()),
+        (None, None) => Session::detached(options, waker).map_err(|e| e.to_string()),
     };
     // Dropping the old session (if any) hangs up on its program.
     let session = match opened {
@@ -920,7 +941,8 @@ fn open(engine: &Engine, me: ObjectId, spawn: Option<Spawn>) -> bool {
             return false;
         }
     };
-    if !elsewhere {
+    shared.apart.set(elsewhere);
+    if !agents {
         shared.remote.borrow_mut().take();
         let _ = engine.set_internal(me, Terminal::CONNECTION, String::new());
         let _ = engine.set_internal(me, Terminal::CONNECTION_MESSAGE, String::new());
@@ -944,19 +966,17 @@ fn open(engine: &Engine, me: ObjectId, spawn: Option<Spawn>) -> bool {
     true
 }
 
-/// Opens a session whose program runs on `host`: the pane `remotePane` is
-/// there already, else a new one.
+/// Opens a session whose program runs under the agent `to`, on another
+/// machine (`apart`) or this one: the pane `remotePane` is there already,
+/// else a new one.
 fn open_remote(
     engine: &Engine,
     me: ObjectId,
     shared: &Shared,
-    host: &str,
+    (to, apart): (Arc<hof_remote::client::Host>, bool),
     mut options: Options,
     waker: impl Fn() + Send + Sync + 'static,
 ) -> Result<Session, String> {
-    let Some(to) = remote::host(host) else {
-        return Err(format!("There is no host called \"{host}\" in [hosts]."));
-    };
     // The agent beside the program answers it.
     options.replies = false;
     let size = options.size;
@@ -967,7 +987,7 @@ fn open_remote(
             cols: size.cols,
             rows: size.rows,
         },
-        Err(_) => Begin::Open(start_of(engine, me, size)),
+        Err(_) => Begin::Open(start_of(engine, me, size, apart)),
     };
     let mut made = None;
     let session = Session::remote(options, waker, |feed| {
@@ -984,9 +1004,12 @@ fn open_remote(
     Ok(session)
 }
 
-/// What to start on another machine: the properties as they are, the
-/// program's path and directory as that machine knows them.
-fn start_of(engine: &Engine, me: ObjectId, size: Size) -> Start {
+/// What to start under an agent: the properties as they are, the
+/// program's path and directory as its machine knows them. On another
+/// machine (`apart`), the variables are only those asked for; on this one,
+/// Hof's own as well, as a program Hof starts itself has them: the
+/// agent's are whatever its starter's were.
+fn start_of(engine: &Engine, me: ObjectId, size: Size, apart: bool) -> Start {
     engine.untrack(|| {
         let program = item::prop(engine, me, Terminal::PROGRAM);
         let mut command = Vec::new();
@@ -994,18 +1017,47 @@ fn start_of(engine: &Engine, me: ObjectId, size: Size) -> Start {
             command.push(program);
             command.extend(item::prop(engine, me, Terminal::ARGUMENTS));
         }
+        let mut directory = item::prop(engine, me, Terminal::START_DIRECTORY);
+        if directory.is_empty() && !apart {
+            // Where Hof is, as for a program it starts itself.
+            directory = std::env::current_dir()
+                .map(|d| d.to_string_lossy().into_owned())
+                .unwrap_or_default();
+        }
+        let mut environment = if apart {
+            Vec::new()
+        } else {
+            hofs_environment()
+        };
+        environment.extend(item::prop(engine, me, Terminal::ENVIRONMENT));
+        environment.extend(key_variable(engine, me));
         Start {
             command,
-            directory: item::prop(engine, me, Terminal::START_DIRECTORY),
-            environment: {
-                let mut environment: Vec<String> = item::prop(engine, me, Terminal::ENVIRONMENT);
-                environment.extend(key_variable(engine, me));
-                environment
-            },
+            directory,
+            environment,
             cols: size.cols,
             rows: size.rows,
         }
     })
+}
+
+/// Hof's variables, for a program the agent here starts, but those the
+/// terminal sets itself (`TERM` and its kin) or that describe Hof's own
+/// window.
+fn hofs_environment() -> Vec<String> {
+    const OWN: &[&str] = &[
+        "TERM",
+        "COLORTERM",
+        "TERM_PROGRAM",
+        "TERM_PROGRAM_VERSION",
+        "COLUMNS",
+        "LINES",
+    ];
+    std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .filter(|(k, _)| !k.is_empty() && !OWN.contains(&k.as_str()))
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect()
 }
 
 /// Hears how the connection to a remote pane is.
@@ -1030,7 +1082,7 @@ fn linked(engine: &Engine, me: ObjectId, link: Link) {
                 Some(remote) if shared.attaching.replace(false) => {
                     let size =
                         engine.untrack(|| size_of(engine, me, &shared.view.borrow().metrics));
-                    remote.reopen(start_of(engine, me, size));
+                    remote.reopen(start_of(engine, me, size, shared.apart.get()));
                     ("connecting", String::new())
                 }
                 _ => {
@@ -1427,10 +1479,7 @@ fn open_asked(engine: &Engine, me: ObjectId, url: String, key: Option<String>) {
     let Some(shared) = shared_of(engine, me) else {
         return;
     };
-    if names_a_file(&url)
-        && shared.remote.borrow().is_some()
-        && hof_remote::files::path_of_url(&url).is_none()
-    {
+    if names_a_file(&url) && shared.apart.get() && hof_remote::files::path_of_url(&url).is_none() {
         // A relative path on the other machine: what it is relative to,
         // this one can't tell.
         return;
@@ -1496,8 +1545,8 @@ pub(crate) fn open_link(engine: &Engine, me: ObjectId, url: &str) {
 /// mounted (see [`hof_remote::files::Mount`]), and a file, or a folder
 /// where they can't be, as a copy (see [`hof_remote::files::Mirror`]).
 fn open_wanted(engine: &Engine, me: ObjectId, url: &str) {
-    let remote = shared_of(engine, me).is_some_and(|s| s.remote.borrow().is_some());
-    if !(remote && names_a_file(url)) {
+    let apart = shared_of(engine, me).is_some_and(|s| s.apart.get());
+    if !(apart && names_a_file(url)) {
         open_url(engine, url);
         return;
     }

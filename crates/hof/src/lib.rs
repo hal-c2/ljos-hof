@@ -39,6 +39,17 @@ pub struct Launch {
     pub watch_config: bool,
     /// Where the session is saved, in place of the usual place.
     pub session: Option<PathBuf>,
+    /// The agent this machine's panes run under, for their programs to
+    /// outlive Hof (`[session] keep-running`). `None` runs them under Hof
+    /// itself, as a test's window does.
+    pub agent: Option<AgentHere>,
+}
+
+/// `hof agent` on this machine: the program, and where it listens.
+#[derive(Clone, Debug)]
+pub struct AgentHere {
+    pub program: PathBuf,
+    pub socket: PathBuf,
 }
 
 static LAUNCH: OnceLock<Launch> = OnceLock::new();

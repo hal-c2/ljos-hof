@@ -577,6 +577,17 @@ Popup {
                                 }
                             }
                             SettingRow {
+                                title: "Keep programs running when Hof closes"
+                                description: "They run on under hof agent, and the next start attaches to them."
+
+                                ShellSwitch {
+                                    objectName: "settingKeepRunning"
+                                    checked: Settings.sessionKeepRunning
+                                    Accessible.name: "Keep programs running when Hof closes"
+                                    onToggled: dialog.put("session", "keep-running", checked)
+                                }
+                            }
+                            SettingRow {
                                 title: "Tell me when an agent waits"
                                 description: "A notification when an agent out of sight needs you."
 

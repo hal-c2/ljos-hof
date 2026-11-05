@@ -1954,6 +1954,18 @@
               "notify": "sessionSaveScrollbackChanged"
             },
             {
+              "name": "sessionKeepRunning",
+              "type": "bool",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "sessionKeepRunningChanged"
+            },
+            {
               "name": "bindingActions",
               "type": "var",
               "kind": "value",

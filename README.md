@@ -81,6 +81,14 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   crash opens again as it was. A shell that never says where it is (bash
   sends no OSC 7) is found where the system says it works. Closing every
   pane forgets the session.
+- **Programs that outlive Hof.** With `restore` on, each pane's program
+  runs under `hof agent` on this machine, not under Hof itself
+  (`[session] keep-running`, on by default). Closing Hof, or starting a
+  new build of it, leaves the programs running; the next start attaches
+  to them where they were, as tmux would. Hof starts the agent the first
+  time a pane needs it, in a systemd user scope of its own where systemd
+  runs the session. It is the same agent a Hof on another machine reaches
+  over ssh, and it goes once it has no panes left.
 - **Themes.** Nine are built in, and you can add your own as
   `themes/<name>.toml`.
 

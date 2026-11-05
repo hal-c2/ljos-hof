@@ -120,6 +120,9 @@ pub struct Settings {
     /// Keep each pane's scrollback with the saved session.
     #[qml(notify, readonly)]
     pub session_save_scrollback: bool,
+    /// Panes' programs run on when Hof closes, under the agent here.
+    #[qml(notify, readonly)]
+    pub session_keep_running: bool,
 
     /// Key bindings, as two lists of the same length: the action and the
     /// key sequence, in the form `Shortcut.sequence` takes.
@@ -332,6 +335,7 @@ impl Settings {
             notify_agent_waiting: config.notify.agent_waiting,
             session_restore: config.session.restore,
             session_save_scrollback: config.session.save_scrollback,
+            session_keep_running: config.session.keep_running,
             binding_actions,
             binding_sequences,
             commands: crate::scripts::commands(&config),
@@ -398,6 +402,7 @@ impl Default for Settings {
     fn default() -> Self {
         let settings = Self::read(&config_path());
         hof_qml::remote::set_hosts(settings.transports.clone());
+        keep_here(&settings);
         hof_qml::agents::set_tables(settings.agents.clone());
         settings
     }
@@ -463,6 +468,7 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
         notify_agent_waiting => NOTIFY_AGENT_WAITING,
         session_restore => SESSION_RESTORE,
         session_save_scrollback => SESSION_SAVE_SCROLLBACK,
+        session_keep_running => SESSION_KEEP_RUNNING,
         binding_actions => BINDING_ACTIONS,
         binding_sequences => BINDING_SEQUENCES,
         commands => COMMANDS,
@@ -474,10 +480,29 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
     );
 }
 
+/// Whether this machine's panes opened from now on run under the agent
+/// here, to outlive Hof: with the session restored, and not for a
+/// dropdown, which keeps none.
+fn keep_here(settings: &Settings) {
+    let launch = crate::launch();
+    let keep = settings.session_restore && settings.session_keep_running && !launch.dropdown;
+    let here = launch.agent.clone().filter(|_| keep).map(|agent| {
+        let socket = agent.socket.clone();
+        hof_qml::remote::Here {
+            socket,
+            start: std::sync::Arc::new(move || {
+                hof_agent::daemon::start_apart(&agent.program, &agent.socket)
+            }),
+        }
+    });
+    hof_qml::remote::keep_here(here);
+}
+
 fn reload_now(cx: &Cx) {
     let path = PathBuf::from(cx.get(Settings::PATH).unwrap_or_default());
     let new = Settings::read(&path);
     hof_qml::remote::set_hosts(new.transports.clone());
+    keep_here(&new);
     hof_qml::agents::set_tables(new.agents.clone());
     apply(cx.engine, cx.this, new);
     let _ = Settings::emit_reloaded(cx);

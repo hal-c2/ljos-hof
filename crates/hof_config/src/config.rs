@@ -327,6 +327,10 @@ pub struct Session {
     pub restore: bool,
     /// Keep each pane's scrollback with the saved session.
     pub save_scrollback: bool,
+    /// With `restore`: this machine's panes run under Hof's agent here,
+    /// not Hof itself, so their programs run on when Hof closes (a new
+    /// version started, say), and the next start attaches to them again.
+    pub keep_running: bool,
 }
 
 impl Default for Session {
@@ -334,6 +338,7 @@ impl Default for Session {
         Self {
             restore: false,
             save_scrollback: true,
+            keep_running: true,
         }
     }
 }

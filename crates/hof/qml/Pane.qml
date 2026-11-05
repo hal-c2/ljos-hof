@@ -430,6 +430,9 @@ Item {
             width: parent.width - 24
             text: {
                 const why = terminal.connectionMessage;
+                // Run by the agent here, to outlive Hof.
+                if (!root.remote)
+                    return (terminal.connection === "down" ? "Reaching the agent again" : "Reaching the agent") + (why.length > 0 ? ": " + why : "…");
                 if (terminal.connection === "down")
                     return "Reconnecting to " + root.host + (why.length > 0 ? ": " + why : "…");
                 return "Connecting to " + root.host + "…";

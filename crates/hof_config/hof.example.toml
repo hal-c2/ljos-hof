@@ -193,6 +193,8 @@ animation-ms = 150            # length of the slide in milliseconds; 0 for none
 restore = false               # reopen the last session's windows, tabs and panes;
                               # kept as Hof runs, so a crash loses little
 save-scrollback = true        # keep each pane's scrollback with the saved session
+keep-running = true           # with restore: panes' programs run on when Hof
+                              # closes, under `hof agent`, and are attached again
 
 # Desktop notifications, by `notify-send`.
 [notify]

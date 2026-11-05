@@ -100,6 +100,58 @@ static HOSTS: Mutex<BTreeMap<String, Known>> = Mutex::new(BTreeMap::new());
 /// machine, to attach to again, rather than ending it.
 static KEEP: AtomicBool = AtomicBool::new(false);
 
+/// How to reach the agent that runs this machine's own panes, for them
+/// to outlive Hof: its socket, and how to start it when none answers.
+#[derive(Clone)]
+pub struct Here {
+    pub socket: std::path::PathBuf,
+    pub start: Arc<dyn Fn() -> std::io::Result<()> + Send + Sync>,
+}
+
+impl std::fmt::Debug for Here {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Here")
+            .field("socket", &self.socket)
+            .finish()
+    }
+}
+
+/// The agent for this machine's panes, if they are to outlive Hof, and
+/// the connection to it once a pane wanted one. Apart from [`HOSTS`]:
+/// nothing that takes a host's name (copies, mounts) can reach it.
+static HERE: Mutex<Option<(Here, Option<Arc<Host>>)>> = Mutex::new(None);
+
+/// Runs this machine's panes opened from now on under the agent `here`
+/// says, so that their programs outlive Hof, to be attached again at the
+/// next start; `None` runs them under Hof itself. A pane already open
+/// stays where it is.
+pub fn keep_here(here: Option<Here>) {
+    let mut kept = HERE.lock().unwrap_or_else(PoisonError::into_inner);
+    *kept = match (kept.take(), here) {
+        (Some((was, host)), Some(here)) if was.socket == here.socket => Some((here, host)),
+        (_, here) => here.map(|here| (here, None)),
+    };
+}
+
+/// The agent for this machine's panes, connecting the first time; `None`
+/// when they run under Hof itself.
+pub(crate) fn here() -> Option<Arc<Host>> {
+    let mut kept = HERE.lock().unwrap_or_else(PoisonError::into_inner);
+    let (here, host) = kept.as_mut()?;
+    let host = host.get_or_insert_with(|| {
+        let start = here.start.clone();
+        Arc::new(Host::new(
+            client::Local {
+                socket: here.socket.clone(),
+                start: Box::new(move || start()),
+            },
+            // Nothing to pass on: the programs are here already.
+            client::Options::default(),
+        ))
+    });
+    Some(host.clone())
+}
+
 /// The hosts of the config: each name, and how it is reached. A host
 /// reached the same way as before keeps its connection; panes already on
 /// a host that changed or went keep theirs until they close.
@@ -252,7 +304,10 @@ pub fn finish(within: std::time::Duration) {
     let keep = KEEP.load(Ordering::Acquire);
     let hosts: Vec<Arc<Host>> = {
         let known = HOSTS.lock().unwrap_or_else(PoisonError::into_inner);
-        known.values().filter_map(|k| k.host.clone()).collect()
+        let mut hosts: Vec<_> = known.values().filter_map(|k| k.host.clone()).collect();
+        let here = HERE.lock().unwrap_or_else(PoisonError::into_inner);
+        hosts.extend(here.as_ref().and_then(|(_, host)| host.clone()));
+        hosts
     };
     let waits: Vec<_> = hosts
         .into_iter()
