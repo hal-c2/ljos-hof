@@ -261,7 +261,7 @@ disabled = []                 # plugins, by name, to leave unloaded
 #                             # else the X server $DISPLAY names
 # sound = false               # let programs there play sound here: through
 #                             # the PulseAudio or PipeWire running here, else,
-#                             # on a Mac, a PulseAudio Hof starts
+#                             # on a Mac, Hof itself, nothing to install
 # files = false               # show that machine's files here
 # clipboard = "ask"           # programs there reading your clipboard:
 #                             # "ask", "allow" or "deny"

@@ -16,6 +16,14 @@ rustix = { workspace = true, features = ["net"] }
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 libc = "0.2"
 
+# The speakers Hof's own sound server plays through, on a Mac.
+[target.'cfg(target_os = "macos")'.dependencies]
+cpal = { version = "0.18", optional = true }
+
+[features]
+# Hof's own sound server, for a machine with none: on a Mac.
+speakers = ["dep:cpal"]
+
 [dev-dependencies]
 tempfile.workspace = true
 

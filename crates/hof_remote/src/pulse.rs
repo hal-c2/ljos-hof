@@ -104,31 +104,23 @@ impl Forward {
     }
 
     /// The server `$PULSE_SERVER` names, if it is a socket here, else
-    /// `$XDG_RUNTIME_DIR/pulse/native`, else, where there is no
-    /// `$XDG_RUNTIME_DIR`, as on a Mac, one PulseAudio keeps under
-    /// `~/.config/pulse`; its cookie from `$PULSE_COOKIE`, or where
-    /// PulseAudio keeps it.
+    /// `$XDG_RUNTIME_DIR/pulse/native`; its cookie from `$PULSE_COOKIE`, or
+    /// where PulseAudio keeps it.
     pub fn from_env() -> Option<Self> {
         let var = |name| std::env::var_os(name).filter(|v| !v.is_empty());
-        let home = var("HOME").map(PathBuf::from);
-        let config = var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| home.as_ref().map(|h| h.join(".config")));
         let named = var("PULSE_SERVER").and_then(|servers| {
             servers.to_str()?.split_whitespace().find_map(|s| {
                 let path = s.strip_prefix("unix:").unwrap_or(s);
                 path.starts_with('/').then(|| PathBuf::from(path))
             })
         });
-        let server = named
-            .or_else(|| {
-                var("XDG_RUNTIME_DIR").map(|dir| Path::new(&dir).join("pulse").join("native"))
-            })
-            .or_else(|| {
-                config
-                    .as_deref()
-                    .and_then(|c| kept_runtime(&c.join("pulse")))
-            })?;
+        let server = named.or_else(|| {
+            var("XDG_RUNTIME_DIR").map(|dir| Path::new(&dir).join("pulse").join("native"))
+        })?;
+        let home = var("HOME").map(PathBuf::from);
+        let config = var("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| home.as_ref().map(|h| h.join(".config")));
         let cookies = [
             var("PULSE_COOKIE").map(PathBuf::from),
             config.map(|c| c.join("pulse").join("cookie")),
@@ -149,18 +141,6 @@ impl Forward {
             .find_map(|p| std::fs::read(p).ok())
             .filter(|c| c.len() == COOKIE_LEN)
     }
-}
-
-/// The socket of a server running here that PulseAudio keeps in
-/// `pulse`, the user's configuration, as `<machine>-runtime/native`, where
-/// it has no `$XDG_RUNTIME_DIR` to keep it in.
-fn kept_runtime(pulse: &Path) -> Option<PathBuf> {
-    std::fs::read_dir(pulse)
-        .ok()?
-        .flatten()
-        .filter(|e| e.file_name().to_string_lossy().ends_with("-runtime"))
-        .map(|e| e.path().join("native"))
-        .find(|socket| UnixStream::connect(socket).is_ok())
 }
 
 impl Service for Forward {
@@ -217,18 +197,6 @@ mod tests {
         let mut kept = auth_packet(35 | SHARES_MEMORY, &[1; COOKIE_LEN]);
         rewrite_auth(&mut kept, None);
         assert_eq!(kept, auth_packet(35, &[1; COOKIE_LEN]), "no cookie here");
-    }
-
-    #[test]
-    fn a_server_kept_in_the_users_configuration_is_found_while_it_listens() {
-        let dir = tempfile::tempdir().unwrap();
-        let pulse = dir.path().join("pulse");
-        std::fs::create_dir_all(pulse.join("abc-runtime")).unwrap();
-        std::fs::create_dir_all(pulse.join("gone-runtime")).unwrap();
-        assert_eq!(kept_runtime(&pulse), None);
-        let socket = pulse.join("abc-runtime").join("native");
-        let _listening = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        assert_eq!(kept_runtime(&pulse), Some(socket));
     }
 
     #[test]
