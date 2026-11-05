@@ -90,9 +90,11 @@ fn clipboard(selection: bool) -> hof_vt::Clipboard {
 fn agent(stdio: bool, socket: Option<PathBuf>, detach: bool) -> Result<()> {
     let path = socket.unwrap_or_else(crate::daemon::socket_path);
     if stdio {
-        // The agent it starts is this same program, whichever it is.
+        // The agent it starts is this same program, whichever it is, apart
+        // from the ssh login that starts it as the desktop's is apart from
+        // the app: that login's end ends nothing of it.
         let program = std::env::current_exe().context("where this program is")?;
-        return crate::daemon::bridge_stdio(&path, || crate::daemon::start(&program, &path))
+        return crate::daemon::bridge_stdio(&path, || crate::daemon::start_apart(&program, &path))
             .with_context(|| format!("the agent at {}", path.display()));
     }
     if detach {

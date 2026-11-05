@@ -353,6 +353,14 @@ impl Agent {
             Message::Close { pane: id } => {
                 // Dropped outside the lock: that hangs up on the program.
                 let gone = lock(&self.inner.panes).remove(&id);
+                if let Some(pane) = &gone {
+                    // In the agent's log: a program ended on purpose,
+                    // and by whom.
+                    eprintln!(
+                        "hof agent: pane {id} ({}) closed by connection {me}",
+                        pane.command.join(" ")
+                    );
+                }
                 drop(gone);
             }
             Message::List => send(Message::Panes {

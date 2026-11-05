@@ -169,6 +169,10 @@ pub fn serve(agent: &Agent, path: &Path, linger: Duration) -> io::Result<()> {
             // than reaching this one as it goes.
             let _ = std::fs::remove_file(path);
             agent.remove_files();
+            eprintln!(
+                "hof agent: no panes nor connections for {}s: ended",
+                linger.as_secs()
+            );
             return Ok(());
         }
     }
@@ -220,7 +224,7 @@ pub fn start(program: &Path, path: &Path) -> io::Result<()> {
         .arg(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(log(path))
         .spawn()?;
     // Reaped if it goes first, so it is no zombie of a bridge that stays.
     thread::Builder::new()
@@ -229,6 +233,30 @@ pub fn start(program: &Path, path: &Path) -> io::Result<()> {
             let _ = child.wait();
         })?;
     Ok(())
+}
+
+/// The most an agent's log grows to before the next agent there starts it
+/// afresh.
+const LOG_MOST: u64 = 1 << 20;
+
+/// Where an agent started to listen at `path` says what went wrong, as it
+/// has no terminal to: `hof-agent.log` beside `hof-agent.sock`, for its
+/// user only. Nowhere when that can't be written.
+pub fn log_path(path: &Path) -> PathBuf {
+    path.with_extension("log")
+}
+
+fn log(path: &Path) -> Stdio {
+    use std::os::unix::fs::OpenOptionsExt;
+    let at = log_path(path);
+    let mut open = std::fs::OpenOptions::new();
+    open.create(true).mode(0o600);
+    if std::fs::metadata(&at).is_ok_and(|m| m.len() > LOG_MOST) {
+        open.write(true).truncate(true);
+    } else {
+        open.append(true);
+    }
+    open.open(&at).map_or_else(|_| Stdio::null(), Stdio::from)
 }
 
 /// [`start`], for the agent that runs this machine's own panes, which is
@@ -259,7 +287,7 @@ fn start_scoped(program: &Path, path: &Path) -> Option<io::Result<()>> {
         .arg(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(log(path))
         .spawn()
         .ok()?;
     let deadline = Instant::now() + START_WAIT;

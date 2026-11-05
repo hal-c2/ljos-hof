@@ -104,4 +104,10 @@ fn a_pane_runs_under_the_agent_hof_starts_and_outlives_its_window() {
         assert!(Instant::now() < deadline, "the agent stayed");
         std::thread::sleep(Duration::from_millis(100));
     }
+
+    // It said why its program ended, and why it did, where it is looked for
+    // when a session comes back without them.
+    let log = std::fs::read_to_string(hof_agent::daemon::log_path(&socket)).unwrap();
+    assert!(log.contains("closed by connection"), "{log:?}");
+    assert!(log.contains("no panes nor connections"), "{log:?}");
 }
