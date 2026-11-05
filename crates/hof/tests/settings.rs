@@ -203,10 +203,18 @@ fn a_change_in_the_settings_is_written_into_the_file_and_followed() {
         hof.engine.read_by_name(kept_on, "currentIndex").to_number(),
         1.0
     );
+    // The name field is the host's own once the host names one.
     let name = hof.find("settingSessionName");
-    let name = hof.engine.read_by_name(name, "text").to_js_string();
-    assert_eq!(name.as_str(), "work");
+    let shown = |hof: &Hof, obj| {
+        let text = hof.engine.read_by_name(obj, "text").to_js_string();
+        text.as_str().to_owned()
+    };
+    assert_eq!(shown(&hof, name), "");
+    assert_eq!(hof.put("hosts.dev", "session", Value::from("build")), "");
+    assert_eq!(shown(&hof, name), "build");
+    assert_eq!(shown(&hof, hof.find("settingHostSession_dev")), "build");
     assert_eq!(hof.put("session", "host", Value::Null), "");
+    assert_eq!(shown(&hof, name), "work", "this machine's");
     assert_eq!(
         hof.engine.read_by_name(kept_on, "currentIndex").to_number(),
         0.0

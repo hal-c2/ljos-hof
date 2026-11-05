@@ -257,9 +257,7 @@ fn session(
     let config = config_of(cli).ok().map(|c| c.config);
     let first = config
         .as_ref()
-        .and_then(|c| c.session.name.clone())
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| hof_session::DEFAULT.to_owned());
+        .map_or_else(|| hof_session::DEFAULT.to_owned(), first_session);
     if let Some((host, config)) = config.as_ref().and_then(|c| Some((configured_host(c)?, c))) {
         match hof::away::open_free(&host, &first, config) {
             Ok(name) => return Ok((None, Some(name), Some(true))),
@@ -317,6 +315,18 @@ fn configured_host(config: &hof_config::Config) -> Option<String> {
         .filter(|h| !h.is_empty() && !hof::away::is_this_machine(h))
 }
 
+/// The session a plain `hof` keeps: `[hosts.HOST] session` of `[session]
+/// host`, else `[session] name`, else `default`. The host's own name is
+/// taken on that machine too, by a config both share.
+fn first_session(config: &hof_config::Config) -> String {
+    let session = &config.session;
+    let host = session.host.as_ref().and_then(|h| config.hosts.get(h));
+    host.and_then(|h| h.session.clone())
+        .filter(|n| !n.is_empty())
+        .or_else(|| session.name.clone().filter(|n| !n.is_empty()))
+        .unwrap_or_else(|| hof_session::DEFAULT.to_owned())
+}
+
 /// The config, as the command line says where it is.
 fn config_of(cli: &Cli) -> Result<hof_config::Loaded> {
     let path = cli.config.clone().unwrap_or_else(hof_config::path);
@@ -366,6 +376,23 @@ fn mcp_socket(config: Option<PathBuf>) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn each_host_may_name_the_session_kept_there() {
+        let config = |text: &str| {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("hof.toml");
+            std::fs::write(&path, text).unwrap();
+            hof_config::load(&path).unwrap().config
+        };
+        let hosts = "[hosts.desktop]\nsession = \"work\"\n[hosts.box]\n";
+        let of = |session: &str| super::first_session(&config(&format!("{session}\n{hosts}")));
+        assert_eq!(of(""), "default");
+        assert_eq!(of("[session]\nname = \"mine\""), "mine");
+        assert_eq!(of("[session]\nhost = \"desktop\"\nname = \"mine\""), "work");
+        assert_eq!(of("[session]\nhost = \"box\"\nname = \"mine\""), "mine");
+        assert_eq!(of("[session]\nhost = \"box\""), "default");
+    }
+
     use std::time::{Duration, SystemTime};
 
     use hof::held::Listed;

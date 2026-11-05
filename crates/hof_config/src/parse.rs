@@ -136,6 +136,7 @@ const CONFIG_KEYS: &[(&str, Node)] = &[
             ("sound", Value),
             ("files", Value),
             ("clipboard", Value),
+            ("session", Value),
         ]),
     ),
     ("agents", Each(AGENT_KEYS)),

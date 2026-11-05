@@ -387,6 +387,7 @@ impl Settings {
                             "files": h.files,
                             "clipboard": permission(h.clipboard),
                             "command": !h.command.is_empty(),
+                            "session": h.session.clone().unwrap_or_default(),
                         })
                     })
                     .collect(),

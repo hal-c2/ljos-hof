@@ -236,6 +236,7 @@ fn every_key_is_read_into_its_field() {
         sound = true
         files = true
         clipboard = "deny"
+        session = "build"
     "##);
     assert_eq!(loaded.warnings, vec![]);
     let c = loaded.config;
@@ -312,6 +313,7 @@ fn every_key_is_read_into_its_field() {
     assert_eq!(dev.hof, "~/bin/hof");
     assert!(dev.x11 && dev.sound && dev.files);
     assert_eq!(dev.clipboard, Permission::Deny);
+    assert_eq!(dev.session.as_deref(), Some("build"));
 }
 
 #[test]

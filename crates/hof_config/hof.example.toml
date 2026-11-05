@@ -198,7 +198,8 @@ keep-running = true           # with restore: panes' programs run on when Hof
 # host = "desktop"            # a plain `hof` keeps its session on this [hosts]
                               # host: opened as left there, its programs run on
                               # there (`hof attach --host` for one window)
-# name = "work"               # the session a plain `hof` keeps, not `default`
+# name = "work"               # the session a plain `hof` keeps, not `default`;
+                              # a host may name its own: [hosts.NAME] session
 
 # Desktop notifications, by `notify-send`.
 [notify]
@@ -279,6 +280,8 @@ disabled = []                 # plugins, by name, to leave unloaded
 #                             # `hof open DIR` there wants it
 # clipboard = "ask"           # programs there reading your clipboard:
 #                             # "ask", "allow" or "deny"
+# session = "work"            # the session a plain `hof` keeps there, with
+#                             # [session] host = this host; else [session] name
 
 # AI agents in panes. Hof tells one runs by the program in the foreground,
 # and how it is by the text on the bottom rows of its screen: "waiting"

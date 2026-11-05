@@ -335,9 +335,10 @@ pub struct Session {
     /// this machine: it opens as it was left there, its programs run on
     /// there, and it is kept there as it changes.
     pub host: Option<String>,
-    /// The session a plain `hof` keeps, in place of `default`. A second
-    /// window, while one has it open, keeps the first of `default`, `2`,
-    /// `3` and on that none has.
+    /// The session a plain `hof` keeps, in place of `default`: on this
+    /// machine, and on a `host` that names none of its own (`[hosts.NAME]
+    /// session`). A second window, while one has it open, keeps the first
+    /// of `default`, `2`, `3` and on that none has.
     pub name: Option<String>,
 }
 
@@ -421,6 +422,9 @@ pub struct Host {
     /// Whether programs there may read this machine's clipboard. Writing
     /// to it is as `terminal.clipboard-write` says.
     pub clipboard: Permission,
+    /// The session a plain `hof` keeps there (`[session] host`), in place
+    /// of `[session] name`: a name of its own on each machine.
+    pub session: Option<String>,
 }
 
 impl Default for Host {
@@ -437,6 +441,7 @@ impl Default for Host {
             sound: false,
             files: false,
             clipboard: Permission::Ask,
+            session: None,
         }
     }
 }

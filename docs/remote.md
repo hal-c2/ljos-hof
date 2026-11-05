@@ -152,15 +152,21 @@ To keep them there always, set it in the config or in Settings
 ```toml
 [session]
 host = "desktop"   # a plain `hof` opens its session on desktop
-name = "work"      # and that one, not `default`
+name = "mine"      # this machine's, not `default`
+
+[hosts.desktop]
+session = "work"   # desktop's: each host may name its own
 ```
 
 A plain `hof` then opens `work` on `desktop` as `hof attach --host
-desktop work` would. A second window, while one has it open, keeps the
+desktop work` would. A host that names no session of its own takes
+`[session] name`. Settings has the name beside the host it is kept on,
+and on each host's page. A second window, while one has it open, keeps the
 first of `default`, `2`, `3` there that none has. `hof attach`, `hof
 sessions` and `hof forget` take that host too; `--here` is for this
 machine's. A config shared by both machines can name either: on
-`desktop` itself (its short host name) the sessions are its own. When the
+`desktop` itself (its short host name) the sessions are its own, and
+the session is the one `[hosts.desktop]` names. When the
 host can't be reached in 30 seconds, the window opens with a session of
 this machine's, and says why on its standard error.
 

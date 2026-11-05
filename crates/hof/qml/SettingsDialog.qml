@@ -35,6 +35,9 @@ Popup {
         }
     ]
     readonly property var hosts: JSON.parse(Settings.hostDetails)
+    // The host the session is kept on, as `hosts` has it; null for this
+    // machine.
+    readonly property var sessionHost: hosts.find(h => h.name === Settings.sessionHost) ?? null
 
     // Writes `[section] key = value`; null takes the key out.
     function put(section, key, value) {
@@ -603,16 +606,25 @@ Popup {
                             }
                             SettingRow {
                                 title: "Its name"
-                                description: "The session a plain hof opens. From the next start."
+                                description: dialog.sessionHost ? "The session a plain hof opens on " + dialog.sessionHost.name + ". From the next start." : "The session a plain hof opens. From the next start."
 
                                 ShellTextField {
+                                    // The chosen host's own name for it, or
+                                    // this machine's, which is that host's too
+                                    // when it names none.
+                                    readonly property string current: dialog.sessionHost ? dialog.sessionHost.session : Settings.sessionName
+
                                     objectName: "settingSessionName"
                                     Layout.preferredWidth: 220
-                                    text: Settings.sessionName
-                                    placeholderText: "default"
+                                    text: current
+                                    placeholderText: dialog.sessionHost && Settings.sessionName.length > 0 ? Settings.sessionName : "default"
                                     Accessible.name: "Session name"
-                                    onEditingFinished: if (text !== Settings.sessionName)
-                                        dialog.putText("session", "name", text)
+                                    onEditingFinished: if (text !== current) {
+                                        if (dialog.sessionHost)
+                                            dialog.putText("hosts." + dialog.sessionHost.name, "session", text);
+                                        else
+                                            dialog.putText("session", "name", text);
+                                    }
                                 }
                             }
                             SettingRow {
@@ -736,6 +748,20 @@ Popup {
                                             }
                                             dialog.put(host.section, "port", port > 0 ? port : null);
                                         }
+                                    }
+                                }
+                                SettingRow {
+                                    title: "Session"
+                                    description: "What a plain hof opens there, when the session is kept there; empty is this machine's name for it."
+
+                                    ShellTextField {
+                                        objectName: "settingHostSession_" + host.modelData.name
+                                        Layout.preferredWidth: 220
+                                        text: host.modelData.session
+                                        placeholderText: Settings.sessionName.length > 0 ? Settings.sessionName : "default"
+                                        Accessible.name: "Session on " + host.modelData.name
+                                        onEditingFinished: if (text !== host.modelData.session)
+                                            dialog.putText(host.section, "session", text)
                                     }
                                 }
                                 SettingRow {
