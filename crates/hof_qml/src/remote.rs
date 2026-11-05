@@ -297,6 +297,66 @@ pub fn keep_programs(keep: bool) {
     KEEP.store(keep, Ordering::Release);
 }
 
+/// Ends the programs of panes no window shows, as `hof forget` does for a
+/// session: `(host, pane)` each, the host a `[hosts]` name, or "" for the
+/// agent here. Each is attached first, so the close is sent only to an
+/// agent that has it, and no window is the worse for one it can't reach.
+/// Waits for the agents up to `within`, all together; returns how many
+/// programs were ended. The connections are hung up after, as [`finish`]
+/// does.
+pub fn end_unseen(panes: &[(String, u32)], within: std::time::Duration) -> usize {
+    let deadline = std::time::Instant::now() + within;
+    let attached: Vec<_> = panes
+        .iter()
+        .filter_map(|(name, pane)| {
+            let host = if name.is_empty() { here() } else { host(name) }?;
+            let (told, answer) = std::sync::mpsc::channel();
+            let pane = host.attach(*pane, 80, 24, Arc::new(Unseen(Mutex::new(told))));
+            Some((pane, answer))
+        })
+        .collect();
+    let mut ended = 0;
+    for (pane, answer) in attached {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if answer.recv_timeout(left) == Ok(true) {
+            pane.close();
+            ended += 1;
+        } else {
+            pane.detach();
+        }
+    }
+    finish(within);
+    ended
+}
+
+/// A pane attached only to be ended: says whether its agent has it.
+struct Unseen(Mutex<std::sync::mpsc::Sender<bool>>);
+
+impl Unseen {
+    fn tell(&self, has: bool) {
+        let _ = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .send(has);
+    }
+}
+
+impl Screen for Unseen {
+    fn output(&self, _: &[u8]) {}
+    fn replace(&self, _: &[u8]) {}
+    fn exited(&self, _: Option<i32>) {
+        self.tell(false);
+    }
+    fn state(&self, state: State) {
+        match state {
+            State::Connecting => {}
+            State::Up { .. } => self.tell(true),
+            State::Down(_) | State::Gone(_) => self.tell(false),
+        }
+    }
+}
+
 /// Hof is going: every remote pane's program is ended, or left running
 /// when [`keep_programs`] says so, and the connections hung up. Waits for
 /// that up to `within`, for all the hosts together.

@@ -96,6 +96,46 @@ pub fn list() -> Vec<Listed> {
         .collect()
 }
 
+/// How long `hof forget` waits for the agents to hear it.
+const FORGET_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `hof forget NAME`: ends the programs the session `name` kept running,
+/// on this machine (the agent at `agent`, not started for it) and on the
+/// config's hosts (`config`), then forgets the session. Not one a Hof has
+/// open: that one's panes are closed there. Returns how many programs it
+/// ended.
+pub fn forget(name: &str, config: &Path, agent: &Path) -> anyhow::Result<usize> {
+    use anyhow::Context as _;
+    let _held = hold(name)?.with_context(|| {
+        format!("another Hof has the session {name} open: close its panes there")
+    })?;
+    let file = hof_session::named(name);
+    let session =
+        hof_session::load(&file)?.with_context(|| format!("no session {name} is saved"))?;
+    let panes: Vec<(String, u32)> = session
+        .windows
+        .iter()
+        .flat_map(|w| &w.tabs)
+        .flat_map(|t| t.panes())
+        .filter_map(|p| Some((p.host.clone().unwrap_or_default(), p.remote?)))
+        .collect();
+    let ended = if panes.is_empty() {
+        0
+    } else {
+        if let Ok(loaded) = hof_config::load(config) {
+            hof_qml::remote::set_hosts(crate::settings::transports(&loaded.config));
+        }
+        // An agent that is not running has nothing of the session's.
+        hof_qml::remote::keep_here(Some(hof_qml::remote::Here {
+            socket: agent.to_owned(),
+            start: std::sync::Arc::new(|| Err(io::ErrorKind::NotFound.into())),
+        }));
+        hof_qml::remote::end_unseen(&panes, FORGET_WAIT)
+    };
+    hof_session::forget(name)?;
+    Ok(ended)
+}
+
 /// When `file` was saved, or the epoch if that can't be told.
 pub fn saved_at(file: &Path) -> SystemTime {
     file.metadata()

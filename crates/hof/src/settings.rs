@@ -176,6 +176,27 @@ pub(crate) fn config_path() -> PathBuf {
         .unwrap_or_else(hof_config::path)
 }
 
+/// How to reach each of the config's `[hosts]`, by name.
+pub(crate) fn transports(config: &hof_config::Config) -> Vec<(String, hof_qml::remote::Reach)> {
+    config
+        .hosts
+        .iter()
+        .map(|(name, host)| {
+            let reach = hof_qml::remote::Reach {
+                transport: host.transport(name),
+                bootstrap: host.bootstraps().then(|| hof_remote::bootstrap::Ssh {
+                    argv: host.ssh_argv(name),
+                    hof: host.hof.clone(),
+                }),
+                x11: host.x11,
+                sound: host.sound,
+                files: host.files,
+            };
+            (name.clone(), reach)
+        })
+        .collect()
+}
+
 fn color(c: Rgba) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a)
 }
@@ -367,23 +388,7 @@ impl Settings {
                 .map(|h| permission(h.clipboard))
                 .collect(),
             problems,
-            transports: config
-                .hosts
-                .iter()
-                .map(|(name, host)| {
-                    let reach = hof_qml::remote::Reach {
-                        transport: host.transport(name),
-                        bootstrap: host.bootstraps().then(|| hof_remote::bootstrap::Ssh {
-                            argv: host.ssh_argv(name),
-                            hof: host.hof.clone(),
-                        }),
-                        x11: host.x11,
-                        sound: host.sound,
-                        files: host.files,
-                    };
-                    (name.clone(), reach)
-                })
-                .collect(),
+            transports: transports(&config),
             agents: config
                 .agents()
                 .into_iter()

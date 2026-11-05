@@ -70,6 +70,9 @@ enum Action {
     /// List the saved sessions: whether a Hof has each open, and what it
     /// holds.
     Sessions,
+    /// End the programs a session kept running, here and on its hosts, and
+    /// forget it. Not one a Hof has open: close its panes there.
+    Forget { name: String },
     #[command(flatten)]
     Here(hof_agent::cli::Here),
 }
@@ -96,6 +99,14 @@ fn main() -> Result<()> {
                 "{}",
                 listing(&hof::held::list(), std::time::SystemTime::now())
             );
+            return Ok(());
+        }
+        Some(Action::Forget { name }) => {
+            let config = cli.config.unwrap_or_else(hof_config::path);
+            let ended = hof::held::forget(&name, &config, &hof_agent::daemon::socket_path())?;
+            if ended > 0 {
+                println!("ended {ended} program{}", if ended == 1 { "" } else { "s" });
+            }
             return Ok(());
         }
         Some(Action::Attach { name }) => Some(name),

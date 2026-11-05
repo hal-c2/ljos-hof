@@ -133,9 +133,11 @@ and closing Hof leaves the programs running.
     program that ran on is asked about like printed text.
   - An agent left by an older Hof runs on until its panes close. A new
     agent can't take over its programs yet.
-  - A session that is never opened again keeps its programs running.
-    There is no `hof forget NAME` to end them yet: attach and close its
-    panes.
+- `hof forget NAME` ends what a session kept running and forgets it. It
+  attaches to each of its panes, here and on its hosts, and closes the
+  ones an agent still has. It never starts the agent here, which would
+  have nothing of the session's, and it won't touch a session a Hof has
+  open.
 
 Search, selection, links, shell integration, hooks and painting are the
 same code a local pane runs.

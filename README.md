@@ -91,7 +91,8 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   over ssh, and it goes once it has no panes left.
 - **Sessions by name.** `hof attach work` opens the session `work` as it
   was left, or starts it. `hof attach` alone opens the one saved last
-  that no Hof has open, and `hof sessions` lists them. Only one Hof at a
+  that no Hof has open, and `hof sessions` lists them. `hof forget work`
+  ends the programs it kept running and forgets it. Only one Hof at a
   time has a session open: a second plain `hof` keeps a session of its
   own (`2`, then `3`), not the first one's. A window started for a
   command (`hof -e htop`) keeps none.
