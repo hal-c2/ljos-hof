@@ -133,6 +133,24 @@ pub const LINGER: Duration = Duration::from_secs(10);
 /// Fails if another agent already listens there.
 pub fn serve(agent: &Agent, path: &Path, linger: Duration) -> io::Result<()> {
     let listener = bind(path)?;
+    serve_on(agent, listener, path, linger)
+}
+
+/// [`serve`], at a listener that is already bound to `path`: one handed
+/// over by the agent's older program ([`Agent::resume`]).
+///
+/// The program the agent runs as is looked at as each client connects:
+/// installed anew since, the agent becomes the new one first
+/// ([`Agent::upgrade`]), keeping its panes, and the client connects again.
+pub fn serve_on(
+    agent: &Agent,
+    listener: UnixListener,
+    path: &Path,
+    linger: Duration,
+) -> io::Result<()> {
+    let program = std::env::current_exe()?;
+    agent.serving(&listener, path, program.clone())?;
+    let mut known = installed(&program);
     let serving = agent.clone();
     // Not joined: it waits in `accept` until the process ends.
     thread::Builder::new()
@@ -142,6 +160,16 @@ pub fn serve(agent: &Agent, path: &Path, linger: Duration) -> io::Result<()> {
                 let Ok(stream) = stream else { continue };
                 if same_user(&stream).is_err() {
                     continue;
+                }
+                let now = installed(&program);
+                if now.is_some() && now != known {
+                    // Tried once for each install: one it can't become is
+                    // still not that one at the next connection.
+                    known = now;
+                    eprintln!("hof agent: {} was installed anew", program.display());
+                    // Returns only when it stays as it is.
+                    let error = serving.upgrade(None);
+                    eprintln!("hof agent: not upgraded: {error}");
                 }
                 let agent = serving.clone();
                 let _ = thread::Builder::new()
@@ -174,6 +202,113 @@ pub fn serve(agent: &Agent, path: &Path, linger: Duration) -> io::Result<()> {
                 linger.as_secs()
             );
             return Ok(());
+        }
+    }
+}
+
+/// Which file `program` is: another once it is installed anew.
+fn installed(program: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(program).ok().map(|m| (m.dev(), m.ino()))
+}
+
+/// Asks the agent at `path` to become `program` (`None`: the program it
+/// was started as, installed anew), keeping its panes, and waits to hear
+/// it has. Returns the agent's instance, the same as before.
+pub fn upgrade(path: &Path, program: Option<&Path>) -> io::Result<u64> {
+    use hof_remote::wire::Message;
+    let before = hello(path)?;
+    let mut stream = connect(path)?;
+    let mut out = Vec::new();
+    Message::Hello {
+        version: hof_remote::wire::VERSION,
+        name: String::new(),
+        instance: 0,
+    }
+    .encode(&mut out);
+    let program = program
+        .map(|p| {
+            p.to_str()
+                .map(str::to_owned)
+                .ok_or(io::ErrorKind::InvalidInput)
+        })
+        .transpose()?
+        .unwrap_or_default();
+    Message::Upgrade { program }.encode(&mut out);
+    stream.write_all(&out)?;
+    // The old program hangs up as it goes; or it stays, and says why.
+    let mut messages = Messages::new(stream);
+    while let Some(message) = messages.next()? {
+        if let Message::NotUpgraded { reason } = message {
+            return Err(io::Error::other(reason));
+        }
+    }
+    let deadline = Instant::now() + START_WAIT;
+    loop {
+        match hello(path) {
+            Ok(after) if after == before => return Ok(after),
+            Ok(_) => return Err(io::Error::other("another agent answers there now")),
+            Err(_) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// The instance of the agent at `path`.
+fn hello(path: &Path) -> io::Result<u64> {
+    use hof_remote::wire::Message;
+    let mut stream = connect(path)?;
+    stream.set_read_timeout(Some(START_WAIT))?;
+    let mut out = Vec::new();
+    Message::Hello {
+        version: hof_remote::wire::VERSION,
+        name: String::new(),
+        instance: 0,
+    }
+    .encode(&mut out);
+    stream.write_all(&out)?;
+    let mut messages = Messages::new(stream);
+    while let Some(message) = messages.next()? {
+        if let Message::Hello { instance, .. } = message {
+            return Ok(instance);
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "the agent hung up unanswered",
+    ))
+}
+
+/// The messages that come on a stream, until it ends.
+struct Messages {
+    stream: UnixStream,
+    decoder: hof_remote::wire::Decoder,
+}
+
+impl Messages {
+    fn new(stream: UnixStream) -> Self {
+        Self {
+            stream,
+            decoder: hof_remote::wire::Decoder::new(),
+        }
+    }
+
+    fn next(&mut self) -> io::Result<Option<hof_remote::wire::Message>> {
+        let mut buf = [0; 16 * 1024];
+        loop {
+            if let Some(message) = self.decoder.next_message() {
+                return message
+                    .map(Some)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e));
+            }
+            match self.stream.read(&mut buf) {
+                Ok(0) => return Ok(None),
+                Ok(n) => self.decoder.push(&buf[..n]),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                // Hung up on as the agent goes.
+                Err(e) if e.kind() == io::ErrorKind::ConnectionReset => return Ok(None),
+                Err(e) => return Err(e),
+            }
         }
     }
 }

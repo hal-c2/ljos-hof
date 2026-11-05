@@ -47,6 +47,19 @@ pub enum Here {
         /// Leave the session it was started from, to outlive it.
         #[arg(long, conflicts_with = "stdio")]
         detach: bool,
+        /// Have the agent running there become this program, newer,
+        /// keeping its panes' programs running. It does so by itself too,
+        /// when its own program is installed anew and a client connects.
+        #[arg(long, conflicts_with_all = ["stdio", "detach"])]
+        upgrade: bool,
+        /// Take on the agent an older program handed over at this
+        /// descriptor: how an upgraded agent starts.
+        #[arg(long, value_name = "FD", hide = true, conflicts_with_all = ["stdio", "detach", "upgrade"])]
+        resume: Option<i32>,
+        /// Print the version of the handover this program takes on, and
+        /// nothing else: what an agent asks before it upgrades to it.
+        #[arg(long, hide = true)]
+        resume_format: bool,
     },
 }
 
@@ -72,9 +85,45 @@ pub fn run(here: Here) -> Result<()> {
         }
         Here::Open { target } => Ok(tty::open(&target)?),
         Here::Agent {
+            resume_format: true,
+            ..
+        } => {
+            println!("{}", crate::RESUME_FORMAT);
+            Ok(())
+        }
+        Here::Agent {
+            upgrade: true,
+            socket,
+            ..
+        } => {
+            let path = socket.unwrap_or_else(crate::daemon::socket_path);
+            let program = std::env::current_exe().context("where this program is")?;
+            crate::daemon::upgrade(&path, Some(&program))
+                .with_context(|| format!("upgrading the agent at {}", path.display()))?;
+            println!(
+                "The agent at {} runs {} now.",
+                path.display(),
+                program.display()
+            );
+            Ok(())
+        }
+        Here::Agent {
+            resume: Some(fd),
+            socket,
+            ..
+        } => {
+            let path = socket.unwrap_or_else(crate::daemon::socket_path);
+            let (agent, listener) = crate::Agent::resume(crate::Options::default(), fd)
+                .context("taking on the agent handed over")?;
+            eprintln!("hof agent: upgraded, its panes taken on");
+            crate::daemon::serve_on(&agent, listener, &path, crate::daemon::LINGER)
+                .with_context(|| format!("the agent at {}", path.display()))
+        }
+        Here::Agent {
             stdio,
             socket,
             detach,
+            ..
         } => agent(stdio, socket, detach),
     }
 }

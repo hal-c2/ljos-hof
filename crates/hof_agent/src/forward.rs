@@ -13,6 +13,7 @@
 //! opened it and its programs still find whichever Hof comes next.
 
 use std::io::{self, Read, Write};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
@@ -37,7 +38,7 @@ pub(crate) struct Forwards {
     dir: PathBuf,
     offers: Mutex<Vec<Offer>>,
     x11: Mutex<Option<X11>>,
-    sound: Mutex<Option<PathBuf>>,
+    sound: Mutex<Option<Sound>>,
     next_channel: AtomicU32,
 }
 
@@ -51,6 +52,23 @@ struct Offer {
 struct X11 {
     display: String,
     xauthority: PathBuf,
+    number: u32,
+    cookie: [u8; 16],
+    /// The listener's descriptor, to hand over.
+    listener: Arc<OwnedFd>,
+}
+
+#[derive(Clone)]
+struct Sound {
+    path: PathBuf,
+    listener: Arc<OwnedFd>,
+}
+
+/// The listeners as they are handed to the agent's next program: see
+/// [`crate::handover`].
+pub(crate) struct Handed {
+    pub x11: Option<crate::handover::X11State>,
+    pub sound: Option<RawFd>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -114,8 +132,8 @@ impl Forwards {
                     }
                 }
                 pulse::SERVICE => {
-                    if let Some(socket) = lock(&self.sound).as_ref() {
-                        let server = format!("unix:{}", socket.display());
+                    if let Some(sound) = lock(&self.sound).as_ref() {
+                        let server = format!("unix:{}", sound.path.display());
                         env.push(("PULSE_SERVER".into(), server));
                     }
                 }
@@ -160,17 +178,32 @@ impl Forwards {
     fn start_x11(self: &Arc<Self>) -> io::Result<X11> {
         let (listener, number) = bind_display()?;
         let cookie = random_cookie()?;
+        self.listen_x11(listener, number, cookie, true)
+    }
+
+    /// Takes X11 clients at `listener`, display `number`, those that
+    /// bring `cookie`. `authorize` writes the file that has it.
+    fn listen_x11(
+        self: &Arc<Self>,
+        listener: Listener,
+        number: u32,
+        cookie: [u8; 16],
+        authorize: bool,
+    ) -> io::Result<X11> {
         let xauthority = self.dir()?.join("Xauthority");
-        let mut file = Vec::new();
-        x11::Auth {
-            family: x11::FAMILY_WILD,
-            address: Vec::new(),
-            number: number.to_string().into_bytes(),
-            name: x11::COOKIE.to_vec(),
-            data: cookie.to_vec(),
+        if authorize || !xauthority.exists() {
+            let mut file = Vec::new();
+            x11::Auth {
+                family: x11::FAMILY_WILD,
+                address: Vec::new(),
+                number: number.to_string().into_bytes(),
+                name: x11::COOKIE.to_vec(),
+                data: cookie.to_vec(),
+            }
+            .encode(&mut file);
+            write_private(&xauthority, &file)?;
         }
-        .encode(&mut file);
-        write_private(&xauthority, &file)?;
+        let kept = Arc::new(listener.as_fd().try_clone_to_owned()?);
         let me = Arc::downgrade(self);
         // Not joined: it waits in `accept` while the agent runs.
         thread::Builder::new()
@@ -184,6 +217,9 @@ impl Forwards {
         Ok(X11 {
             display: display_name(number),
             xauthority,
+            number,
+            cookie,
+            listener: kept,
         })
     }
 
@@ -193,13 +229,18 @@ impl Forwards {
         if sound.is_none() {
             *sound = self.start_sound().ok();
         }
-        sound.clone()
+        sound.as_ref().map(|s| s.path.clone())
     }
 
-    fn start_sound(self: &Arc<Self>) -> io::Result<PathBuf> {
+    fn start_sound(self: &Arc<Self>) -> io::Result<Sound> {
         let path = self.dir()?.join("pulse");
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path)?;
+        self.listen_sound(listener, path)
+    }
+
+    fn listen_sound(self: &Arc<Self>, listener: UnixListener, path: PathBuf) -> io::Result<Sound> {
+        let kept = Arc::new(listener.as_fd().try_clone_to_owned()?);
         let me = Arc::downgrade(self);
         thread::Builder::new()
             .name("hof-agent-sound".into())
@@ -209,7 +250,45 @@ impl Forwards {
                     thread::spawn(move || take_sound(&me, socket));
                 });
             })?;
-        Ok(path)
+        Ok(Sound {
+            path,
+            listener: kept,
+        })
+    }
+
+    /// The listeners, for the agent's next program to take on. Their
+    /// descriptors stay open as long as this does.
+    pub fn handed(&self) -> Handed {
+        Handed {
+            x11: lock(&self.x11).as_ref().map(|x| crate::handover::X11State {
+                listener: x.listener.as_raw_fd(),
+                number: x.number,
+                cookie: x.cookie,
+            }),
+            sound: lock(&self.sound).as_ref().map(|s| s.listener.as_raw_fd()),
+        }
+    }
+
+    /// Takes on the listeners the agent's last program handed over: an
+    /// X11 one, its number and cookie, and a sound one.
+    pub fn adopt(self: &Arc<Self>, x11: Option<(OwnedFd, u32, [u8; 16])>, sound: Option<OwnedFd>) {
+        if let Some((fd, number, cookie)) = x11 {
+            #[cfg(target_os = "linux")]
+            let listener = Listener::Unix(UnixListener::from(fd));
+            #[cfg(not(target_os = "linux"))]
+            let listener = Listener::Tcp(std::net::TcpListener::from(fd));
+            match self.listen_x11(listener, number, cookie, false) {
+                Ok(x) => *lock(&self.x11) = Some(x),
+                Err(e) => eprintln!("hof agent: the X11 display was not taken on: {e}"),
+            }
+        }
+        if let Some(fd) = sound {
+            let path = self.dir.join("pulse");
+            match self.listen_sound(UnixListener::from(fd), path) {
+                Ok(s) => *lock(&self.sound) = Some(s),
+                Err(e) => eprintln!("hof agent: the sound socket was not taken on: {e}"),
+            }
+        }
     }
 }
 
@@ -223,6 +302,15 @@ enum Listener {
     Unix(UnixListener),
     #[cfg_attr(target_os = "linux", allow(dead_code))]
     Tcp(std::net::TcpListener),
+}
+
+impl AsFd for Listener {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        match self {
+            Listener::Unix(l) => l.as_fd(),
+            Listener::Tcp(l) => l.as_fd(),
+        }
+    }
 }
 
 fn accept(listener: &Listener, mut each: impl FnMut(Box<dyn Socket>)) {

@@ -12,20 +12,26 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock, Weak, mpsc};
 use std::thread;
+use std::time::Duration;
 
 use hof_remote::wire::{self, Decoder, Message, PaneId, PaneInfo, VERSION};
 use hof_remote::{Backlog, Received, Relays, Resume};
 
 use crate::forward::Forwards;
+use crate::handover::{self, PaneState, State};
 use hof_vt::{Event, Session, Size, Spawn};
 
 /// The most output one message carries; more goes in several, so one
 /// pane's flood doesn't hold up the others' for long.
 const CHUNK: usize = 256 * 1024;
+
+/// How long an upgrade waits for the panes' output to stop being read.
+const FREEZE_WAIT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -105,6 +111,21 @@ struct Inner {
     changed: mpsc::Sender<PaneId>,
     /// The X11 and sound clients here, passed on to Hof.
     forwards: Arc<Forwards>,
+    /// Held to start a program; an upgrade holds it whole, so that none
+    /// starts with what is handed over open.
+    spawning: RwLock<()>,
+    /// Held through an upgrade: one at a time.
+    upgrading: Mutex<()>,
+    /// Where the agent listens, once it does: what an upgrade hands over.
+    served: OnceLock<Served>,
+}
+
+struct Served {
+    /// The listener clients connect to (a duplicate of it).
+    listener: OwnedFd,
+    socket: PathBuf,
+    /// The program the agent was started as.
+    program: PathBuf,
 }
 
 struct Pane {
@@ -170,20 +191,32 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl Agent {
     pub fn new(options: Options) -> Self {
-        let (changed, news) = mpsc::channel();
         let instance = instance();
+        // Not from 1: a saved session names panes by number, and an agent
+        // started again must not have the same numbers for other programs.
+        // Small enough for QML's numbers to hold exactly.
+        let next_pane = 1000 + (instance % 1_000_000_000) as u32;
+        Self::with(options, instance, next_pane, mpsc::channel())
+    }
+
+    fn with(
+        options: Options,
+        instance: u64,
+        next_pane: u32,
+        (changed, news): (mpsc::Sender<PaneId>, mpsc::Receiver<PaneId>),
+    ) -> Self {
         let inner = Arc::new(Inner {
             options,
             instance,
             panes: Mutex::default(),
-            // Not from 1: a saved session names panes by number, and an
-            // agent started again must not have the same numbers for other
-            // programs. Small enough for QML's numbers to hold exactly.
-            next_pane: AtomicU32::new(1000 + (instance % 1_000_000_000) as u32),
+            next_pane: AtomicU32::new(next_pane),
             next_connection: AtomicU64::new(1),
             connections: AtomicUsize::new(0),
             changed,
             forwards: Arc::new(Forwards::new(instance)),
+            spawning: RwLock::default(),
+            upgrading: Mutex::default(),
+            served: OnceLock::new(),
         });
         let weak = Arc::downgrade(&inner);
         thread::Builder::new()
@@ -191,6 +224,199 @@ impl Agent {
             .spawn(move || watch_news(&weak, &news))
             .expect("a thread for the panes' news");
         Self { inner }
+    }
+
+    /// The agent an older program of it handed over, at the descriptor
+    /// `fd`: its panes, their programs running on, as clients last saw
+    /// them, and the listener it served at, returned for serving at.
+    pub fn resume(
+        options: Options,
+        fd: i32,
+    ) -> io::Result<(Self, std::os::unix::net::UnixListener)> {
+        let state = handover::read(fd)?;
+        // SAFETY: each descriptor the handover names, taken once.
+        let listener = unsafe { handover::own(state.listener)? };
+        let agent = Self::with(options, state.instance, state.next_pane, mpsc::channel());
+        for pane in state.panes {
+            let id = pane.id;
+            if let Err(e) = agent.adopt(pane) {
+                eprintln!("hof agent: pane {id} was not taken on: {e}");
+            }
+        }
+        let x11 = state.x11.and_then(|x| {
+            // SAFETY: as above.
+            let fd = unsafe { handover::own(x.listener) }.ok()?;
+            Some((fd, x.number, x.cookie))
+        });
+        // SAFETY: as above.
+        let sound = state.sound.and_then(|fd| unsafe { handover::own(fd) }.ok());
+        agent.inner.forwards.adopt(x11, sound);
+        Ok((agent, listener.into()))
+    }
+
+    /// Takes on one pane handed over.
+    fn adopt(&self, handed: PaneState) -> Result<(), String> {
+        let id = handed.id;
+        let (stream, tap) = self.stream(id);
+        {
+            let mut stream = lock(&stream);
+            stream.backlog.restart_at(handed.output);
+        }
+        let changed = self.inner.changed.clone();
+        let waker = move || {
+            let _ = changed.send(id);
+        };
+        let options = hof_vt::Options {
+            size: Size::new(handed.cols, handed.rows),
+            scrollback: self.inner.options.scrollback,
+            ..hof_vt::Options::default()
+        };
+        let session = match handed.running {
+            Some((fd, pid)) => {
+                // SAFETY: a descriptor the handover names, taken once.
+                let master = unsafe { handover::own(fd) }.map_err(|e| e.to_string())?;
+                Session::adopt_tapped(
+                    hof_vt::Handed {
+                        master,
+                        pid,
+                        term: "xterm-256color".into(),
+                        screen: handed.screen,
+                    },
+                    options,
+                    waker,
+                    Some(tap),
+                )
+            }
+            // Its program is gone: the screen is all there is.
+            None => Session::detached(options, waker).inspect(|s| s.feed(&handed.screen)),
+        }
+        .map_err(|e| e.to_string())?;
+        lock(&self.inner.panes).insert(
+            id,
+            Arc::new(Pane {
+                command: handed.command,
+                session,
+                stream,
+                input: Mutex::new(Received::at(handed.input)),
+                exited: Mutex::new(handed.exited),
+            }),
+        );
+        Ok(())
+    }
+
+    /// A pane's backlog, and the tap that fills it.
+    fn stream(&self, id: PaneId) -> (Arc<Mutex<Stream>>, hof_vt::Tap) {
+        let stream = Arc::new(Mutex::new(Stream {
+            backlog: Backlog::new(self.inner.options.backlog),
+            watcher: None,
+            woken: false,
+        }));
+        let tapped = stream.clone();
+        let tap: hof_vt::Tap = Box::new(move |bytes| {
+            let mut stream = lock(&tapped);
+            stream.backlog.push(bytes);
+            stream.wake(id);
+        });
+        (stream, tap)
+    }
+
+    /// The agent listens at `listener`, `socket`, as `program`: what an
+    /// upgrade hands over, and becomes.
+    pub fn serving(&self, listener: &impl AsFd, socket: &Path, program: PathBuf) -> io::Result<()> {
+        let listener = listener.as_fd().try_clone_to_owned()?;
+        let _ = self.inner.served.set(Served {
+            listener,
+            socket: socket.to_owned(),
+            program,
+        });
+        Ok(())
+    }
+
+    /// The program the agent was started as, as [`Agent::serving`] said.
+    pub fn program(&self) -> Option<&Path> {
+        self.inner.served.get().map(|s| s.program.as_path())
+    }
+
+    /// Becomes `program` (`None`: the one it was started as), keeping
+    /// every pane's program running: the same process, with the same
+    /// panes, only newer. Returns only when it could not, and then it
+    /// carries on as it was.
+    pub fn upgrade(&self, program: Option<&Path>) -> io::Error {
+        let Some(served) = self.inner.served.get() else {
+            return io::Error::other("the agent listens nowhere to come back at");
+        };
+        let program = program.unwrap_or(&served.program);
+        let Ok(_one) = self.inner.upgrading.try_lock() else {
+            return io::Error::other("an upgrade is under way already");
+        };
+        if let Err(e) = handover::takes_over(program) {
+            return e;
+        }
+        let _spawning = self
+            .inner
+            .spawning
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        let frozen = match hof_vt::freeze(FREEZE_WAIT) {
+            Ok(frozen) => frozen,
+            Err(e) => return e,
+        };
+        let state = match self.state(served) {
+            Ok(state) => state,
+            Err(e) => return e,
+        };
+        let dir = served.socket.parent().unwrap_or(Path::new("/tmp"));
+        let file = match handover::unnamed_file(dir, &state.encode()) {
+            Ok(file) => file,
+            Err(e) => return e,
+        };
+        let mut fds = state.descriptors();
+        fds.push(file.as_raw_fd());
+        let error = handover::exec(program, file.as_raw_fd(), &served.socket, &fds);
+        drop(frozen);
+        error
+    }
+
+    /// What is handed over: the panes as they are, their output stopped.
+    fn state(&self, served: &Served) -> io::Result<State> {
+        let panes = lock(&self.inner.panes);
+        let mut handed = Vec::new();
+        for (&id, p) in panes.iter() {
+            let (screen, output) = p
+                .session
+                .snapshot_with(|| lock(&p.stream).backlog.end())
+                .map_err(io::Error::other)?;
+            let exited = lock(&p.exited).or(p.session.exit_status());
+            let running = match exited {
+                Some(_) => None,
+                None => p
+                    .session
+                    .master()
+                    .zip(p.session.pid())
+                    .map(|(fd, pid)| (fd.as_raw_fd(), pid)),
+            };
+            let size = p.session.size();
+            handed.push(PaneState {
+                id,
+                command: p.command.clone(),
+                running,
+                exited,
+                cols: size.cols,
+                rows: size.rows,
+                screen,
+                output,
+                input: lock(&p.input).end(),
+            });
+        }
+        let forwards = self.inner.forwards.handed();
+        Ok(State {
+            instance: self.inner.instance,
+            next_pane: self.inner.next_pane.load(Ordering::Relaxed),
+            listener: served.listener.as_raw_fd(),
+            panes: handed,
+            x11: forwards.x11,
+            sound: forwards.sound,
+        })
     }
 
     /// Different for every agent: what tells a client its panes are gone.
@@ -399,6 +625,16 @@ impl Agent {
                 relays.add(channel, move || open_sessions(places));
             }
             Message::Connect { channel, .. } => send(Message::Hangup { channel }),
+            Message::Upgrade { program } => {
+                let program = (!program.is_empty()).then(|| PathBuf::from(program));
+                eprintln!("hof agent: connection {me} asked for an upgrade");
+                // Returns only when it stays as it is.
+                let error = self.upgrade(program.as_deref());
+                eprintln!("hof agent: not upgraded: {error}");
+                send(Message::NotUpgraded {
+                    reason: error.to_string(),
+                });
+            }
             // What the agent sends, not what it is sent, and what it can't
             // read: nothing to do.
             Message::Opened { .. }
@@ -411,6 +647,7 @@ impl Agent {
             | Message::Pong { .. }
             | Message::Gone { .. }
             | Message::Foreground { .. }
+            | Message::NotUpgraded { .. }
             | Message::Unknown { .. } => {}
         }
     }
@@ -458,23 +695,18 @@ impl Agent {
             )
             .collect();
 
-        let stream = Arc::new(Mutex::new(Stream {
-            backlog: Backlog::new(self.inner.options.backlog),
-            watcher: None,
-            woken: false,
-        }));
-        let tapped = stream.clone();
-        let tap: hof_vt::Tap = Box::new(move |bytes| {
-            let mut stream = lock(&tapped);
-            stream.backlog.push(bytes);
-            stream.wake(id);
-        });
+        let (stream, tap) = self.stream(id);
         let changed = self.inner.changed.clone();
         let options = hof_vt::Options {
             size: Size::new(cols, rows),
             scrollback: self.inner.options.scrollback,
             ..hof_vt::Options::default()
         };
+        let spawning = self
+            .inner
+            .spawning
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         let session = Session::spawn_tapped(
             &spawn,
             options,
@@ -494,6 +726,8 @@ impl Agent {
                 exited: Mutex::new(None),
             }),
         );
+        // Only now: an upgrade hands over the panes it finds.
+        drop(spawning);
         Ok(id)
     }
 }

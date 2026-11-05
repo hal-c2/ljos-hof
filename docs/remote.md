@@ -105,6 +105,24 @@ and closing Hof leaves the programs running.
   --scope` of its own where systemd runs the session, else as a plain
   child that leaves Hof's session. Either way the agent keeps Hof's
   environment.
+- Hof updates without the agent's programs ending. The agent becomes
+  a newer program in place: the same process, so the programs stay its
+  children.
+  - It happens when asked (`hof agent --upgrade`, by the newer `hof`).
+  - It also happens by itself, when the program it runs as is installed
+    anew (a new file in its place, as `install`, `cargo install` or a
+    package manager put it) and a client next connects.
+  - The agent first asks the new program which handover it reads
+    (`hof agent --resume-format`). If that is not its own, the agent
+    stays as it is and says why.
+  - Then each pane's reader stops before reading more (a freeze in
+    `hof_vt`), so what a program writes meanwhile waits in its pty.
+  - The agent writes each pane's screen, how far its output and input
+    got, and which descriptor is its pty, to an unnamed file. The X11
+    and sound listeners and the socket go with it.
+  - It execs `hof agent --resume FD` with those left open.
+  - Its clients drop and connect again. They find their panes under
+    the same instance and pick up where they were.
 - The program is started as Hof would start it itself:
   - with Hof's variables (but `TERM` and its kin), then the pane's own;
   - in Hof's directory when the pane names none.

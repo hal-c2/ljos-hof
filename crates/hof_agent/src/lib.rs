@@ -20,6 +20,8 @@ mod agent;
 pub mod cli;
 pub mod daemon;
 mod forward;
+mod handover;
 pub mod tty;
 
 pub use agent::{Agent, Options};
+pub use handover::RESUME_FORMAT;
