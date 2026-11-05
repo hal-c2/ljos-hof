@@ -21,12 +21,15 @@ pub(crate) enum Error {
     Store(#[from] hof_session::Error),
 }
 
-/// Where this run keeps its session: the launch's, else the usual place.
+/// Where this run keeps its session: the launch's, else its name's, else
+/// the usual place.
 pub(crate) fn path() -> PathBuf {
-    crate::launch()
-        .session
-        .clone()
-        .unwrap_or_else(hof_session::path)
+    let launch = crate::launch();
+    match (&launch.session, &launch.session_name) {
+        (Some(at), _) => at.clone(),
+        (None, Some(name)) => hof_session::named(name),
+        (None, None) => hof_session::path(),
+    }
 }
 
 /// What the QML says of a pane, by its id: what the layout does not know.
@@ -99,7 +102,13 @@ pub(crate) fn load(at: &Path) -> Result<Option<(Layout, Restored)>, Error> {
 /// Forgets the saved session: the user closed everything, so the next
 /// start is a fresh one.
 pub(crate) fn clear(at: &Path) -> Result<(), Error> {
-    hof_session::clear(at)?;
+    let launch = crate::launch();
+    match &launch.session_name {
+        // Its own directory goes too, and with it the name from `hof
+        // sessions`.
+        Some(name) if launch.session.is_none() => hof_session::forget(name)?,
+        _ => hof_session::clear(at)?,
+    }
     Ok(())
 }
 

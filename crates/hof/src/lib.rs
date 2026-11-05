@@ -3,6 +3,7 @@
 //! reads, [`App`] (how it was started) and [`Settings`] (the config file).
 
 pub mod ctl;
+pub mod held;
 mod ipc;
 mod mcp;
 mod scripts;
@@ -37,8 +38,16 @@ pub struct Launch {
     /// Read the config file again whenever it is saved. Off unless asked,
     /// so a test opens no watch.
     pub watch_config: bool,
-    /// Where the session is saved, in place of the usual place.
+    /// Where the session is saved, in place of where [`session_name`]'s is.
+    ///
+    /// [`session_name`]: Launch::session_name
     pub session: Option<PathBuf>,
+    /// The session this window keeps, which it holds ([`held`]); `None`
+    /// for a dropdown's, a test's, or one that keeps none.
+    pub session_name: Option<String>,
+    /// In place of the config's `[session] restore`: on for `hof attach`,
+    /// off for a window started for a command (`-e`), which keeps none.
+    pub restore: Option<bool>,
     /// The agent this machine's panes run under, for their programs to
     /// outlive Hof (`[session] keep-running`). `None` runs them under Hof
     /// itself, as a test's window does.
@@ -77,6 +86,9 @@ pub struct App {
     pub working_directory: String,
     #[qml(readonly)]
     pub version: String,
+    /// The session the window keeps (`hof attach NAME`); empty for none.
+    #[qml(readonly)]
+    pub session: String,
     /// Where `hof ctl` reaches this window; panes get it as `HOF_SOCKET`.
     #[qml(notify, readonly)]
     pub control_socket: String,
@@ -97,6 +109,7 @@ impl Default for App {
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
+            session: l.session_name.clone().unwrap_or_default(),
             control_socket: String::new(),
             mcp_socket: String::new(),
         }

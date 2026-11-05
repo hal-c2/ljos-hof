@@ -89,6 +89,12 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   time a pane needs it, in a systemd user scope of its own where systemd
   runs the session. It is the same agent a Hof on another machine reaches
   over ssh, and it goes once it has no panes left.
+- **Sessions by name.** `hof attach work` opens the session `work` as it
+  was left, or starts it. `hof attach` alone opens the one saved last
+  that no Hof has open, and `hof sessions` lists them. Only one Hof at a
+  time has a session open: a second plain `hof` keeps a session of its
+  own (`2`, then `3`), not the first one's. A window started for a
+  command (`hof -e htop`) keeps none.
 - **Themes.** Nine are built in, and you can add your own as
   `themes/<name>.toml`.
 

@@ -85,15 +85,16 @@ fn start(
 }
 
 /// The control socket of the window whose panes may outlive it: where the
-/// next Hof's will be too (`hof-session.sock`), so that `hof ctl` in a
-/// pane whose program ran on reaches the Hof that attached it again. `None`
-/// for a window of a test or a dropdown, or when another Hof has it.
+/// next Hof to keep its session serves too (`hof-session[-NAME].sock`), so
+/// that `hof ctl` in a pane whose program ran on reaches the Hof that
+/// attached it again. `None` for a window of a test or a dropdown, which
+/// keep no session so.
 fn kept_control(host: &Arc<dyn Host>) -> Option<PathBuf> {
     let launch = crate::launch();
     if launch.agent.is_none() || launch.dropdown {
         return None;
     }
-    let path = hof_mcp::socket_path().with_file_name("hof-session.sock");
+    let path = crate::held::control_socket(launch.session_name.as_deref()?);
     let server = hof_mcp::serve_unix(&path, Arc::clone(host), Policy::ALLOW_ALL).ok()?;
     SERVERS.with(|s| s.borrow_mut().push(server));
     Some(path)

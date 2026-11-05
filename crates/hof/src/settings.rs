@@ -333,7 +333,7 @@ impl Settings {
             hide_on_focus_loss: dropdown.hide_on_focus_loss,
             animation_ms: i32::try_from(dropdown.animation_ms).unwrap_or(i32::MAX),
             notify_agent_waiting: config.notify.agent_waiting,
-            session_restore: config.session.restore,
+            session_restore: crate::launch().restore.unwrap_or(config.session.restore),
             session_save_scrollback: config.session.save_scrollback,
             session_keep_running: config.session.keep_running,
             binding_actions,
@@ -481,11 +481,14 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
 }
 
 /// Whether this machine's panes opened from now on run under the agent
-/// here, to outlive Hof: with the session restored, and not for a
-/// dropdown, which keeps none.
+/// here, to outlive Hof: with the session restored, by a window that holds
+/// one, which a dropdown never does.
 fn keep_here(settings: &Settings) {
     let launch = crate::launch();
-    let keep = settings.session_restore && settings.session_keep_running && !launch.dropdown;
+    let keep = settings.session_restore
+        && settings.session_keep_running
+        && !launch.dropdown
+        && launch.session_name.is_some();
     let here = launch.agent.clone().filter(|_| keep).map(|agent| {
         let socket = agent.socket.clone();
         hof_qml::remote::Here {

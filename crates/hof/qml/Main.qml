@@ -80,7 +80,9 @@ Window {
     visible: !App.dropdown
     width: 900
     height: 560
-    title: window.current !== null && window.current.title.length > 0 ? window.current.title : Settings.title
+    // The session's name after, when it is not a plain `hof`'s: windows of
+    // two sessions are told apart.
+    title: (window.current !== null && window.current.title.length > 0 ? window.current.title : Settings.title) + (App.session.length > 0 && App.session !== "default" ? " — " + App.session : "")
     color: Qt.rgba(window.background.r, window.background.g, window.background.b, Settings.opacity)
     flags: App.dropdown ? (Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint) : (Settings.decorations ? Qt.Window : (Qt.Window | Qt.FramelessWindowHint))
 

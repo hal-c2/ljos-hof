@@ -114,8 +114,17 @@ and closing Hof leaves the programs running.
 - Its directory, for a shell that never says, is where its foreground
   process works, as the system says.
 - The window that keeps a session listens for `hof ctl` at
-  `hof-session.sock`, where the next start listens too. So a program
-  that ran on still reaches the Hof that attached it.
+  `hof-session.sock` (`hof-session-NAME.sock` for a named one), where
+  the next window to keep it listens too. So a program that ran on still
+  reaches the Hof that attached it.
+- A window holds its session with a lock, `hof-session[-NAME].lock` in
+  the runtime directory, for as long as it runs. A plain `hof` takes the
+  first of `default`, `2`, `3` … that no other Hof holds, and `hof attach
+  NAME` takes `NAME` or says another Hof has it. So two windows never
+  attach to one program or save over each other's session.
+- A named session is kept in `sessions/NAME/` beside `session.json`,
+  with its own `scrollback/`. Closing every pane of it removes that
+  directory.
 - Not yet:
   - A program asking the terminal's colours (OSC 10/11) is answered by
     the agent, which knows only the default theme. The same is true on
@@ -124,6 +133,9 @@ and closing Hof leaves the programs running.
     program that ran on is asked about like printed text.
   - An agent left by an older Hof runs on until its panes close. A new
     agent can't take over its programs yet.
+  - A session that is never opened again keeps its programs running.
+    There is no `hof forget NAME` to end them yet: attach and close its
+    panes.
 
 Search, selection, links, shell integration, hooks and painting are the
 same code a local pane runs.
