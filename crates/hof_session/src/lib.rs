@@ -74,6 +74,7 @@
 //! and windows without tabs are dropped. A pane id that appears twice in a
 //! window is an error, since the app could not tell the panes apart.
 
+mod named;
 mod path_repr;
 mod store;
 mod validate;
@@ -83,6 +84,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub use named::{
+    DEFAULT, forget, forget_beside, is_name, named, named_beside, saved, saved_beside,
+};
 pub use store::{clear, load, save};
 
 /// The newest format this crate writes and reads.
