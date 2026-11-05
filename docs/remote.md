@@ -139,7 +139,7 @@ channel:
 | control   | open, close and resize panes, hello and resume, version    |
 | pane N    | output from the agent, input to the agent, and what runs   |
 |           | in the pane's foreground                                   |
-| files     | 9P: the remote machine's files, served by the `p9` crate   |
+| files N   | 9P2000.L: the remote machine's files, which Hof asks for  |
 | carried N | one connection the agent passes on: an X11 client, or a    |
 |           | PulseAudio native-protocol client                          |
 
@@ -195,14 +195,34 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
 - **Open here:**
   - `hof open URL` writes Hof's OSC 7702 to `/dev/tty`, and Hof opens the
     URL locally, asking first unless `terminal.open-urls` says otherwise.
-  - `hof open FILE` in a local pane opens the file. In a remote pane it is
-    not opened yet. It should fetch the file into a local cache, open it
-    with the local handler, and write it back when it changes.
-  - Once the files channel is there, the remote machine's tree is mounted
-    at `~/.cache/hof/hosts/<name>`. That needs a local FUSE 9P client of our
-    own; `p9` is server-only.
-  - The `p9` server runs in the agent and reads frames off the channel
-    directly.
+  - `hof open FILE` in a local pane opens the file. In a remote pane, as
+    for a click on a program's `file:` link there, Hof copies the file
+    here over a files channel and opens the copy with the local handler.
+    The pane shows "Copying … from <host>…" meanwhile, and why, if it
+    could not.
+  - The copy goes in the cache, at its path there:
+    `$XDG_CACHE_HOME/hof/hosts/<name>/<path>`, else `~/.cache/hof/...`, or
+    `~/Library/Caches/hof/...` on a Mac. Copies are readable by this user
+    only, and never executable. A path with `..` in it, or a relative one,
+    is refused.
+  - While a copy is watched, a save here is written back once it has been
+    the same for half a second, and the file there is looked at every
+    three seconds and copied again when it changed. When both changed,
+    the save here wins. A copy is watched until it is deleted here, a day
+    after it last changed, or Hof quits, 64 at most.
+  - The files channel is the first Hof opens itself: its `Connect` goes
+    from Hof to the agent, with a channel number that has the top bit set
+    so it never meets one the agent picked. Each channel carries one
+    9P2000.L session. The agent serves its user's files on it, as that
+    user, with nothing outside what that user may reach. An older agent
+    hangs up a channel it doesn't know, and Hof says to update Hof there.
+  - The 9P2000.L codec, client and server are Hof's own
+    (`hof_remote::files`), no more than this needs: walk, open, create,
+    read, write, readdir, getattr and setattr, mkdir, rename, unlink,
+    readlink, fsync and statfs.
+  - Still to come: the remote machine's whole tree mounted at
+    `hosts/<name>`, with `files = true`. That needs a local FUSE client
+    on the same codec.
 - **X11, in two steps:**
   1. **A tunnel, like `ssh -X` but over our mux.** Done.
      - The agent takes the first display from `:10` that has no lock
@@ -353,13 +373,14 @@ The idea comes from herdr. What follows is Hof's own design.
    work on any machine.
 6. **Clipboard and open-here.** Done: OSC 52 writes, and reads behind a
    prompt, in local and remote panes; `hof copy`, `hof paste` and
-   `hof open URL`. Still to do: opening a remote machine's files, which
-   waits for the files channel.
+   `hof open URL`, and `hof open FILE` and `file:` links in remote panes,
+   through the files channel.
 7. **The X11 tunnel**, then **sound**. Done: carried connections with
    their own flow control, the display and sound sockets in the agent,
    and the cookies put in by Hof. Tested against stand-in servers, and
    with `xdpyinfo` and `pactl` against a real desktop (an ignored test).
-8. **Files over 9P**, then the FUSE mount.
+8. **Files over 9P**, then the FUSE mount. The channel, the agent's
+   server and copies kept in sync are done; the mount is not.
 9. **X11 apps that survive a dropped connection**, built on yserver, and the
    **UDP transport**.
 

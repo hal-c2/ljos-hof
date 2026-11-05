@@ -443,6 +443,12 @@ impl Terminal {
     #[qml(signal)]
     fn open_requested(url: String);
 
+    /// Something to tell the user for a moment, of a file on the other
+    /// machine being opened here: that it is being copied, or why it
+    /// could not be. Empty once it is opened.
+    #[qml(signal)]
+    fn notice(text: String);
+
     #[qml(on_complete)]
     fn completed(cx: &Cx) -> Result<(), EngineError> {
         let (e, me) = (cx.engine, cx.this);
@@ -613,11 +619,11 @@ impl Terminal {
             (url, (rest, opens.waiting.first().cloned()))
         };
         if allow {
-            open_url(e, &url);
+            open_wanted(e, me, &url);
         }
         let (rest, next) = next;
         for url in rest {
-            open_url(e, &url);
+            open_wanted(e, me, &url);
         }
         if let Some(url) = next {
             let _ = Terminal::emit_open_requested(cx, url);
@@ -1365,9 +1371,12 @@ fn open_asked(engine: &Engine, me: ObjectId, url: String) {
     let Some(shared) = shared_of(engine, me) else {
         return;
     };
-    if names_a_file(&url) && shared.remote.borrow().is_some() {
-        // A file on the other machine; until its files can be reached
-        // from here, there is nothing to open.
+    if names_a_file(&url)
+        && shared.remote.borrow().is_some()
+        && hof_remote::files::path_of_url(&url).is_none()
+    {
+        // A relative path on the other machine: what it is relative to,
+        // this one can't tell.
         return;
     }
     let policy: String = engine.untrack(|| item::prop(engine, me, Terminal::OPEN_URLS));
@@ -1385,7 +1394,7 @@ fn open_asked(engine: &Engine, me: ObjectId, url: String) {
         }
     };
     match first {
-        None => open_url(engine, &url),
+        None => open_wanted(engine, me, &url),
         Some(true) => {
             let _ = Terminal::emit_open_requested(&cx(engine, me), url);
         }
@@ -1418,13 +1427,50 @@ pub(crate) fn show_link(engine: &Engine, me: ObjectId) {
 }
 
 /// The user clicked a link. A remote program's `file:` link names a file
-/// on that machine, which can't be opened here yet.
+/// on that machine: a copy of it is opened.
 pub(crate) fn open_link(engine: &Engine, me: ObjectId, url: &str) {
+    open_wanted(engine, me, url);
+}
+
+/// Opens `url` here; or, for a program on another machine naming a file
+/// there, a copy of it here, kept the same as it (see
+/// [`hof_remote::files::Mirror`]).
+fn open_wanted(engine: &Engine, me: ObjectId, url: &str) {
     let remote = shared_of(engine, me).is_some_and(|s| s.remote.borrow().is_some());
-    if names_a_file(url) && remote {
+    if !(remote && names_a_file(url)) {
+        open_url(engine, url);
         return;
     }
-    open_url(engine, url);
+    let Some(path) = hof_remote::files::path_of_url(url) else {
+        return;
+    };
+    let host: String = engine.untrack(|| item::prop(engine, me, Terminal::HOST));
+    let shown = String::from_utf8_lossy(&path).into_owned();
+    let Some(mirror) = remote::mirror(&host) else {
+        let why = format!("Could not open {shown}: {host} is not connected");
+        let _ = Terminal::emit_notice(&cx(engine, me), why);
+        return;
+    };
+    let _ = Terminal::emit_notice(&cx(engine, me), format!("Copying {shown} from {host}…"));
+    let post = Platform::of(engine).poster();
+    let fetching = std::thread::Builder::new()
+        .name("hof-files-open".into())
+        .spawn(move || {
+            let fetched = mirror.fetch(&path);
+            post.send(move |e: &Engine| match fetched {
+                Ok(local) => {
+                    let _ = Terminal::emit_notice(&cx(e, me), String::new());
+                    open_url(e, &hof_remote::files::file_url(&local));
+                }
+                Err(why) => {
+                    let why = format!("Could not open {shown} from {host}: {why}");
+                    let _ = Terminal::emit_notice(&cx(e, me), why);
+                }
+            });
+        });
+    if fetching.is_err() {
+        let _ = Terminal::emit_notice(&cx(engine, me), String::new());
+    }
 }
 
 fn open_url(engine: &Engine, url: &str) {

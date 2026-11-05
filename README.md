@@ -175,7 +175,11 @@ static `hof` agent, copied over ssh the first time. When the connection drops, t
 reconnecting and picks up where it was. When Hof quits with
 `session.restore` on, the remote programs keep running and are attached
 again at the next start. `hof copy`, `hof paste` and `hof open URL` there
-reach the clipboard and the browser where you sit. With `x11 = true` and
+reach the clipboard and the browser where you sit. `hof open FILE` there,
+or a click on a program's `file:` link, copies the file here and opens
+the copy with what opens such files here. Each save goes back to the
+machine it came from, and a change there is copied again. Both ends need
+this Hof; an older agent says to update it. With `x11 = true` and
 `sound = true` on the host, programs there open their windows on your
 display and play through your speakers, as with `ssh -X`, carried over
 Hof's own connection. On a Mac they open through
@@ -191,8 +195,8 @@ or PipeWire (most do, from `paplay` to `mpv` and browsers) just play.
 
 ## Not yet
 
-- Opening a remote machine's `file:` links, which waits for its files to
-  be reached from here.
+- Mounting a remote machine's whole tree here (`files = true`), so any
+  program here can browse it.
 
 ## Licence
 

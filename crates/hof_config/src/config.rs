@@ -386,7 +386,8 @@ pub struct Host {
     pub x11: bool,
     /// Let programs there play sound here.
     pub sound: bool,
-    /// Let Hof show that machine's files here.
+    /// Let Hof mount that machine's files here (not yet). `hof open FILE`
+    /// there needs only `open-urls`.
     pub files: bool,
     /// Whether programs there may read this machine's clipboard. Writing
     /// to it is as `terminal.clipboard-write` says.

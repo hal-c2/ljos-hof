@@ -163,6 +163,11 @@ Item {
         }
         onCommandFinished: code => root.hook("command-finished", ["HOF_COMMAND=" + root.command, "HOF_EXIT_CODE=" + (code < 0 ? "" : code)])
         onNotification: (title, body) => root.hook("notification", ["HOF_TITLE=" + title, "HOF_BODY=" + body])
+        onNotice: text => {
+            notice.text = text;
+            if (text.length > 0)
+                noticeShown.restart();
+        }
         onTitleChanged: root.hook("title-changed", ["HOF_TITLE=" + terminal.title])
         onWorkingDirectoryChanged: root.hook("directory-changed", ["HOF_DIRECTORY=" + terminal.workingDirectory])
         onAgentStatus: (agent, state) => {
@@ -406,6 +411,46 @@ Item {
             font.family: Settings.fontFamily
             textFormat: Text.PlainText
             font.pointSize: Math.max(1, root.fontSize - 1)
+        }
+    }
+
+    // A file of the other machine being copied here to open, or why it
+    // could not be.
+    Rectangle {
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottomMargin: 8
+        z: 1
+        visible: notice.text.length > 0
+        width: Math.min(parent.width - 16, notice.implicitWidth + 24)
+        height: notice.implicitHeight + 12
+        radius: 4
+        color: Qt.darker(root.background, 1.3)
+        border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+
+        Text {
+            id: notice
+
+            anchors.centerIn: parent
+            width: parent.width - 24
+            color: root.foreground
+            elide: Text.ElideMiddle
+            horizontalAlignment: Text.AlignHCenter
+            font.family: Settings.fontFamily
+            textFormat: Text.PlainText
+            font.pointSize: Math.max(1, root.fontSize - 1)
+        }
+
+        Timer {
+            id: noticeShown
+
+            interval: 8000
+            onTriggered: notice.text = ""
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: notice.text = ""
         }
     }
 

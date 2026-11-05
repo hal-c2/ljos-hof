@@ -136,8 +136,14 @@ fn a_program_on_a_host_reads_and_writes_the_clipboard_here() {
 }
 
 #[test]
-fn a_remote_program_cannot_open_a_local_file() {
+fn a_remote_programs_file_is_copied_here_and_the_copy_opened() {
     use ljos::prelude::*;
+    let there = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    hof_qml::remote::set_cache_dir(cache.path());
+    let remote = there.path().join("notes.md");
+    std::fs::write(&remote, "# from there\n").unwrap();
+
     let (_agent, _) = host("opens");
     let mut s = shown("opens", "read x", -1);
     let urls = RecordedUrls::default();
@@ -145,25 +151,34 @@ fn a_remote_program_cannot_open_a_local_file() {
     s.engine
         .set(s.t, Terminal::OPEN_URLS, "allow".to_owned())
         .unwrap();
-    for url in [
-        "/etc/passwd",
-        "relative.desktop",
-        "file:///etc/passwd",
-        "FILE:///etc/passwd",
-        "File:/etc/passwd",
-    ] {
+    // Relative to where it is there: nothing here can say.
+    for url in ["relative.desktop", "file:relative"] {
         let request = String::from_utf8(hof_vt::open_request(url)).unwrap();
         s.engine
             .invoke_by_name(s.t, "write", &[Value::from(request.as_str())])
             .unwrap();
     }
-    s.window.settle().unwrap();
-    assert!(urls.urls().is_empty(), "{:?}", urls.urls());
+    let url = hof_remote::files::file_url(&remote);
+    let request = String::from_utf8(hof_vt::open_request(&url)).unwrap();
+    s.engine
+        .invoke_by_name(s.t, "write", &[Value::from(request.as_str())])
+        .unwrap();
+    s.until("the copy to open", |_| !urls.urls().is_empty());
+    let opened = urls.urls();
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    let copy = hof_remote::files::path_of_url(&opened[0]).unwrap();
+    let copy = std::path::PathBuf::from(String::from_utf8(copy).unwrap());
+    assert!(
+        copy.starts_with(cache.path().join("hosts/opens")),
+        "{copy:?}"
+    );
+    assert_ne!(copy, remote, "a copy, not the file there");
+    assert_eq!(std::fs::read(&copy).unwrap(), b"# from there\n");
 
     let request = String::from_utf8(hof_vt::open_request("https://a.example")).unwrap();
     s.engine
         .invoke_by_name(s.t, "write", &[Value::from(request.as_str())])
         .unwrap();
     s.window.settle().unwrap();
-    assert_eq!(urls.urls(), ["https://a.example"]);
+    assert_eq!(urls.urls()[1..], ["https://a.example"]);
 }

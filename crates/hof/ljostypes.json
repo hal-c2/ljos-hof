@@ -809,6 +809,15 @@
                   "type": "string"
                 }
               ]
+            },
+            {
+              "name": "notice",
+              "parameters": [
+                {
+                  "name": "text",
+                  "type": "string"
+                }
+              ]
             }
           ],
           "methods": [

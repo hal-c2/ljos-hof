@@ -85,6 +85,8 @@ struct Known {
     transport: Option<Reach>,
     /// Made when a pane first wants it.
     host: Option<Arc<Host>>,
+    /// Copies of its files, made when a program there first opens one.
+    mirror: Option<Arc<hof_remote::files::Mirror>>,
 }
 
 static HOSTS: Mutex<BTreeMap<String, Known>> = Mutex::new(BTreeMap::new());
@@ -105,20 +107,23 @@ pub fn set_hosts(hosts: impl IntoIterator<Item = (String, Reach)>) {
             let k = Known {
                 transport: None,
                 host: k.host.clone(),
+                mirror: k.mirror.clone(),
             };
             (name.clone(), k)
         })
         .collect();
     for (name, transport) in hosts {
-        let host = known
+        let same = known
             .get(&name)
-            .filter(|k| k.transport.as_ref() == Some(&transport))
-            .and_then(|k| k.host.clone());
+            .filter(|k| k.transport.as_ref() == Some(&transport));
+        let host = same.and_then(|k| k.host.clone());
+        let mirror = same.and_then(|k| k.mirror.clone());
         new.insert(
             name,
             Known {
                 transport: Some(transport),
                 host,
+                mirror,
             },
         );
     }
@@ -133,8 +138,38 @@ pub fn set_host(name: &str, host: Host) {
         Known {
             transport: None,
             host: Some(Arc::new(host)),
+            mirror: None,
         },
     );
+}
+
+/// Where copies of other machines' files go, if not the user's cache.
+static CACHE: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
+
+/// Puts copies of other machines' files under `dir` rather than the
+/// user's cache, as a test does.
+pub fn set_cache_dir(dir: impl Into<std::path::PathBuf>) {
+    *CACHE.lock().unwrap_or_else(PoisonError::into_inner) = Some(dir.into());
+}
+
+/// The copies here of `name`'s files, kept the same as them: made the
+/// first time, and only for a host that is connected.
+pub(crate) fn mirror(name: &str) -> Option<Arc<hof_remote::files::Mirror>> {
+    let cache = CACHE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+        .or_else(hof_remote::files::cache_dir)?;
+    let mut known = HOSTS.lock().unwrap_or_else(PoisonError::into_inner);
+    let k = known.get_mut(name)?;
+    let host = k.host.clone()?;
+    let mirror = k.mirror.get_or_insert_with(|| {
+        let dir = hof_remote::files::host_dir(&cache, name);
+        hof_remote::files::Mirror::new(dir, name, move || {
+            host.connect(hof_remote::files::SERVICE, Vec::new())
+        })
+    });
+    Some(mirror.clone())
 }
 
 /// Whether terminals closed from now on leave their programs running on
@@ -183,6 +218,7 @@ pub(crate) fn host(name: &str) -> Option<Arc<Host>> {
             ),
         };
         k.host = Some(Arc::new(host));
+        k.mirror = None;
     }
     k.host.clone()
 }
