@@ -74,8 +74,10 @@
 //! and windows without tabs are dropped. A pane id that appears twice in a
 //! window is an error, since the app could not tell the panes apart.
 
+mod lock;
 mod named;
 mod path_repr;
+pub mod service;
 mod store;
 mod validate;
 
@@ -84,6 +86,10 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub use lock::{
+    Held, Listed, hold_first_free_in, hold_in, is_open_in, last_free_in, list_in, runtime_dir,
+    saved_at,
+};
 pub use named::{
     DEFAULT, forget, forget_beside, is_name, named, named_beside, saved, saved_beside,
 };
@@ -154,6 +160,13 @@ impl SavedTab {
     pub fn panes(&self) -> Vec<&SavedPane> {
         let mut out = Vec::new();
         self.root.panes(&mut out);
+        out
+    }
+
+    /// [`SavedTab::panes`], to change.
+    pub fn panes_mut(&mut self) -> Vec<&mut SavedPane> {
+        let mut out = Vec::new();
+        self.root.panes_mut(&mut out);
         out
     }
 }
