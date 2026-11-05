@@ -177,6 +177,11 @@ this machine's, and says why on its standard error.
 - The agent holds the session, with the same lock a window there takes,
   for as long as the channel lasts. So a session open on one machine is
   open on the other too, and a Hof on either says so.
+- An ssh login may set no `XDG_RUNTIME_DIR` (Tailscale's doesn't). Hof
+  and its agent then take `/run/user/UID`, when it is that user's own
+  private directory, as a desktop login has it: else the agent ssh starts
+  would not be the one the machine's own windows keep their panes under,
+  nor would the session locks be the same.
 - The connection is kept up for the channel while the window runs
   (`Host::keep_connected`), though no pane may want it yet.
 - A pane's host is as the machine it is saved on names it. A pane of

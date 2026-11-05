@@ -19,6 +19,37 @@ use crate::Agent;
 /// How long the bridge waits for an agent it started to listen.
 const START_WAIT: Duration = Duration::from_secs(5);
 
+/// Sets `$XDG_RUNTIME_DIR` to `/run/user/UID` when it is not set and that
+/// is this user's own, private directory: as a login on the desktop has
+/// it, where an ssh login may not (Tailscale's, say). Else the agent ssh
+/// starts is not the one this machine's Hof keeps its panes under, nor are
+/// the session locks the same, and a Hof elsewhere attaches to none of
+/// them. To be called first thing, before any thread starts.
+pub fn settle_runtime_dir() {
+    let uid = rustix::process::getuid().as_raw();
+    if let Some(dir) = login_runtime_dir(
+        std::env::var_os("XDG_RUNTIME_DIR"),
+        Path::new("/run/user"),
+        uid,
+    ) {
+        // SAFETY: no other thread runs yet to read the environment.
+        unsafe { std::env::set_var("XDG_RUNTIME_DIR", dir) };
+    }
+}
+
+/// `UID` in `run_user`, when `set` is no runtime directory and that is a
+/// directory of `uid`'s alone.
+fn login_runtime_dir(set: Option<OsString>, run_user: &Path, uid: u32) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    if set.is_some_and(|d| Path::new(&d).is_absolute()) {
+        return None;
+    }
+    let dir = run_user.join(uid.to_string());
+    let metadata = std::fs::symlink_metadata(&dir).ok()?;
+    (metadata.file_type().is_dir() && metadata.uid() == uid && metadata.mode() & 0o077 == 0)
+        .then_some(dir)
+}
+
 /// Where the agent listens: `$HOF_AGENT_SOCKET`, else
 /// `$XDG_RUNTIME_DIR/hof-agent.sock`, else `agent.sock` in a private
 /// directory for this user in the temporary directory.
@@ -347,6 +378,38 @@ fn wait_for(path: &Path) -> io::Result<UnixStream> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_ssh_login_without_a_runtime_directory_takes_the_desktops() {
+        use std::os::unix::fs::PermissionsExt;
+        let run = tempfile::tempdir().unwrap();
+        let uid = rustix::process::getuid().as_raw();
+        let mine = run.path().join(uid.to_string());
+        std::fs::create_dir(&mine).unwrap();
+        std::fs::set_permissions(&mine, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(login_runtime_dir(None, run.path(), uid), Some(mine.clone()));
+        assert_eq!(
+            login_runtime_dir(Some("relative".into()), run.path(), uid),
+            Some(mine.clone()),
+            "a relative one is no runtime directory"
+        );
+        assert_eq!(
+            login_runtime_dir(Some("/run/user/7".into()), run.path(), uid),
+            None,
+            "one set is kept"
+        );
+        assert_eq!(
+            login_runtime_dir(None, run.path(), uid + 1),
+            None,
+            "none there"
+        );
+        std::fs::set_permissions(&mine, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            login_runtime_dir(None, run.path(), uid),
+            None,
+            "not private"
+        );
+    }
 
     #[test]
     fn the_socket_is_the_one_asked_for_else_in_the_runtime_directory() {

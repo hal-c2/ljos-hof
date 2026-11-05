@@ -105,6 +105,9 @@ enum Action {
 }
 
 fn main() -> Result<()> {
+    // Over an ssh login that set none, the desktop's: the same agent, locks
+    // and sockets as this machine's own windows use.
+    hof_agent::daemon::settle_runtime_dir();
     let mut cli = Cli::parse();
     let attach = match cli.action.take() {
         Some(Action::Mcp { socket }) => {

@@ -14,5 +14,6 @@ struct Cli {
 }
 
 fn main() -> anyhow::Result<()> {
+    hof_agent::daemon::settle_runtime_dir();
     hof_agent::cli::run(Cli::parse().here)
 }
