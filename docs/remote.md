@@ -139,6 +139,40 @@ and closing Hof leaves the programs running.
   have nothing of the session's, and it won't touch a session a Hof has
   open.
 
+### A session kept on another machine
+
+`hof attach --host desktop work` opens the session `work` that is kept
+on `desktop`, a `[hosts]` name. `hof sessions --host desktop` lists that
+machine's sessions, and `hof forget --host desktop work` ends one's
+programs and forgets it there.
+
+- The agent there serves a `sessions` channel
+  (`hof_session::service`): one JSON object a line each way, to list,
+  hold, save and forget. The scrollback the file keeps apart is carried
+  with the session.
+- The agent holds the session, with the same lock a window there takes,
+  for as long as the channel lasts. So a session open on one machine is
+  open on the other too, and a Hof on either says so.
+- The connection is kept up for the channel while the window runs
+  (`Host::keep_connected`), though no pane may want it yet.
+- A pane's host is as the machine it is saved on names it. A pane of
+  `desktop`'s own (no host there) is `desktop` here; a pane here is
+  saved as running on this machine's name. Hosts both know by the same
+  name stay as they are. So `hof attach work` back on `desktop` opens it
+  as it was left.
+- New tabs, and the first pane of a session not saved yet, run on
+  `desktop`. A split runs where the pane it splits does.
+- Each save as Hof runs is sent and not waited for; a newer one takes the
+  place of one not sent yet. The last, as Hof goes, is waited for a few
+  seconds. Only if it was kept are the programs left running.
+- When the connection drops, the agent there sees the channel end and
+  lets the session go. The next save holds it again on a new channel.
+- The window keeps no `hof ctl` socket for it: the name here may be a
+  session of this machine's.
+- Not yet: a session another Hof takes in the moment the connection was
+  down stays that one's, and this window's saves are refused with a
+  warning.
+
 Search, selection, links, shell integration, hooks and painting are the
 same code a local pane runs.
 

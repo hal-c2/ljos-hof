@@ -96,6 +96,12 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   time has a session open: a second plain `hof` keeps a session of its
   own (`2`, then `3`), not the first one's. A window started for a
   command (`hof -e htop`) keeps none.
+- **Sessions on other machines.** `hof attach --host desktop work`
+  opens the session `work` kept on `desktop` (a `[hosts]` name), its
+  programs still running there, and keeps it there as it changes. Back
+  at `desktop`, `hof attach work` opens it as it was left. `hof sessions
+  --host desktop` and `hof forget --host desktop work` do the same there.
+  It needs this Hof on both machines.
 - **Themes.** Nine are built in, and you can add your own as
   `themes/<name>.toml`.
 
