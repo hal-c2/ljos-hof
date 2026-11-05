@@ -61,6 +61,18 @@ pub fn forget(name: &str, config: &Path, agent: &Path) -> anyhow::Result<usize> 
     let file = hof_session::named(name);
     let session =
         hof_session::load(&file)?.with_context(|| format!("no session {name} is saved"))?;
+    if let Ok(loaded) = hof_config::load(config) {
+        hof_qml::remote::set_hosts(crate::settings::transports(&loaded.config));
+    }
+    let ended = end_programs(&session, agent);
+    hof_session::forget(name)?;
+    Ok(ended)
+}
+
+/// Ends the programs `session`'s panes kept running: on this machine (the
+/// agent at `agent`, not started for it) and on the hosts set. Returns how
+/// many it ended.
+pub(crate) fn end_programs(session: &hof_session::Session, agent: &Path) -> usize {
     let panes: Vec<(String, u32)> = session
         .windows
         .iter()
@@ -68,21 +80,15 @@ pub fn forget(name: &str, config: &Path, agent: &Path) -> anyhow::Result<usize> 
         .flat_map(|t| t.panes())
         .filter_map(|p| Some((p.host.clone().unwrap_or_default(), p.remote?)))
         .collect();
-    let ended = if panes.is_empty() {
-        0
-    } else {
-        if let Ok(loaded) = hof_config::load(config) {
-            hof_qml::remote::set_hosts(crate::settings::transports(&loaded.config));
-        }
-        // An agent that is not running has nothing of the session's.
-        hof_qml::remote::keep_here(Some(hof_qml::remote::Here {
-            socket: agent.to_owned(),
-            start: std::sync::Arc::new(|| Err(io::ErrorKind::NotFound.into())),
-        }));
-        hof_qml::remote::end_unseen(&panes, FORGET_WAIT)
-    };
-    hof_session::forget(name)?;
-    Ok(ended)
+    if panes.is_empty() {
+        return 0;
+    }
+    // An agent that is not running has nothing of the session's.
+    hof_qml::remote::keep_here(Some(hof_qml::remote::Here {
+        socket: agent.to_owned(),
+        start: std::sync::Arc::new(|| Err(io::ErrorKind::NotFound.into())),
+    }));
+    hof_qml::remote::end_unseen(&panes, FORGET_WAIT)
 }
 
 #[cfg(test)]

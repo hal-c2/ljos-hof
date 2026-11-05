@@ -2,6 +2,7 @@
 //! time), the terminal item from `hof_qml`, and the two singletons the QML
 //! reads, [`App`] (how it was started) and [`Settings`] (the config file).
 
+pub mod away;
 pub mod ctl;
 pub mod held;
 mod ipc;
@@ -89,6 +90,10 @@ pub struct App {
     /// The session the window keeps (`hof attach NAME`); empty for none.
     #[qml(readonly)]
     pub session: String,
+    /// The `[hosts]` host the session is kept on (`hof attach --host`),
+    /// where a new tab runs; empty for this machine.
+    #[qml(readonly)]
+    pub home: String,
     /// Where `hof ctl` reaches this window; panes get it as `HOF_SOCKET`.
     #[qml(notify, readonly)]
     pub control_socket: String,
@@ -110,6 +115,7 @@ impl Default for App {
                 .unwrap_or_default(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
             session: l.session_name.clone().unwrap_or_default(),
+            home: away::get().map(|a| a.host().to_owned()).unwrap_or_default(),
             control_socket: String::new(),
             mcp_socket: String::new(),
         }
@@ -144,7 +150,16 @@ impl App {
         let Some(layout) = workspace.and_then(|w| hof_qml::Workspace::layout(cx.engine, w)) else {
             return false;
         };
-        let saved = sessions::save(&sessions::path(), &layout.borrow(), &panes, width, height);
+        let saved = match away::get() {
+            Some(away) => {
+                sessions::session_of(&layout.borrow(), &panes, width, height).and_then(|s| {
+                    away.save(s, quitting)
+                        .then_some(())
+                        .ok_or(sessions::Error::Away)
+                })
+            }
+            None => sessions::save(&sessions::path(), &layout.borrow(), &panes, width, height),
+        };
         // Hof is going, with the session to come back to: the programs of
         // remote panes run on, for the next start to attach to. Not while
         // it runs, or closing a remote pane would leave its program behind.
@@ -164,7 +179,11 @@ impl App {
         let Some(workspace) = workspace else {
             return String::new();
         };
-        match sessions::load(&sessions::path()) {
+        let loaded = match away::get() {
+            Some(away) => Ok(away.take().and_then(sessions::opened_session)),
+            None => sessions::load(&sessions::path()),
+        };
+        match loaded {
             Ok(Some((layout, restored))) => {
                 hof_qml::Workspace::replace(cx.engine, workspace, layout);
                 serde_json::to_string(&restored).unwrap_or_default()
@@ -194,7 +213,11 @@ impl App {
     /// Forgets the saved session, so the next start is a fresh one.
     #[qml(invokable)]
     fn clear_session(_cx: &Cx) {
-        if let Err(e) = sessions::clear(&sessions::path()) {
+        let cleared = match away::get() {
+            Some(away) => away.forget().then_some(()).ok_or(sessions::Error::Away),
+            None => sessions::clear(&sessions::path()),
+        };
+        if let Err(e) = cleared {
             eprintln!("hof: the session was not cleared: {e}");
         }
     }

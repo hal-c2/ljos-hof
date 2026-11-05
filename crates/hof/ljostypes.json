@@ -1354,6 +1354,18 @@
               "notify": null
             },
             {
+              "name": "home",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": null
+            },
+            {
               "name": "controlSocket",
               "type": "string",
               "kind": "value",

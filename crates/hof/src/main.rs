@@ -66,13 +66,27 @@ enum Action {
     Attach {
         /// Letters, digits, '.', '_' and '-'; `default` is a plain `hof`'s.
         name: Option<String>,
+        /// The session kept on this `[hosts]` host, in place of this
+        /// machine: its programs run on there, and it is kept there.
+        #[arg(long)]
+        host: Option<String>,
     },
     /// List the saved sessions: whether a Hof has each open, and what it
     /// holds.
-    Sessions,
+    Sessions {
+        /// Those on this `[hosts]` host, in place of this machine.
+        #[arg(long)]
+        host: Option<String>,
+    },
     /// End the programs a session kept running, here and on its hosts, and
     /// forget it. Not one a Hof has open: close its panes there.
-    Forget { name: String },
+    Forget {
+        name: String,
+        /// The session kept on this `[hosts]` host, in place of this
+        /// machine.
+        #[arg(long)]
+        host: Option<String>,
+    },
     #[command(flatten)]
     Here(hof_agent::cli::Here),
 }
@@ -94,22 +108,31 @@ fn main() -> Result<()> {
             std::process::exit(done.code);
         }
         Some(Action::Here(here)) => return hof_agent::cli::run(here),
-        Some(Action::Sessions) => {
-            print!(
-                "{}",
-                listing(&hof::held::list(), std::time::SystemTime::now())
-            );
+        Some(Action::Sessions { host }) => {
+            let listed = match host {
+                Some(host) => hof::away::list(&host, &config_of(&cli)?.config)?,
+                None => hof::held::list(),
+            };
+            hof_qml::remote::finish(std::time::Duration::from_secs(2));
+            print!("{}", listing(&listed, std::time::SystemTime::now()));
             return Ok(());
         }
-        Some(Action::Forget { name }) => {
-            let config = cli.config.unwrap_or_else(hof_config::path);
-            let ended = hof::held::forget(&name, &config, &hof_agent::daemon::socket_path())?;
+        Some(Action::Forget { name, host }) => {
+            let agent = hof_agent::daemon::socket_path();
+            let ended = match host {
+                Some(host) => hof::away::forget(&host, &name, &config_of(&cli)?.config, &agent)?,
+                None => {
+                    let config = cli.config.clone().unwrap_or_else(hof_config::path);
+                    hof::held::forget(&name, &config, &agent)?
+                }
+            };
+            hof_qml::remote::finish(std::time::Duration::from_secs(2));
             if ended > 0 {
                 println!("ended {ended} program{}", if ended == 1 { "" } else { "s" });
             }
             return Ok(());
         }
-        Some(Action::Attach { name }) => Some(name),
+        Some(Action::Attach { name, host }) => Some((name, host)),
         None => None,
     };
     if attach.is_some() && (cli.dropdown || cli.toggle || cli.tab || !cli.command.is_empty()) {
@@ -118,7 +141,7 @@ fn main() -> Result<()> {
         );
     }
     // Held for as long as Hof runs: no other Hof keeps this session too.
-    let (held, restore) = session(attach, &cli)?;
+    let (held, session_name, restore) = session(attach, &cli)?;
     let working_directory = match cli.working_directory {
         Some(d) => Some(std::path::absolute(&d).with_context(|| d.display().to_string())?),
         None => None,
@@ -131,7 +154,7 @@ fn main() -> Result<()> {
         socket: cli.socket,
         watch_config: true,
         session: None,
-        session_name: held.as_ref().map(|h| h.name.clone()),
+        session_name,
         restore,
         // This same program, which is `hof agent` too; the socket a Hof
         // elsewhere reaches it at, so it can attach these panes as well.
@@ -183,11 +206,18 @@ fn main() -> Result<()> {
 /// the one saved last that is free; a plain `hof` the first free of
 /// `default`, `2`, `3` and on. A dropdown keeps none, nor does a window for
 /// a command, so it never saves over a session another keeps.
+///
+/// `hof attach --host` keeps the session on that host, which holds it: the
+/// name returned is the one it had there.
 fn session(
-    attach: Option<Option<String>>,
+    attach: Option<(Option<String>, Option<String>)>,
     cli: &Cli,
-) -> Result<(Option<hof::held::Held>, Option<bool>)> {
-    if let Some(name) = attach {
+) -> Result<(Option<hof::held::Held>, Option<String>, Option<bool>)> {
+    if let Some((name, Some(host))) = attach {
+        let name = hof::away::open(&host, name.as_deref(), &config_of(cli)?.config)?;
+        return Ok((None, Some(name), Some(true)));
+    }
+    if let Some((name, None)) = attach {
         let name = match name {
             Some(name) => name,
             None => hof::held::last_free().context(
@@ -198,21 +228,31 @@ fn session(
         let held = hof::held::hold(&name)
             .with_context(|| format!("the session {name}"))?
             .with_context(|| format!("another Hof has the session {name} open"))?;
-        return Ok((Some(held), Some(true)));
+        let name = held.name.clone();
+        return Ok((Some(held), Some(name), Some(true)));
     }
     if cli.dropdown || cli.toggle || cli.tab {
-        return Ok((None, None));
+        return Ok((None, None, None));
     }
     if !cli.command.is_empty() {
-        return Ok((None, Some(false)));
+        return Ok((None, None, Some(false)));
     }
     match hof::held::hold_first_free() {
-        Ok(held) => Ok((Some(held), None)),
+        Ok(held) => {
+            let name = held.name.clone();
+            Ok((Some(held), Some(name), None))
+        }
         Err(e) => {
             eprintln!("hof: this window keeps no session: {e}");
-            Ok((None, Some(false)))
+            Ok((None, None, Some(false)))
         }
     }
+}
+
+/// The config, as the command line says where it is.
+fn config_of(cli: &Cli) -> Result<hof_config::Loaded> {
+    let path = cli.config.clone().unwrap_or_else(hof_config::path);
+    hof_config::load(&path).with_context(|| path.display().to_string())
 }
 
 /// `hof sessions`: one line each, as of `now`.

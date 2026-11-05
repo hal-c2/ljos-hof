@@ -19,6 +19,8 @@ pub(crate) enum Error {
     Panes(#[from] serde_json::Error),
     #[error(transparent)]
     Store(#[from] hof_session::Error),
+    #[error("it was not kept on the machine it is kept on")]
+    Away,
 }
 
 /// Where this run keeps its session: the launch's, else its name's, else
@@ -79,24 +81,38 @@ pub(crate) fn save(
     width: f64,
     height: f64,
 ) -> Result<(), Error> {
-    let panes: BTreeMap<String, PaneState> = serde_json::from_str(panes)?;
-    let window = saved_window(layout, panes, width, height);
-    hof_session::save(at, &Session::new(vec![window]))?;
+    hof_session::save(at, &session_of(layout, panes, width, height)?)?;
     Ok(())
+}
+
+/// The session of `layout`, with what `panes` (JSON, pane id to
+/// [`PaneState`]) says of each pane, and the window's size.
+pub(crate) fn session_of(
+    layout: &Layout,
+    panes: &str,
+    width: f64,
+    height: f64,
+) -> Result<Session, Error> {
+    let panes: BTreeMap<String, PaneState> = serde_json::from_str(panes)?;
+    Ok(Session::new(vec![saved_window(
+        layout, panes, width, height,
+    )]))
 }
 
 /// The saved session at `at`, opened as a layout, if there is one with a
 /// window to open.
 pub(crate) fn load(at: &Path) -> Result<Option<(Layout, Restored)>, Error> {
-    let Some(session) = hof_session::load(at)? else {
-        return Ok(None);
-    };
+    Ok(hof_session::load(at)?.and_then(opened_session))
+}
+
+/// `session` opened as a layout, if it has a window to open.
+pub(crate) fn opened_session(session: Session) -> Option<(Layout, Restored)> {
     // One window is saved; a dropdown's would be its own run's.
-    Ok(session
+    session
         .windows
         .into_iter()
         .find(|w| !w.dropdown && !w.tabs.is_empty())
-        .map(opened))
+        .map(opened)
 }
 
 /// Forgets the saved session: the user closed everything, so the next

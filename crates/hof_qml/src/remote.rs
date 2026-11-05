@@ -387,7 +387,7 @@ pub fn finish(within: std::time::Duration) {
 
 /// The host called `name`, connecting the first time; `None` for a name no
 /// one gave.
-pub(crate) fn host(name: &str) -> Option<Arc<Host>> {
+pub fn host(name: &str) -> Option<Arc<Host>> {
     let mut known = HOSTS.lock().unwrap_or_else(PoisonError::into_inner);
     let k = known.get_mut(name)?;
     if k.host.is_none() {

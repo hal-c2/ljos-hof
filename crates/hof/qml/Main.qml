@@ -82,7 +82,7 @@ Window {
     height: 560
     // The session's name after, when it is not a plain `hof`'s: windows of
     // two sessions are told apart.
-    title: (window.current !== null && window.current.title.length > 0 ? window.current.title : Settings.title) + (App.session.length > 0 && App.session !== "default" ? " — " + App.session : "")
+    title: (window.current !== null && window.current.title.length > 0 ? window.current.title : Settings.title) + (App.home.length > 0 ? " — " + App.session + " on " + App.home : App.session.length > 0 && App.session !== "default" ? " — " + App.session : "")
     color: Qt.rgba(window.background.r, window.background.g, window.background.b, Settings.opacity)
     flags: App.dropdown ? (Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint) : (Settings.decorations ? Qt.Window : (Qt.Window | Qt.FramelessWindowHint))
 
@@ -181,7 +181,9 @@ Window {
 
     // The `[hosts]` name the pane runs on; empty for this machine.
     function hostOf(pane) {
-        return (window.starts[pane] ?? {}).host ?? "";
+        // The first pane, started as the window was, runs at its home.
+        const start = window.starts[pane];
+        return start === undefined ? App.home : (start.host ?? "");
     }
 
     // How the agents in `panes` are, the one most in need first: one
@@ -231,7 +233,8 @@ Window {
     }
 
     function newTab(directory, command, environment, host) {
-        const on = host ?? "";
+        // A session kept on another machine opens its tabs there.
+        const on = host ?? App.home;
         // The focused pane's directory means nothing on another machine.
         const from = window.hostOf(workspace.focusedPane) === on ? window.directoryOfCurrent() : "";
         window.holding = true;
@@ -822,8 +825,9 @@ Window {
                     height: Math.round((slot.ry + slot.rh) * area.height) - y
                     visible: slot.shown
                     start: window.starts[slot.pane] ?? ({
-                            directory: App.workingDirectory,
-                            command: App.command
+                            directory: App.home.length > 0 ? "" : App.workingDirectory,
+                            command: App.command,
+                            host: App.home
                         })
                     fontSize: window.fontSize
                     background: window.background

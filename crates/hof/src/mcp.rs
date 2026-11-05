@@ -91,7 +91,8 @@ fn start(
 /// keep no session so.
 fn kept_control(host: &Arc<dyn Host>) -> Option<PathBuf> {
     let launch = crate::launch();
-    if launch.agent.is_none() || launch.dropdown {
+    // A session kept elsewhere: its name here may be another's.
+    if launch.agent.is_none() || launch.dropdown || crate::away::get().is_some() {
         return None;
     }
     let path = crate::held::control_socket(launch.session_name.as_deref()?);
