@@ -742,6 +742,21 @@ impl Terminal {
         with_session(cx.engine, cx.this, |s| s.reset());
     }
 
+    /// Where the program is now: what the shell last said (OSC 7), else,
+    /// for a shell that never says (bash), the directory the system says
+    /// it works in. Empty when neither is known.
+    #[qml(invokable)]
+    fn directory(cx: &Cx) -> String {
+        let said = item::prop(cx.engine, cx.this, Terminal::WORKING_DIRECTORY);
+        if !said.is_empty() {
+            return said;
+        }
+        with_session(cx.engine, cx.this, |s| s.directory())
+            .flatten()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+
     /// The screen and scrollback as escape sequences that draw them again:
     /// what `restore` takes.
     #[qml(invokable)]

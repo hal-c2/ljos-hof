@@ -159,8 +159,9 @@ Window {
     // Where a pane is: where its shell last said, else where it started.
     function directoryOf(pane) {
         const t = window.terminalOf(pane);
-        if (t !== null && t.workingDirectory.length > 0)
-            return t.workingDirectory;
+        const here = t === null ? "" : t.directory();
+        if (here.length > 0)
+            return here;
         return (window.starts[pane] ?? {}).directory ?? "";
     }
 

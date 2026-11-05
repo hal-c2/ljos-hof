@@ -350,6 +350,12 @@ impl Session {
         self.child.as_ref().map(|c| c.pid)
     }
 
+    /// The directory the program (the shell) works in now, as the system
+    /// says; `None` for a remote session or when it won't say.
+    pub fn directory(&self) -> Option<std::path::PathBuf> {
+        crate::process::directory_of(self.pid()?)
+    }
+
     /// What runs in the foreground now: the shell's command, if it is
     /// running one, else the shell. A remote session's is what its machine
     /// last said. `None` for a session whose program is nowhere Hof can

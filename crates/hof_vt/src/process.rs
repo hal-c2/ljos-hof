@@ -7,7 +7,7 @@
 //! from the shell it was started in, without the agent's help.
 
 use std::os::fd::AsFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A process, as `/proc` describes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +74,54 @@ pub fn of(pid: u32) -> Option<Process> {
     })
 }
 
+/// The directory process `pid` works in, as the kernel says: where a
+/// shell that never tells (bash sends no OSC 7) is. `None` when the
+/// process is gone, not this user's, or the system won't say.
+pub fn directory_of(pid: u32) -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_directory_of(pid)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let path = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
+        // A directory removed under it reads as "/gone (deleted)".
+        path.exists().then_some(path)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_directory_of(pid: u32) -> Option<PathBuf> {
+    use std::ffi::CStr;
+    use std::os::unix::ffi::OsStrExt;
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut info = std::mem::MaybeUninit::<libc::proc_vnodepathinfo>::zeroed();
+    let size = std::mem::size_of::<libc::proc_vnodepathinfo>() as libc::c_int;
+    // SAFETY: the buffer is a zeroed `proc_vnodepathinfo`, `size` bytes,
+    // which is what this flavour fills in.
+    let got = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDVNODEPATHINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if got != size {
+        return None;
+    }
+    // SAFETY: filled in whole, as `got` says; zeroed before, so a valid value.
+    let info = unsafe { info.assume_init() };
+    let path = &info.pvi_cdir.vip_path;
+    // SAFETY: `vip_path` is MAXPATHLEN `c_char`s laid out as 32 rows of 32.
+    let bytes: &[u8] =
+        unsafe { std::slice::from_raw_parts(path.as_ptr().cast(), std::mem::size_of_val(path)) };
+    let path = CStr::from_bytes_until_nul(bytes).ok()?;
+    let path = PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes()));
+    (!path.as_os_str().is_empty()).then_some(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +153,13 @@ mod tests {
     #[test]
     fn a_program_run_by_its_path_is_known_by_its_file_name() {
         assert!(process("python3", &["/home/me/.local/bin/aider"]).is("aider"));
+    }
+
+    #[test]
+    fn a_process_s_directory_is_where_it_works() {
+        let here = std::env::current_dir().unwrap();
+        assert_eq!(directory_of(std::process::id()), Some(here));
+        assert_eq!(directory_of(u32::MAX), None);
     }
 
     #[test]

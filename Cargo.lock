@@ -1893,6 +1893,7 @@ dependencies = [
  "hof_remote",
  "hof_session",
  "hof_vt",
+ "libc",
  "ljos",
  "ljos_audit",
  "notify",
@@ -1975,6 +1976,7 @@ name = "hof_vt"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
+ "libc",
  "libghostty-vt",
  "rustix 1.1.6",
  "thiserror 2.0.21",

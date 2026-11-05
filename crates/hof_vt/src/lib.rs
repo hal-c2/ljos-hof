@@ -38,7 +38,7 @@ pub use find::{Found, Highlight};
 pub use grid::{Attrs, Cell, Colors, Cursor, CursorShape, Damage, Grid, Line, Rgb};
 pub use input::{KeyInput, MouseAction, MouseButton, MouseInput};
 pub use links::{Hyperlink, LinkSpan, find_urls};
-pub use process::Process;
+pub use process::{Process, directory_of};
 pub use pty::Spawn;
 pub use remote::{Feed, Link, Outlet};
 pub use report::{OPEN_KEY, OPEN_OSC, OSC as AGENT_OSC, Report, open_request, open_request_keyed};
