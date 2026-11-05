@@ -404,9 +404,12 @@ impl Host {
                 return Err(io::ErrorKind::NotConnected.into());
             }
             match answered.recv_timeout(within) {
-                Ok(Some(relays)) => break relays,
-                Ok(None) if Instant::now() < given_up => {
+                Ok(Ok(relays)) => break relays,
+                Ok(Err(_)) if Instant::now() < given_up => {
                     thread::sleep(Duration::from_millis(100));
+                }
+                Ok(Err(Some(why))) => {
+                    return Err(io::Error::new(io::ErrorKind::NotConnected, why));
                 }
                 _ => {
                     return Err(io::Error::new(
@@ -530,7 +533,9 @@ enum Event {
     Ended(u64, Option<String>),
     /// [`Host::connect`] wants the channels of the connection, once the
     /// agent has said hello on it.
-    Relays(mpsc::Sender<Option<Relays>>),
+    /// `Err` with why the last connection ended, if one did, while there
+    /// is none.
+    Relays(mpsc::Sender<Result<Relays, Option<String>>>),
     /// [`Host::finish`].
     Finish {
         keep: bool,
@@ -679,7 +684,8 @@ impl Driver {
                         .live
                         .as_ref()
                         .filter(|l| l.greeted)
-                        .map(|l| l.relays.clone());
+                        .map(|l| l.relays.clone())
+                        .ok_or_else(|| self.why.clone().filter(|_| self.live.is_none()));
                     let _ = answer.send(relays);
                 }
                 Some(Event::Heard(generation, message)) => {
