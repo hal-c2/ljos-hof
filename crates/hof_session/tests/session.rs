@@ -140,6 +140,32 @@ fn saving_again_replaces_the_session() {
 }
 
 #[test]
+fn saving_the_same_again_leaves_the_files_as_they_were() {
+    use std::os::unix::fs::MetadataExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = session_path(&dir);
+    save(&path, &sample()).unwrap();
+    let scrollback = path.parent().unwrap().join("scrollback");
+    let inodes = |p: &Path| {
+        let mut all = vec![fs::metadata(p).unwrap().ino()];
+        for e in fs::read_dir(&scrollback).unwrap() {
+            all.push(e.unwrap().metadata().unwrap().ino());
+        }
+        all.sort();
+        all
+    };
+    let before = inodes(&path);
+    let json = fs::metadata(&path).unwrap().ino();
+    // Kept every so often: what has not changed is not written again.
+    save(&path, &sample()).unwrap();
+    assert_eq!(inodes(&path), before);
+    let smaller = Session::new(vec![window(vec![tab(pane(7, "/opt"), 7)])]);
+    save(&path, &smaller).unwrap();
+    assert_ne!(fs::metadata(&path).unwrap().ino(), json);
+    assert_eq!(load(&path).unwrap(), Some(smaller));
+}
+
+#[test]
 fn the_json_is_readable_and_holds_no_scrollback() {
     let dir = tempfile::tempdir().unwrap();
     let path = session_path(&dir);

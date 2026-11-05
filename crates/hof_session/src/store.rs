@@ -170,8 +170,13 @@ fn remove_stale_scrollback(dir: &Path, kept: &HashSet<OsString>) -> Result<(), E
 }
 
 /// Writes `bytes` to a private temporary file beside `path`, flushes it to
-/// disk and renames it over `path`, so readers see all of it or none.
+/// disk and renames it over `path`, so readers see all of it or none. A
+/// file that holds `bytes` already is left as it is: the session is saved
+/// every so often, and most of it is the same each time.
 fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), Error> {
+    if holds(path, bytes) {
+        return Ok(());
+    }
     let dir = parent(path);
     let mut builder = tempfile::Builder::new();
     builder.prefix(".hof-").suffix(".tmp");
@@ -194,6 +199,12 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), Error> {
         let _ = d.sync_all();
     }
     Ok(())
+}
+
+/// Whether the file at `path` is `bytes`, read only when its length is.
+fn holds(path: &Path, bytes: &[u8]) -> bool {
+    fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == bytes.len() as u64)
+        && fs::read(path).is_ok_and(|there| there == bytes)
 }
 
 /// Makes `dir` and any missing parents, those it makes readable by the user
