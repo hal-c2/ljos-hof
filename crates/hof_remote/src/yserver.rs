@@ -8,15 +8,15 @@
 //! its last window closes, and is started again for the next.
 
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::client::Service;
+use crate::program;
 use crate::relay::Socket;
 use crate::x11::{self, Auth, COOKIE, FAMILY_WILD, NotSetup, SERVICE, Setup};
 
@@ -62,25 +62,13 @@ impl Yserver {
     /// yserver, if it is here: `$HOF_YSERVER`, else, on a Mac, `yserver`
     /// on the `PATH` or the app in `/Applications` or `~/Applications`.
     pub fn find() -> Option<Self> {
-        if let Some(program) = std::env::var_os("HOF_YSERVER").filter(|p| !p.is_empty()) {
-            return Some(Self::new(program));
-        }
-        if !cfg!(target_os = "macos") {
-            return None;
-        }
-        let on_path = std::env::var_os("PATH")
-            .into_iter()
-            .flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
-            .map(|dir| dir.join("yserver"));
         let app = "Applications/yserver.app/Contents/MacOS/yserver";
         let apps = [
             Some(Path::new("/").join(app)),
             std::env::var_os("HOME").map(|h| Path::new(&h).join(app)),
         ];
-        on_path
-            .chain(apps.into_iter().flatten())
-            .find(|p| is_program(p))
-            .map(Self::new)
+        let apps: Vec<_> = apps.into_iter().flatten().collect();
+        program::find("HOF_YSERVER", "yserver", &apps).map(Self::new)
     }
 
     /// The display yserver serves and its cookie, starting it if it is not
@@ -101,19 +89,7 @@ impl Yserver {
 
     fn start(&self) -> io::Result<Running> {
         let number = free_display()?;
-        // One of this Hof's own for each start: two starting at once take
-        // the same free number, and a directory left by a Hof that died is
-        // not reused.
-        static STARTS: AtomicU32 = AtomicU32::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "hof-yserver-{}-{}",
-            std::process::id(),
-            STARTS.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&dir)
-            .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", dir.display())))?;
+        let dir = program::private_dir("yserver")?;
         let cookie = random_cookie()?;
         let mut file = Vec::new();
         Auth {
@@ -147,32 +123,23 @@ impl Yserver {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", self.program.display())))?;
+            .map_err(|e| {
+                let _ = std::fs::remove_dir_all(&dir);
+                io::Error::new(e.kind(), format!("{}: {e}", self.program.display()))
+            })?;
         let mut running = Running {
             child,
             number,
             cookie,
             dir,
         };
-        let began = Instant::now();
-        loop {
-            if UnixStream::connect(socket_path(number)).is_ok() {
-                return Ok(running);
-            }
-            if let Ok(Some(status)) = running.child.try_wait() {
-                return Err(io::Error::other(format!(
-                    "{} stopped before it listened ({status})",
-                    self.program.display()
-                )));
-            }
-            if began.elapsed() > STARTING {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    format!("{} did not listen on :{number}", self.program.display()),
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        program::wait_to_listen(
+            &mut running.child,
+            &self.program,
+            Path::new(&socket_path(number)),
+            STARTING,
+        )?;
+        Ok(running)
     }
 }
 
@@ -213,11 +180,6 @@ fn free_display() -> io::Result<u32> {
                 && !Path::new(&socket_path(*n)).exists()
         })
         .ok_or_else(|| io::Error::other("no display number free"))
-}
-
-fn is_program(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 fn random_cookie() -> io::Result<[u8; 16]> {

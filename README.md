@@ -183,7 +183,10 @@ Hof's own connection. On a Mac they open through
 `PATH`, in Applications, or named by `HOF_YSERVER`): Hof starts it
 rootless the first time a window opens, so each X window is a Mac window
 of its own. Without yserver, the X server `$DISPLAY` names (XQuartz) is
-used.
+used. Sound goes to the PulseAudio or PipeWire server running here; a Mac
+has none, so Hof starts its own PulseAudio (`brew install pulseaudio`, or
+named by `HOF_PULSEAUDIO`) when a program there first plays, and it plays
+through CoreAudio.
 
 ## Not yet
 

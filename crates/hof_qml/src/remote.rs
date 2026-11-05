@@ -43,15 +43,28 @@ impl Reach {
             }
         }
         if self.sound
-            && let Some(sound) = hof_remote::pulse::Forward::from_env()
+            && let Some(sound) = sound()
         {
-            services.push(Arc::new(sound));
+            services.push(sound);
         }
         client::Options {
             services,
             ..client::Options::default()
         }
     }
+}
+
+/// The sound server running here, else PulseAudio where it is installed
+/// (on a Mac, or named by `$HOF_PULSEAUDIO`), started when a program
+/// there first plays: one for every host.
+fn sound() -> Option<Arc<dyn client::Service>> {
+    if let Some(running) = hof_remote::pulse::Forward::from_env().filter(|f| f.is_there()) {
+        return Some(Arc::new(running));
+    }
+    static ONE: std::sync::OnceLock<Option<Arc<hof_remote::pulseaudio::Pulseaudio>>> =
+        std::sync::OnceLock::new();
+    let one = ONE.get_or_init(|| hof_remote::pulseaudio::Pulseaudio::find().map(Arc::new));
+    one.clone().map(|p| p as Arc<dyn client::Service>)
 }
 
 /// yserver, if it is installed: one for every host, so their windows

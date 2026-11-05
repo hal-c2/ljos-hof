@@ -246,8 +246,17 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
     private directory.
   - Each connection is relayed to the local PulseAudio server:
     `$PULSE_SERVER` if it names a socket, else
-    `$XDG_RUNTIME_DIR/pulse/native`. pipewire-pulse speaks the same
-    protocol.
+    `$XDG_RUNTIME_DIR/pulse/native`, else, with no `$XDG_RUNTIME_DIR` (a
+    Mac), a running server's `~/.config/pulse/*-runtime/native`.
+    pipewire-pulse speaks the same protocol. Sound is offered to the host
+    only when that socket is there.
+  - With no server running here, where PulseAudio is installed (on a Mac,
+    from Homebrew, or named by `HOF_PULSEAUDIO`), Hof starts a private
+    one the first time a program there plays: `pulseaudio -n` with only
+    the native protocol on a socket in a directory of Hof's own
+    (anonymous, since only this user can reach it), the CoreAudio
+    devices and a sink that is always there. It ends 30 seconds after its
+    last client, and is started again for the next.
   - Hof rewrites the client's first packet, its authorization. It puts in
     the local cookie, if there is one, and takes out the offer to share
     memory, which two machines can't. The sound then travels in the

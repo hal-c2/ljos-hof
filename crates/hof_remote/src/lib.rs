@@ -18,7 +18,9 @@
 pub mod bootstrap;
 pub mod client;
 pub mod peer;
+mod program;
 pub mod pulse;
+pub mod pulseaudio;
 mod queue;
 pub mod relay;
 pub mod stream;
