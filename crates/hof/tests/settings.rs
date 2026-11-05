@@ -144,4 +144,44 @@ fn a_change_in_the_settings_is_written_into_the_file_and_followed() {
     assert_eq!(hof.file(), file);
     let shown = hof.engine.read_by_name(hof.find("settingsError"), "text");
     assert_eq!(shown.to_js_string().as_str(), error);
+
+    // A host, added, given a user and a port, and taken out again.
+    let dialog = hof.find("settingsDialog");
+    let added = hof
+        .engine
+        .invoke_by_name(dialog, "addHost", &[Value::from("dev")])
+        .unwrap();
+    hof.window.settle().unwrap();
+    assert!(added.to_boolean());
+    assert_eq!(hof.put("hosts.dev", "user", Value::from("me")), "");
+    assert_eq!(hof.put("hosts.dev", "port", Value::from(2222)), "");
+    let file = hof.file();
+    assert!(
+        file.contains("[hosts.dev]\nssh = \"dev\"\nuser = \"me\"\nport = 2222\n"),
+        "{file}"
+    );
+    // The Hosts page shows what the file now says.
+    let user = hof.find("settingHostUser_dev");
+    let port = hof.find("settingHostPort_dev");
+    let text = |obj| {
+        hof.engine
+            .read_by_name(obj, "text")
+            .to_js_string()
+            .as_str()
+            .to_owned()
+    };
+    assert_eq!(text(user), "me");
+    assert_eq!(text(port), "2222");
+    // A name the file could not take as a table's is turned down.
+    let refused = hof
+        .engine
+        .invoke_by_name(dialog, "addHost", &[Value::from("a b")])
+        .unwrap();
+    assert!(!refused.to_boolean());
+
+    hof.engine
+        .invoke_by_name(dialog, "removeHost", &[Value::from("dev")])
+        .unwrap();
+    hof.window.settle().unwrap();
+    assert!(!hof.file().contains("hosts.dev"), "{}", hof.file());
 }

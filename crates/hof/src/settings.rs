@@ -138,7 +138,7 @@ pub struct Settings {
     #[qml(notify, readonly)]
     pub host_clipboards: Vec<String>,
     /// Each of `hosts`, in its order, as the settings window shows it: a
-    /// JSON array of `{name, ssh, user, port, x11, sound, files, command}`,
+    /// JSON array of `{name, ssh, user, port, x11, sound, files, clipboard, command}`,
     /// `port` 0 when unset and `command` whether it is reached some other
     /// way than ssh.
     #[qml(notify, readonly)]
@@ -343,6 +343,7 @@ impl Settings {
                             "x11": h.x11,
                             "sound": h.sound,
                             "files": h.files,
+                            "clipboard": permission(h.clipboard),
                             "command": !h.command.is_empty(),
                         })
                     })

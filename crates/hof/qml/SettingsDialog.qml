@@ -1,27 +1,40 @@
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Hof.App
+import Hof.Bricks
 
 // Hof's settings, for changing the config file without opening it. Each
 // change is written into the file at once, its comments and the rest of
 // it kept, and the window follows as it does when the file is saved.
-// What has no control here (keys, hosts, commands) is in the file, which
+// What has no control here (keys, commands, agents) is in the file, which
 // "Open Config File" opens.
 Popup {
     id: dialog
 
-    property color baseColor
-    property color textColor
-    property color accent
-    property color danger
     // What went wrong with the last change; empty when nothing did.
     property string error: ""
-
-    // `a` with `t` of `b` in it.
-    function mix(a, b, t) {
-        return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1);
-    }
+    // The page shown: an index into `pages`.
+    property int page: 0
+    readonly property var pages: [
+        {
+            "name": "Appearance",
+            "icon": "palette"
+        },
+        {
+            "name": "Terminal",
+            "icon": "terminal"
+        },
+        {
+            "name": "Window",
+            "icon": "monitor"
+        },
+        {
+            "name": "Hosts",
+            "icon": "server"
+        }
+    ]
+    readonly property var hosts: JSON.parse(Settings.hostDetails)
 
     // Writes `[section] key = value`; null takes the key out.
     function put(section, key, value) {
@@ -33,477 +46,722 @@ Popup {
         dialog.put(section, key, text.length > 0 ? text : null);
     }
 
+    // A new `[hosts.<name>]`, reached at its name until told otherwise.
+    function addHost(name) {
+        if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+            dialog.error = "A host's name is letters, digits, - and _";
+            return false;
+        }
+        if (Settings.hosts.indexOf(name) >= 0) {
+            dialog.error = "There is a host called " + name + " already";
+            return false;
+        }
+        dialog.put("hosts." + name, "ssh", name);
+        return dialog.error.length === 0;
+    }
+
+    function removeHost(name) {
+        dialog.error = Settings.removeHost(name);
+    }
+
     objectName: "settingsDialog"
+    Accessible.name: "Settings"
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
-    width: Math.min(parent.width - 32, 580)
-    height: Math.min(parent.height - 32, 560)
+    width: Math.min(parent.width - 32, 760)
+    height: Math.min(parent.height - 32, 580)
     modal: true
     focus: true
     padding: 0
-
-    palette.window: dialog.mix(dialog.baseColor, dialog.textColor, 0.06)
-    palette.windowText: dialog.textColor
-    palette.base: dialog.baseColor
-    palette.text: dialog.textColor
-    palette.button: dialog.mix(dialog.baseColor, dialog.textColor, 0.14)
-    palette.buttonText: dialog.textColor
-    palette.brightText: dialog.textColor
-    palette.light: dialog.mix(dialog.baseColor, dialog.textColor, 0.2)
-    palette.midlight: dialog.mix(dialog.baseColor, dialog.textColor, 0.26)
-    palette.mid: dialog.mix(dialog.baseColor, dialog.textColor, 0.36)
-    palette.dark: dialog.accent
-    palette.highlight: dialog.accent
-    palette.highlightedText: dialog.baseColor
-    palette.placeholderText: Qt.rgba(dialog.textColor.r, dialog.textColor.g, dialog.textColor.b, 0.45)
 
     onAboutToShow: dialog.error = ""
 
     // The window behind is dimmed while the settings are open.
     Overlay.modal: Rectangle {
-        color: Qt.rgba(0, 0, 0, 0.35)
+        color: Qt.rgba(0, 0, 0, 0.4)
     }
 
     background: Rectangle {
-        color: dialog.palette.window
-        border.color: Qt.rgba(dialog.textColor.r, dialog.textColor.g, dialog.textColor.b, 0.2)
-        radius: 8
+        color: Theme.palette.color("canvas", "#09090b")
+        border.color: Theme.palette.color("border", "#27272a")
+        radius: Math.min(Theme.radius, 10)
     }
 
-    contentItem: ColumnLayout {
+    contentItem: RowLayout {
         spacing: 0
 
-        Label {
-            Layout.fillWidth: true
-            Layout.leftMargin: 20
-            Layout.topMargin: 16
-            Layout.bottomMargin: 8
-            text: "Settings"
-            font.pointSize: 15
-            font.bold: true
-        }
+        // The pages, down the side.
+        Rectangle {
+            Layout.fillHeight: true
+            Layout.preferredWidth: 188
+            color: Theme.palette.color("surfaceRaised", "#18181b")
+            radius: Math.min(Theme.radius, 10)
 
-        TabBar {
-            id: tabs
-
-            objectName: "settingsTabs"
-            Layout.fillWidth: true
-            Layout.leftMargin: 16
-            Layout.rightMargin: 16
-            background: Item {}
-
-            SettingTab {
-                text: "Appearance"
+            // Square on the side that meets the page.
+            Rectangle {
+                anchors.right: parent.right
+                width: parent.radius
+                height: parent.height
+                color: parent.color
             }
-            SettingTab {
-                text: "Terminal"
-            }
-            SettingTab {
-                text: "Window"
+
+            ColumnLayout {
+                objectName: "settingsTabs"
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 2
+
+                Text {
+                    Layout.leftMargin: 10
+                    Layout.topMargin: 6
+                    Layout.bottomMargin: 10
+                    text: "Settings"
+                    color: Theme.palette.color("text", "#e4e4e7")
+                    font.pixelSize: 15
+                    font.weight: Font.DemiBold
+                }
+
+                Repeater {
+                    model: dialog.pages
+
+                    SettingNavItem {
+                        required property var modelData
+                        required property int index
+
+                        objectName: "settingsPage" + modelData.name
+                        text: modelData.name
+                        iconName: modelData.icon
+                        current: dialog.page === index
+                        onClicked: dialog.page = index
+                    }
+                }
+
+                Item {
+                    Layout.fillHeight: true
+                }
+
+                ShellButton {
+                    Layout.fillWidth: true
+                    subtle: true
+                    iconName: "file-text"
+                    text: "Open Config File"
+                    onClicked: App.editConfig()
+                }
             }
         }
 
         Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 1
-            color: Qt.rgba(dialog.textColor.r, dialog.textColor.g, dialog.textColor.b, 0.12)
+            Layout.fillHeight: true
+            Layout.preferredWidth: 1
+            color: Theme.palette.color("border", "#27272a")
         }
 
-        // Made afresh each time the dialog opens, so that every control
-        // starts from what the file says now.
-        Loader {
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            active: dialog.visible
+            spacing: 0
 
-            sourceComponent: StackLayout {
-                currentIndex: tabs.currentIndex
+            // Made afresh each time the dialog opens, so that every control
+            // starts from what the file says now.
+            Loader {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                active: dialog.visible
 
-                // Appearance
-                Flickable {
-                    id: appearance
+                sourceComponent: StackLayout {
+                    currentIndex: dialog.page
 
-                    clip: true
-                    contentHeight: appearanceGrid.implicitHeight + 32
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar {}
+                    SettingPage {
+                        title: "Appearance"
+                        description: "How the terminal's text and window look."
 
-                    GridLayout {
-                        id: appearanceGrid
+                        SettingGroup {
+                            title: "Colours"
 
-                        x: 20
-                        y: 16
-                        width: appearance.width - 40
-                        columns: 2
-                        columnSpacing: 16
-                        rowSpacing: 8
+                            SettingRow {
+                                title: "Theme"
+                                description: "Hof's own, or one in the themes folder."
 
-                        Label {
-                            text: "Theme"
-                        }
-                        ComboBox {
-                            objectName: "settingTheme"
-                            Layout.fillWidth: true
-                            model: Settings.themeNames
-                            currentIndex: Settings.themeNames.indexOf(Settings.themeName)
-                            onActivated: index => dialog.put("theme", "name", Settings.themeNames[index])
-                        }
-
-                        Label {
-                            text: "Font"
-                        }
-                        TextField {
-                            objectName: "settingFontFamily"
-                            Layout.fillWidth: true
-                            text: Settings.fontFamily
-                            placeholderText: "monospace"
-                            onEditingFinished: if (text !== Settings.fontFamily)
-                                dialog.putText("font", "family", text)
-                        }
-
-                        Label {
-                            text: "Size"
-                        }
-                        SpinBox {
-                            objectName: "settingFontSize"
-                            from: 4
-                            to: 72
-                            value: Math.round(Settings.fontSize)
-                            editable: true
-                            onValueModified: dialog.put("font", "size", value)
-                        }
-
-                        Label {
-                            text: "Bold text in bright colours"
-                        }
-                        SettingSwitch {
-                            objectName: "settingBoldIsBright"
-                            checked: Settings.boldIsBright
-                            onToggled: dialog.put("font", "bold-is-bright", checked)
-                        }
-
-                        Label {
-                            text: "Background opacity"
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-
-                            Slider {
-                                id: opacitySlider
-
-                                objectName: "settingOpacity"
-                                Layout.fillWidth: true
-                                from: 0.1
-                                to: 1
-                                stepSize: 0.05
-                                value: Settings.opacity
-                                // Written once the slider stops: each
-                                // write reads the file again.
-                                onMoved: opacityWrite.restart()
-
-                                Timer {
-                                    id: opacityWrite
-
-                                    interval: 250
-                                    onTriggered: dialog.put("window", "opacity", Math.round(opacitySlider.value * 100) / 100)
+                                ShellComboBox {
+                                    objectName: "settingTheme"
+                                    Layout.preferredWidth: 220
+                                    outline: true
+                                    model: Settings.themeNames
+                                    currentIndex: Settings.themeNames.indexOf(Settings.themeName)
+                                    Accessible.name: "Theme"
+                                    onActivated: index => dialog.put("theme", "name", Settings.themeNames[index])
                                 }
                             }
-                            Label {
-                                Layout.preferredWidth: 40
-                                horizontalAlignment: Text.AlignRight
-                                text: Math.round(opacitySlider.value * 100) + "%"
+                            SettingRow {
+                                title: "Background opacity"
+                                description: "Below 100% the desktop shows through."
+
+                                RowLayout {
+                                    spacing: 8
+
+                                    ShellSlider {
+                                        id: opacitySlider
+
+                                        objectName: "settingOpacity"
+                                        Layout.preferredWidth: 160
+                                        from: 0.1
+                                        to: 1
+                                        stepSize: 0.05
+                                        value: Settings.opacity
+                                        Accessible.name: "Background opacity"
+                                        // Written once the slider stops: each
+                                        // write reads the file again.
+                                        onMoved: opacityWrite.restart()
+
+                                        Timer {
+                                            id: opacityWrite
+
+                                            interval: 250
+                                            onTriggered: dialog.put("window", "opacity", Math.round(opacitySlider.value * 100) / 100)
+                                        }
+                                    }
+                                    Text {
+                                        Layout.preferredWidth: 40
+                                        horizontalAlignment: Text.AlignRight
+                                        text: Math.round(opacitySlider.value * 100) + "%"
+                                        color: Theme.palette.color("textMuted", "#8b8b93")
+                                        font.pixelSize: 13
+                                    }
+                                }
                             }
                         }
 
-                        Label {
-                            text: "Padding"
-                        }
-                        SpinBox {
-                            objectName: "settingPadding"
-                            from: 0
-                            to: 64
-                            value: Math.round(Settings.padding)
-                            editable: true
-                            onValueModified: dialog.put("window", "padding", value)
+                        SettingGroup {
+                            title: "Text"
+
+                            SettingRow {
+                                title: "Font"
+                                description: "A family installed here; empty is the system's monospace."
+
+                                ShellTextField {
+                                    objectName: "settingFontFamily"
+                                    Layout.preferredWidth: 220
+                                    text: Settings.fontFamily
+                                    placeholderText: "monospace"
+                                    Accessible.name: "Font"
+                                    onEditingFinished: if (text !== Settings.fontFamily)
+                                        dialog.putText("font", "family", text)
+                                }
+                            }
+                            SettingRow {
+                                title: "Size"
+                                description: "In points."
+
+                                ShellSpinBox {
+                                    objectName: "settingFontSize"
+                                    from: 4
+                                    to: 72
+                                    value: Math.round(Settings.fontSize)
+                                    editable: true
+                                    Accessible.name: "Font size"
+                                    onValueModified: dialog.put("font", "size", value)
+                                }
+                            }
+                            SettingRow {
+                                title: "Bold text in bright colours"
+                                description: "As older terminals drew bold."
+
+                                ShellSwitch {
+                                    objectName: "settingBoldIsBright"
+                                    checked: Settings.boldIsBright
+                                    Accessible.name: "Bold text in bright colours"
+                                    onToggled: dialog.put("font", "bold-is-bright", checked)
+                                }
+                            }
+                            SettingRow {
+                                title: "Padding"
+                                description: "Space between the text and the pane's edge, in pixels."
+
+                                ShellSpinBox {
+                                    objectName: "settingPadding"
+                                    from: 0
+                                    to: 64
+                                    value: Math.round(Settings.padding)
+                                    editable: true
+                                    Accessible.name: "Padding"
+                                    onValueModified: dialog.put("window", "padding", value)
+                                }
+                            }
                         }
                     }
-                }
 
-                // Terminal
-                Flickable {
-                    id: terminal
+                    SettingPage {
+                        title: "Terminal"
+                        description: "The cursor, the scrollback, and what programs may do."
 
-                    clip: true
-                    contentHeight: terminalGrid.implicitHeight + 32
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar {}
+                        SettingGroup {
+                            title: "Cursor and scrollback"
 
-                    GridLayout {
-                        id: terminalGrid
+                            SettingRow {
+                                title: "Cursor"
 
-                        x: 20
-                        y: 16
-                        width: terminal.width - 40
-                        columns: 2
-                        columnSpacing: 16
-                        rowSpacing: 8
+                                ShellComboBox {
+                                    readonly property list<string> values: ["block", "bar", "underline"]
 
-                        Label {
-                            text: "Cursor"
-                        }
-                        ComboBox {
-                            readonly property list<string> values: ["block", "bar", "underline"]
+                                    objectName: "settingCursorShape"
+                                    Layout.preferredWidth: 180
+                                    outline: true
+                                    model: ["Block", "Bar", "Underline"]
+                                    currentIndex: values.indexOf(Settings.cursorShape)
+                                    Accessible.name: "Cursor"
+                                    onActivated: index => dialog.put("terminal", "cursor-shape", values[index])
+                                }
+                            }
+                            SettingRow {
+                                title: "Blinking cursor"
 
-                            objectName: "settingCursorShape"
-                            Layout.fillWidth: true
-                            model: ["Block", "Bar", "Underline"]
-                            currentIndex: values.indexOf(Settings.cursorShape)
-                            onActivated: index => dialog.put("terminal", "cursor-shape", values[index])
-                        }
+                                ShellSwitch {
+                                    objectName: "settingCursorBlink"
+                                    checked: Settings.cursorBlink
+                                    Accessible.name: "Blinking cursor"
+                                    onToggled: dialog.put("terminal", "cursor-blink", checked)
+                                }
+                            }
+                            SettingRow {
+                                title: "Scrollback lines"
+                                description: "Kept for each pane; 0 keeps none."
 
-                        Label {
-                            text: "Blinking cursor"
-                        }
-                        SettingSwitch {
-                            objectName: "settingCursorBlink"
-                            checked: Settings.cursorBlink
-                            onToggled: dialog.put("terminal", "cursor-blink", checked)
-                        }
-
-                        Label {
-                            text: "Scrollback lines"
-                        }
-                        SpinBox {
-                            objectName: "settingScrollback"
-                            Layout.fillWidth: true
-                            from: 0
-                            to: 1000000
-                            stepSize: 1000
-                            value: Settings.scrollback
-                            editable: true
-                            onValueModified: dialog.put("terminal", "scrollback", value)
+                                ShellSpinBox {
+                                    objectName: "settingScrollback"
+                                    Layout.preferredWidth: 140
+                                    from: 0
+                                    to: 1000000
+                                    stepSize: 1000
+                                    value: Settings.scrollback
+                                    editable: true
+                                    Accessible.name: "Scrollback lines"
+                                    onValueModified: dialog.put("terminal", "scrollback", value)
+                                }
+                            }
                         }
 
-                        Label {
-                            text: "Copy what is selected"
-                        }
-                        SettingSwitch {
-                            objectName: "settingCopyOnSelect"
-                            checked: Settings.copyOnSelect
-                            onToggled: dialog.put("terminal", "copy-on-select", checked)
+                        SettingGroup {
+                            title: "Clipboard"
+
+                            SettingRow {
+                                title: "Copy what is selected"
+
+                                ShellSwitch {
+                                    objectName: "settingCopyOnSelect"
+                                    checked: Settings.copyOnSelect
+                                    Accessible.name: "Copy what is selected"
+                                    onToggled: dialog.put("terminal", "copy-on-select", checked)
+                                }
+                            }
+                            SettingRow {
+                                title: "Ask before an unsafe paste"
+                                description: "Text with a line break or a control character could run a command."
+
+                                ShellSwitch {
+                                    objectName: "settingConfirmPaste"
+                                    checked: Settings.confirmUnsafePaste
+                                    Accessible.name: "Ask before an unsafe paste"
+                                    onToggled: dialog.put("terminal", "confirm-unsafe-paste", checked)
+                                }
+                            }
+                            SettingRow {
+                                title: "Programs may read the clipboard"
+
+                                ShellComboBox {
+                                    readonly property list<string> values: ["ask", "allow", "deny"]
+
+                                    objectName: "settingClipboardRead"
+                                    Layout.preferredWidth: 180
+                                    outline: true
+                                    model: ["Ask each time", "Always", "Never"]
+                                    currentIndex: values.indexOf(Settings.clipboardRead)
+                                    Accessible.name: "Programs may read the clipboard"
+                                    onActivated: index => dialog.put("terminal", "clipboard-read", values[index])
+                                }
+                            }
+                            SettingRow {
+                                title: "Programs may copy"
+
+                                ShellSwitch {
+                                    objectName: "settingClipboardWrite"
+                                    checked: Settings.clipboardWrite
+                                    Accessible.name: "Programs may copy"
+                                    onToggled: dialog.put("terminal", "clipboard-write", checked)
+                                }
+                            }
+                            SettingRow {
+                                title: "Programs may open links"
+
+                                ShellComboBox {
+                                    readonly property list<string> values: ["ask", "allow", "deny"]
+
+                                    objectName: "settingOpenUrls"
+                                    Layout.preferredWidth: 180
+                                    outline: true
+                                    model: ["Ask each time", "Always", "Never"]
+                                    currentIndex: values.indexOf(Settings.openUrls)
+                                    Accessible.name: "Programs may open links"
+                                    onActivated: index => dialog.put("terminal", "open-urls", values[index])
+                                }
+                            }
                         }
 
-                        Label {
-                            text: "Ask before an unsafe paste"
-                        }
-                        SettingSwitch {
-                            objectName: "settingConfirmPaste"
-                            checked: Settings.confirmUnsafePaste
-                            onToggled: dialog.put("terminal", "confirm-unsafe-paste", checked)
-                        }
+                        SettingGroup {
+                            title: "New panes"
 
-                        Label {
-                            text: "Programs may read the clipboard"
-                        }
-                        ComboBox {
-                            readonly property list<string> values: ["ask", "allow", "deny"]
+                            SettingRow {
+                                title: "Shell"
 
-                            objectName: "settingClipboardRead"
-                            Layout.fillWidth: true
-                            model: ["Ask each time", "Always", "Never"]
-                            currentIndex: values.indexOf(Settings.clipboardRead)
-                            onActivated: index => dialog.put("terminal", "clipboard-read", values[index])
-                        }
+                                ShellTextField {
+                                    objectName: "settingShell"
+                                    Layout.preferredWidth: 220
+                                    text: Settings.shell
+                                    placeholderText: "Your login shell"
+                                    Accessible.name: "Shell"
+                                    onEditingFinished: if (text !== Settings.shell)
+                                        dialog.putText("terminal", "shell", text)
+                                }
+                            }
+                            SettingRow {
+                                title: "Start in"
 
-                        Label {
-                            text: "Programs may copy"
-                        }
-                        SettingSwitch {
-                            objectName: "settingClipboardWrite"
-                            checked: Settings.clipboardWrite
-                            onToggled: dialog.put("terminal", "clipboard-write", checked)
-                        }
-
-                        Label {
-                            text: "Programs may open links"
-                        }
-                        ComboBox {
-                            readonly property list<string> values: ["ask", "allow", "deny"]
-
-                            objectName: "settingOpenUrls"
-                            Layout.fillWidth: true
-                            model: ["Ask each time", "Always", "Never"]
-                            currentIndex: values.indexOf(Settings.openUrls)
-                            onActivated: index => dialog.put("terminal", "open-urls", values[index])
-                        }
-
-                        Label {
-                            text: "Shell"
-                        }
-                        TextField {
-                            objectName: "settingShell"
-                            Layout.fillWidth: true
-                            text: Settings.shell
-                            placeholderText: "Your login shell"
-                            onEditingFinished: if (text !== Settings.shell)
-                                dialog.putText("terminal", "shell", text)
-                        }
-
-                        Label {
-                            text: "Start in"
-                        }
-                        TextField {
-                            objectName: "settingWorkingDirectory"
-                            Layout.fillWidth: true
-                            text: Settings.workingDirectory
-                            placeholderText: "Where Hof was started"
-                            onEditingFinished: if (text !== Settings.workingDirectory)
-                                dialog.putText("terminal", "working-directory", text)
+                                ShellTextField {
+                                    objectName: "settingWorkingDirectory"
+                                    Layout.preferredWidth: 220
+                                    text: Settings.workingDirectory
+                                    placeholderText: "Where Hof was started"
+                                    Accessible.name: "Start in"
+                                    onEditingFinished: if (text !== Settings.workingDirectory)
+                                        dialog.putText("terminal", "working-directory", text)
+                                }
+                            }
                         }
                     }
-                }
 
-                // Window
-                Flickable {
-                    id: windowPage
+                    SettingPage {
+                        title: "Window"
+                        description: "The menu, the frame, and what a new window is."
 
-                    clip: true
-                    contentHeight: windowGrid.implicitHeight + 32
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar {}
+                        SettingGroup {
+                            title: "Frame"
 
-                    GridLayout {
-                        id: windowGrid
+                            SettingRow {
+                                title: "Menu"
+                                description: "A Mac has its menu bar either way."
 
-                        x: 20
-                        y: 16
-                        width: windowPage.width - 40
-                        columns: 2
-                        columnSpacing: 16
-                        rowSpacing: 8
+                                ShellComboBox {
+                                    readonly property list<string> values: ["auto", "bar", "button", "none"]
 
-                        Label {
-                            text: "Menu"
+                                    objectName: "settingMenu"
+                                    Layout.preferredWidth: 200
+                                    outline: true
+                                    model: ["As usual here", "Menu bar", "Button in the tab bar", "None, only keys"]
+                                    currentIndex: values.indexOf(Settings.menuChoice)
+                                    Accessible.name: "Menu"
+                                    onActivated: index => dialog.put("window", "menu", values[index])
+                                }
+                            }
+                            SettingRow {
+                                title: "Title bar and borders"
+
+                                ShellSwitch {
+                                    objectName: "settingDecorations"
+                                    checked: Settings.decorations
+                                    Accessible.name: "Title bar and borders"
+                                    onToggled: dialog.put("window", "decorations", checked)
+                                }
+                            }
+                            SettingRow {
+                                title: "Title"
+
+                                ShellTextField {
+                                    objectName: "settingTitle"
+                                    Layout.preferredWidth: 220
+                                    text: Settings.title
+                                    placeholderText: "Hof"
+                                    Accessible.name: "Title"
+                                    onEditingFinished: if (text !== Settings.title)
+                                        dialog.putText("window", "title", text)
+                                }
+                            }
+                            SettingRow {
+                                title: "New windows"
+                                description: "Columns by rows."
+
+                                RowLayout {
+                                    spacing: 6
+
+                                    ShellSpinBox {
+                                        objectName: "settingColumns"
+                                        Layout.preferredWidth: 104
+                                        from: 20
+                                        to: 1000
+                                        value: Settings.columns
+                                        editable: true
+                                        Accessible.name: "Columns"
+                                        onValueModified: dialog.put("window", "width", value)
+                                    }
+                                    Text {
+                                        text: "×"
+                                        color: Theme.palette.color("textMuted", "#8b8b93")
+                                    }
+                                    ShellSpinBox {
+                                        objectName: "settingRows"
+                                        Layout.preferredWidth: 104
+                                        from: 5
+                                        to: 500
+                                        value: Settings.rows
+                                        editable: true
+                                        Accessible.name: "Rows"
+                                        onValueModified: dialog.put("window", "height", value)
+                                    }
+                                }
+                            }
                         }
-                        ComboBox {
-                            readonly property list<string> values: ["auto", "bar", "button", "none"]
 
-                            objectName: "settingMenu"
+                        SettingGroup {
+                            title: "Session"
+
+                            SettingRow {
+                                title: "Reopen the last session"
+                                description: "Its windows, tabs and splits, where they were."
+
+                                ShellSwitch {
+                                    objectName: "settingSessionRestore"
+                                    checked: Settings.sessionRestore
+                                    Accessible.name: "Reopen the last session"
+                                    onToggled: dialog.put("session", "restore", checked)
+                                }
+                            }
+                            SettingRow {
+                                title: "Keep scrollback with it"
+
+                                ShellSwitch {
+                                    objectName: "settingSaveScrollback"
+                                    checked: Settings.sessionSaveScrollback
+                                    Accessible.name: "Keep scrollback with it"
+                                    onToggled: dialog.put("session", "save-scrollback", checked)
+                                }
+                            }
+                            SettingRow {
+                                title: "Tell me when an agent waits"
+                                description: "A notification when an agent out of sight needs you."
+
+                                ShellSwitch {
+                                    objectName: "settingAgentWaiting"
+                                    checked: Settings.notifyAgentWaiting
+                                    Accessible.name: "Tell me when an agent waits"
+                                    onToggled: dialog.put("notify", "agent-waiting", checked)
+                                }
+                            }
+                        }
+                    }
+
+                    SettingPage {
+                        title: "Hosts"
+                        description: "Machines a pane can run on, reached over ssh. Open a pane on one from the host picker."
+
+                        SettingGroup {
+                            title: "Add a host"
+
+                            SettingRow {
+                                title: "Name"
+                                description: "What the host picker shows; it is the address too until you change it."
+
+                                RowLayout {
+                                    spacing: 8
+
+                                    ShellTextField {
+                                        id: newHost
+
+                                        objectName: "settingNewHost"
+                                        Layout.preferredWidth: 160
+                                        placeholderText: "dev"
+                                        Accessible.name: "New host's name"
+                                        onAccepted: if (dialog.addHost(text))
+                                            text = ""
+                                    }
+                                    ShellButton {
+                                        objectName: "settingAddHost"
+                                        iconName: "plus"
+                                        text: "Add"
+                                        onClicked: if (dialog.addHost(newHost.text))
+                                            newHost.text = ""
+                                    }
+                                }
+                            }
+                        }
+
+                        Repeater {
+                            model: dialog.hosts
+
+                            SettingGroup {
+                                id: host
+
+                                required property var modelData
+                                readonly property string section: "hosts." + modelData.name
+
+                                title: modelData.name
+                                trailing: ShellButton {
+                                    objectName: "settingRemoveHost_" + host.modelData.name
+                                    subtle: true
+                                    iconName: "trash-2"
+                                    text: "Remove"
+                                    onClicked: dialog.removeHost(host.modelData.name)
+                                }
+
+                                SettingRow {
+                                    visible: host.modelData.command
+                                    title: "Reached by a command of its own"
+                                    description: "Set in the file; the address, user and port are not used."
+                                }
+                                SettingRow {
+                                    title: "Address"
+                                    description: "A name or address, or a Host of your ssh config."
+
+                                    ShellTextField {
+                                        objectName: "settingHostSsh_" + host.modelData.name
+                                        Layout.preferredWidth: 220
+                                        text: host.modelData.ssh
+                                        placeholderText: host.modelData.name
+                                        Accessible.name: "Address of " + host.modelData.name
+                                        onEditingFinished: if (text !== host.modelData.ssh)
+                                            dialog.putText(host.section, "ssh", text)
+                                    }
+                                }
+                                SettingRow {
+                                    title: "User"
+                                    description: "Who to log in as; empty is ssh's choice."
+
+                                    ShellTextField {
+                                        objectName: "settingHostUser_" + host.modelData.name
+                                        Layout.preferredWidth: 220
+                                        text: host.modelData.user
+                                        placeholderText: "As ssh chooses"
+                                        Accessible.name: "User on " + host.modelData.name
+                                        onEditingFinished: if (text !== host.modelData.user)
+                                            dialog.putText(host.section, "user", text)
+                                    }
+                                }
+                                SettingRow {
+                                    title: "Port"
+                                    description: "Empty is ssh's choice, usually 22."
+
+                                    ShellTextField {
+                                        objectName: "settingHostPort_" + host.modelData.name
+                                        Layout.preferredWidth: 100
+                                        text: host.modelData.port > 0 ? String(host.modelData.port) : ""
+                                        placeholderText: "22"
+                                        inputMethodHints: Qt.ImhDigitsOnly
+                                        Accessible.name: "Port on " + host.modelData.name
+                                        onEditingFinished: {
+                                            const port = text.length > 0 ? Number(text) : 0;
+                                            if (port === host.modelData.port)
+                                                return;
+                                            if (!Number.isInteger(port) || port < 0 || port > 65535) {
+                                                dialog.error = "A port is a number from 1 to 65535";
+                                                return;
+                                            }
+                                            dialog.put(host.section, "port", port > 0 ? port : null);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    title: "X11 windows"
+                                    description: "Programs there may open windows here."
+
+                                    ShellSwitch {
+                                        checked: host.modelData.x11
+                                        Accessible.name: "X11 windows from " + host.modelData.name
+                                        onToggled: dialog.put(host.section, "x11", checked)
+                                    }
+                                }
+                                SettingRow {
+                                    title: "Sound"
+                                    description: "Programs there may play sound here."
+
+                                    ShellSwitch {
+                                        checked: host.modelData.sound
+                                        Accessible.name: "Sound from " + host.modelData.name
+                                        onToggled: dialog.put(host.section, "sound", checked)
+                                    }
+                                }
+                                SettingRow {
+                                    title: "Files"
+                                    description: "Show that machine's files here."
+
+                                    ShellSwitch {
+                                        checked: host.modelData.files
+                                        Accessible.name: "Files of " + host.modelData.name
+                                        onToggled: dialog.put(host.section, "files", checked)
+                                    }
+                                }
+                                SettingRow {
+                                    title: "Programs there may read the clipboard"
+
+                                    ShellComboBox {
+                                        readonly property list<string> values: ["ask", "allow", "deny"]
+
+                                        Layout.preferredWidth: 180
+                                        outline: true
+                                        model: ["Ask each time", "Always", "Never"]
+                                        currentIndex: values.indexOf(host.modelData.clipboard)
+                                        Accessible.name: "Programs on " + host.modelData.name + " may read the clipboard"
+                                        onActivated: index => dialog.put(host.section, "clipboard", values[index])
+                                    }
+                                }
+                            }
+                        }
+
+                        Text {
                             Layout.fillWidth: true
-                            model: ["As usual here", "Menu bar", "Button in the tab bar", "None, only keys"]
-                            currentIndex: values.indexOf(Settings.menuChoice)
-                            onActivated: index => dialog.put("window", "menu", values[index])
-                        }
-
-                        Label {
-                            text: "Title bar and borders"
-                        }
-                        SettingSwitch {
-                            objectName: "settingDecorations"
-                            checked: Settings.decorations
-                            onToggled: dialog.put("window", "decorations", checked)
-                        }
-
-                        Label {
-                            text: "Title"
-                        }
-                        TextField {
-                            objectName: "settingTitle"
-                            Layout.fillWidth: true
-                            text: Settings.title
-                            placeholderText: "Hof"
-                            onEditingFinished: if (text !== Settings.title)
-                                dialog.putText("window", "title", text)
-                        }
-
-                        Label {
-                            text: "New windows, in cells"
-                        }
-                        RowLayout {
-                            SpinBox {
-                                objectName: "settingColumns"
-                                from: 20
-                                to: 1000
-                                value: Settings.columns
-                                editable: true
-                                onValueModified: dialog.put("window", "width", value)
-                            }
-                            Label {
-                                text: "×"
-                            }
-                            SpinBox {
-                                objectName: "settingRows"
-                                from: 5
-                                to: 500
-                                value: Settings.rows
-                                editable: true
-                                onValueModified: dialog.put("window", "height", value)
-                            }
-                        }
-
-                        Label {
-                            text: "Reopen the last session"
-                        }
-                        SettingSwitch {
-                            objectName: "settingSessionRestore"
-                            checked: Settings.sessionRestore
-                            onToggled: dialog.put("session", "restore", checked)
-                        }
-
-                        Label {
-                            text: "Keep scrollback with it"
-                        }
-                        SettingSwitch {
-                            objectName: "settingSaveScrollback"
-                            checked: Settings.sessionSaveScrollback
-                            onToggled: dialog.put("session", "save-scrollback", checked)
-                        }
-
-                        Label {
-                            text: "Tell me when an agent waits"
-                        }
-                        SettingSwitch {
-                            objectName: "settingAgentWaiting"
-                            checked: Settings.notifyAgentWaiting
-                            onToggled: dialog.put("notify", "agent-waiting", checked)
+                            visible: dialog.hosts.length === 0
+                            text: "No hosts yet."
+                            color: Theme.palette.color("textMuted", "#8b8b93")
+                            font.pixelSize: 13
                         }
                     }
                 }
             }
-        }
 
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 1
-            color: Qt.rgba(dialog.textColor.r, dialog.textColor.g, dialog.textColor.b, 0.12)
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.margins: 12
-            Layout.leftMargin: 20
-            spacing: 8
-
-            Label {
-                objectName: "settingsError"
+            Rectangle {
                 Layout.fillWidth: true
-                text: dialog.error.length > 0 ? dialog.error : Settings.path
-                color: dialog.error.length > 0 ? dialog.danger : Qt.rgba(dialog.textColor.r, dialog.textColor.g, dialog.textColor.b, 0.5)
-                elide: Text.ElideMiddle
-                font.pointSize: 9
+                Layout.preferredHeight: 1
+                color: Theme.palette.color("border", "#27272a")
             }
-            Button {
-                leftPadding: 14
-                rightPadding: 14
-                text: "Open Config File"
-                onClicked: App.editConfig()
-            }
-            Button {
-                objectName: "settingsClose"
-                leftPadding: 14
-                rightPadding: 14
-                text: "Close"
-                onClicked: dialog.close()
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 12
+                Layout.leftMargin: 24
+                spacing: 8
+
+                // What went wrong, or else the file the settings go to,
+                // by its name; the whole path on hover.
+                Text {
+                    objectName: "settingsError"
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 0
+                    text: dialog.error.length > 0 ? dialog.error : "Saved in " + Settings.path.slice(Settings.path.lastIndexOf("/") + 1)
+                    Accessible.role: Accessible.StatusBar
+                    Accessible.description: Settings.path
+                    ToolTip.visible: dialog.error.length === 0 && pathHover.hovered
+                    ToolTip.text: Settings.path
+                    ToolTip.delay: 500
+                    color: dialog.error.length > 0 ? Theme.palette.color("errorForeground", "#ef4444") : Theme.palette.color("textMuted", "#8b8b93")
+                    elide: Text.ElideMiddle
+                    font.pixelSize: 12
+
+                    HoverHandler {
+                        id: pathHover
+                    }
+                }
+                ShellButton {
+                    objectName: "settingsClose"
+                    primary: true
+                    text: "Done"
+                    onClicked: dialog.close()
+                }
             }
         }
     }
