@@ -3,7 +3,9 @@
 
 use std::io::{self, Read, Write};
 
-use super::ninep::{self, Attr, MAXWELEM, NOFID, NOTAG, Reply, Request, open};
+use super::ninep::{
+    self, Attr, MAXWELEM, NOFID, NOTAG, Qid, Reply, Request, SetAttr, StatFs, open,
+};
 
 /// What Hof asks for: enough for a file's worth in a few messages.
 const MSIZE: u32 = 256 * 1024;
@@ -36,6 +38,12 @@ fn protocol(what: &str) -> io::Error {
 impl<S: Read + Write> Client<S> {
     /// Agrees on the dialect over `socket`, and attaches to the root.
     pub fn new(socket: S, user: &str) -> io::Result<Self> {
+        Self::attached(socket, user, b"/")
+    }
+
+    /// Agrees on the dialect over `socket`, and attaches at `root`, a
+    /// directory there: paths are then from it, and go no higher.
+    pub fn attached(socket: S, user: &str, root: &[u8]) -> io::Result<Self> {
         let mut client = Self {
             socket,
             msize: MSIZE,
@@ -60,7 +68,7 @@ impl<S: Read + Write> Client<S> {
             fid: ROOT,
             afid: NOFID,
             uname: user.into(),
-            aname: b"/".to_vec(),
+            aname: root.to_vec(),
             n_uname: u32::MAX,
         })?;
         Ok(client)
@@ -171,20 +179,32 @@ impl<S: Read + Write> Client<S> {
         }
     }
 
-    /// The attributes of the file at `path`, in one round trip: the walk,
-    /// the asking and the letting go are sent together, and the server
-    /// answers them in order. A walk that stops short makes no fid, and
-    /// the two after it say so.
+    /// The attributes of the file at `path`, in one round trip.
     pub fn stat(&mut self, path: &[u8]) -> io::Result<Attr> {
+        match self.at(path, |fid| Request::GetAttr {
+            fid,
+            mask: ninep::GETATTR_BASIC,
+        })? {
+            Reply::GetAttr(attr) => Ok(*attr),
+            other => Err(protocol(&format!("{other:?} to Tgetattr"))),
+        }
+    }
+
+    /// Asks what `request` makes of a fid for the file at `path`, in one
+    /// round trip: the walk, the request and the letting go are sent
+    /// together, and the server answers them in order. A walk that stops
+    /// short makes no fid, and the two after it say so.
+    fn at(&mut self, path: &[u8], request: impl FnOnce(u32) -> Request) -> io::Result<Reply> {
         let names = names_of(path);
         if names.len() > MAXWELEM {
             let fid = self.walk(path)?;
-            let attr = self.getattr(fid);
+            let reply = self.ask(request(fid));
             let _ = self.clunk(fid);
-            return attr;
+            return reply;
         }
         let wanted = names.len();
         let fid = self.fid();
+        let asked = request(fid);
         let mut replies = self
             .ask_all(vec![
                 Request::Walk {
@@ -192,10 +212,7 @@ impl<S: Read + Write> Client<S> {
                     newfid: fid,
                     names,
                 },
-                Request::GetAttr {
-                    fid,
-                    mask: ninep::GETATTR_BASIC,
-                },
+                asked,
                 Request::Clunk { fid },
             ])?
             .into_iter();
@@ -206,11 +223,87 @@ impl<S: Read + Write> Client<S> {
             Some(Err(e)) => return Err(e),
             None => return Err(protocol("no reply to Twalk")),
         }
-        match replies.next() {
-            Some(Ok(Reply::GetAttr(attr))) => Ok(*attr),
-            Some(Ok(other)) => Err(protocol(&format!("{other:?} to Tgetattr"))),
-            Some(Err(e)) => Err(e),
-            None => Err(protocol("no reply to Tgetattr")),
+        replies
+            .next()
+            .unwrap_or_else(|| Err(protocol("no reply to a request")))
+    }
+
+    /// Changes what `attr` says of the file at `path`.
+    pub fn setattr(&mut self, path: &[u8], attr: SetAttr) -> io::Result<()> {
+        match self.at(path, |fid| Request::SetAttr { fid, attr })? {
+            Reply::SetAttr => Ok(()),
+            other => Err(protocol(&format!("{other:?} to Tsetattr"))),
+        }
+    }
+
+    /// Where the link at `path` points.
+    pub fn readlink(&mut self, path: &[u8]) -> io::Result<Vec<u8>> {
+        match self.at(path, |fid| Request::Readlink { fid })? {
+            Reply::Readlink(target) => Ok(target),
+            other => Err(protocol(&format!("{other:?} to Treadlink"))),
+        }
+    }
+
+    /// What the file system holding `path` says of itself.
+    pub fn statfs(&mut self, path: &[u8]) -> io::Result<StatFs> {
+        match self.at(path, |fid| Request::Statfs { fid })? {
+            Reply::Statfs(fs) => Ok(fs),
+            other => Err(protocol(&format!("{other:?} to Tstatfs"))),
+        }
+    }
+
+    /// Makes the directory `name` in the directory `dir`.
+    pub fn mkdir(&mut self, dir: &[u8], name: &[u8], mode: u32) -> io::Result<Qid> {
+        let name = name.to_vec();
+        match self.at(dir, |dfid| Request::Mkdir {
+            dfid,
+            name,
+            mode,
+            gid: u32::MAX,
+        })? {
+            Reply::Mkdir(qid) => Ok(qid),
+            other => Err(protocol(&format!("{other:?} to Tmkdir"))),
+        }
+    }
+
+    /// Takes `name` out of the directory `dir`: a directory, if
+    /// `directory`, else anything else.
+    pub fn remove(&mut self, dir: &[u8], name: &[u8], directory: bool) -> io::Result<()> {
+        let name = name.to_vec();
+        let flags = if directory { ninep::AT_REMOVEDIR } else { 0 };
+        match self.at(dir, |dfid| Request::Unlinkat { dfid, name, flags })? {
+            Reply::Unlinkat => Ok(()),
+            other => Err(protocol(&format!("{other:?} to Tunlinkat"))),
+        }
+    }
+
+    /// Moves `name` in the directory `from` to `new_name` in `to`.
+    pub fn rename(
+        &mut self,
+        from: &[u8],
+        name: &[u8],
+        to: &[u8],
+        new_name: &[u8],
+    ) -> io::Result<()> {
+        let olddfid = self.walk(from)?;
+        let newdfid = match self.walk(to) {
+            Ok(fid) => fid,
+            Err(e) => {
+                let _ = self.clunk(olddfid);
+                return Err(e);
+            }
+        };
+        let renamed = self.ask(Request::Renameat {
+            olddfid,
+            oldname: name.to_vec(),
+            newdfid,
+            newname: new_name.to_vec(),
+        });
+        let _ = self.clunk(olddfid);
+        let _ = self.clunk(newdfid);
+        match renamed? {
+            Reply::Renameat => Ok(()),
+            other => Err(protocol(&format!("{other:?} to Trenameat"))),
         }
     }
 
@@ -248,6 +341,20 @@ impl<S: Read + Write> Client<S> {
             self.broken = true;
         }
         replies
+    }
+
+    /// Opens the file at `path` as `flags` say: a fid of it open, and the
+    /// most to read or write of it at once. The fid is the caller's to
+    /// [`clunk`](Self::clunk).
+    pub fn open(&mut self, path: &[u8], flags: u32) -> io::Result<(u32, u32)> {
+        let fid = self.walk(path)?;
+        match self.lopen(fid, flags) {
+            Ok(unit) => Ok((fid, unit)),
+            Err(e) => {
+                let _ = self.clunk(fid);
+                Err(e)
+            }
+        }
     }
 
     fn lopen(&mut self, fid: u32, flags: u32) -> io::Result<u32> {
@@ -306,7 +413,7 @@ impl<S: Read + Write> Client<S> {
                     return Err(e);
                 }
             },
-            Err(e) if e.kind() == io::ErrorKind::NotFound => self.create(path)?,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => self.create_path(path)?,
             Err(e) => return Err(e),
         };
         let written = self.write_open(fid, unit, bytes);
@@ -314,15 +421,28 @@ impl<S: Read + Write> Client<S> {
         written
     }
 
-    fn create(&mut self, path: &[u8]) -> io::Result<(u32, u32)> {
+    fn create_path(&mut self, path: &[u8]) -> io::Result<(u32, u32)> {
         let cut = path.iter().rposition(|&b| b == b'/').unwrap_or(0);
         let (dir, name) = (&path[..cut], &path[cut + 1..]);
+        self.create(dir, name, open::WRONLY | open::TRUNC, 0o644)
+    }
+
+    /// Makes the file `name` in the directory `dir`, open as `flags` say:
+    /// a fid of it, and the most to read or write of it at once. The fid
+    /// is the caller's to [`clunk`](Self::clunk).
+    pub fn create(
+        &mut self,
+        dir: &[u8],
+        name: &[u8],
+        flags: u32,
+        mode: u32,
+    ) -> io::Result<(u32, u32)> {
         let fid = self.walk(dir)?;
         let created = self.ask(Request::Lcreate {
             fid,
             name: name.to_vec(),
-            flags: open::WRONLY | open::TRUNC,
-            mode: 0o644,
+            flags,
+            mode,
             gid: u32::MAX,
         });
         match created {
@@ -338,9 +458,20 @@ impl<S: Read + Write> Client<S> {
         }
     }
 
-    fn write_open(&mut self, fid: u32, unit: u32, bytes: &[u8]) -> io::Result<Attr> {
-        let mut offset = 0;
-        for piece in bytes.chunks(unit as usize) {
+    /// Up to `count` bytes of the open `fid`, from `offset`: none at its
+    /// end.
+    pub fn read_at(&mut self, fid: u32, offset: u64, count: u32) -> io::Result<Vec<u8>> {
+        match self.ask(Request::Read { fid, offset, count })? {
+            Reply::Read(data) => Ok(data),
+            other => Err(protocol(&format!("{other:?} to Tread"))),
+        }
+    }
+
+    /// Writes all of `bytes` to the open `fid` at `offset`, `unit` at a
+    /// time.
+    pub fn write_at(&mut self, fid: u32, unit: u32, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        let mut offset = offset;
+        for piece in bytes.chunks(unit.max(1) as usize) {
             let mut piece = piece;
             while !piece.is_empty() {
                 let n = match self.ask(Request::Write {
@@ -358,6 +489,22 @@ impl<S: Read + Write> Client<S> {
                 offset += n as u64;
             }
         }
+        Ok(())
+    }
+
+    /// Has what was written to the open `fid` kept where it lasts.
+    pub fn fsync(&mut self, fid: u32, data_only: bool) -> io::Result<()> {
+        match self.ask(Request::Fsync {
+            fid,
+            datasync: u32::from(data_only),
+        })? {
+            Reply::Fsync => Ok(()),
+            other => Err(protocol(&format!("{other:?} to Tfsync"))),
+        }
+    }
+
+    fn write_open(&mut self, fid: u32, unit: u32, bytes: &[u8]) -> io::Result<Attr> {
+        self.write_at(fid, unit, 0, bytes)?;
         self.getattr(fid)
     }
 

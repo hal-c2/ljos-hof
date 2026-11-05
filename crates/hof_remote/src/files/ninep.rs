@@ -134,7 +134,28 @@ pub fn error_of(n: u32) -> io::Error {
         errno::ETIMEDOUT => K::TimedOut,
         _ => K::Other,
     };
-    io::Error::new(kind, format!("{kind} on the other machine (error {n})"))
+    io::Error::new(kind, There { kind, n })
+}
+
+/// An error the other machine said, by its number.
+#[derive(Debug)]
+struct There {
+    kind: io::ErrorKind,
+    n: u32,
+}
+
+impl std::fmt::Display for There {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} on the other machine (error {})", self.kind, self.n)
+    }
+}
+
+impl std::error::Error for There {}
+
+/// The Linux error number the other machine said, for an error made by
+/// [`error_of`].
+pub fn errno_there(e: &io::Error) -> Option<u32> {
+    e.get_ref()?.downcast_ref::<There>().map(|t| t.n)
 }
 
 /// What a message held that was not what its type takes.

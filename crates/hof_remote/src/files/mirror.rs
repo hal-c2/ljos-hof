@@ -28,6 +28,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use super::client::Client;
 use super::ninep::{Attr, Time};
+use super::reach::Reach;
 
 /// How often copies here are looked at.
 const TICK: Duration = Duration::from_millis(500);
@@ -35,12 +36,8 @@ const TICK: Duration = Duration::from_millis(500);
 const LOOK_THERE: Duration = Duration::from_secs(3);
 /// How long a copy that hasn't changed is watched.
 const FORGET: Duration = Duration::from_secs(24 * 60 * 60);
-/// How long after failing to reach the files it tries again.
-const RETRY: Duration = Duration::from_secs(5);
 /// The most copies watched at once; the oldest goes for a new one.
 const MOST: usize = 64;
-/// How long one request may take before the channel counts as gone.
-const PATIENCE: Duration = Duration::from_secs(30);
 /// The most files copied of a folder.
 pub const FOLDER_FILES: usize = 2000;
 /// The most bytes copied of a folder.
@@ -81,8 +78,6 @@ pub struct FolderCopy {
     pub left_out: usize,
 }
 
-type Connect = dyn Fn() -> io::Result<UnixStream> + Send + Sync;
-
 /// One host's copies.
 ///
 /// Nothing waits on the network with the list of copies locked: a copy is
@@ -91,18 +86,9 @@ type Connect = dyn Fn() -> io::Result<UnixStream> + Send + Sync;
 /// every copy, and is never held up by a lock the UI needs.
 pub struct Mirror {
     dir: PathBuf,
-    host: String,
-    connect: Box<Connect>,
     /// The 9P session: one request at a time.
-    session: Mutex<Session>,
+    reach: Reach,
     watched: Mutex<Watching>,
-}
-
-#[derive(Default)]
-struct Session {
-    client: Option<Client<UnixStream>>,
-    /// Reaching the files failed; not tried again before this.
-    retry_at: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -170,9 +156,7 @@ impl Mirror {
     ) -> Arc<Self> {
         Arc::new(Self {
             dir,
-            host: host.to_owned(),
-            connect: Box::new(connect),
-            session: Mutex::default(),
+            reach: Reach::new(host, b"/", connect),
             watched: Mutex::default(),
         })
     }
@@ -220,7 +204,7 @@ impl Mirror {
     pub fn fetch(self: &Arc<Self>, remote: &[u8]) -> io::Result<PathBuf> {
         let local = self.local_of(remote)?;
         // Asked for now: whatever failed before is tried again at once.
-        lock(&self.session).retry_at = None;
+        self.reach.retry_now();
         if let Some(copy) = self.find(remote) {
             let mut watched = lock(&copy);
             // Looked at now, not when the tick comes.
@@ -261,16 +245,22 @@ impl Mirror {
     /// Copies `remote` here: a file with [`fetch`](Self::fetch), a folder
     /// with [`fetch_folder`](Self::fetch_folder).
     pub fn open(self: &Arc<Self>, remote: &[u8]) -> io::Result<Opened> {
-        // One already kept the same is a file, and not asked about again.
-        if self.find(remote).is_none() {
-            self.local_of(remote)?;
-            let attr = self.with_client(|c| c.stat(remote))?;
-            if attr.mode & S_IFMT == S_IFDIR {
-                let (local, copied) = self.fetch_folder(remote)?;
-                return Ok(Opened::Folder(local, copied));
-            }
+        if self.is_folder(remote)? {
+            let (local, copied) = self.fetch_folder(remote)?;
+            return Ok(Opened::Folder(local, copied));
         }
         self.fetch(remote).map(Opened::File)
+    }
+
+    /// Whether `remote` is a folder there. One already kept the same is
+    /// a file, and not asked about again.
+    pub fn is_folder(&self, remote: &[u8]) -> io::Result<bool> {
+        if self.find(remote).is_some() {
+            return Ok(false);
+        }
+        self.local_of(remote)?;
+        let attr = self.with_client(|c| c.stat(remote))?;
+        Ok(attr.mode & S_IFMT == S_IFDIR)
     }
 
     /// Copies the folder at `remote` here as it is now, a level at a time
@@ -373,65 +363,11 @@ impl Mirror {
         self.find(remote).is_some()
     }
 
-    fn connect_client(&self) -> io::Result<Client<UnixStream>> {
-        let socket = (self.connect)()?;
-        socket.set_read_timeout(Some(PATIENCE))?;
-        socket.set_write_timeout(Some(PATIENCE))?;
-        let user = std::env::var("USER").unwrap_or_else(|_| "hof".into());
-        Client::new(socket, &user).map_err(|e| {
-            if e.kind() == io::ErrorKind::UnexpectedEof {
-                io::Error::new(
-                    io::ErrorKind::Unsupported,
-                    format!(
-                        "the agent on {} does not share files: it is older than this Hof; \
-                         update Hof there",
-                        self.host
-                    ),
-                )
-            } else {
-                e
-            }
-        })
-    }
-
-    /// Does `op` with the session, opened if there is none; again on a new
-    /// one if the one there was turns out to have gone.
     fn with_client<T>(
         &self,
         op: impl Fn(&mut Client<UnixStream>) -> io::Result<T>,
     ) -> io::Result<T> {
-        let mut session = lock(&self.session);
-        if session.retry_at.is_some_and(|at| Instant::now() < at) {
-            return Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                format!("the files on {} can't be reached just now", self.host),
-            ));
-        }
-        let mut fresh = false;
-        loop {
-            let client = match &mut session.client {
-                Some(client) => client,
-                none => {
-                    fresh = true;
-                    match self.connect_client() {
-                        Ok(client) => none.insert(client),
-                        Err(e) => {
-                            session.retry_at = Some(Instant::now() + RETRY);
-                            return Err(e);
-                        }
-                    }
-                }
-            };
-            let done = op(client);
-            if done.is_ok() || !client.is_broken() {
-                return done;
-            }
-            session.client = None;
-            if fresh {
-                session.retry_at = Some(Instant::now() + RETRY);
-                return done;
-            }
-        }
+        self.reach.with_client(op)
     }
 
     /// Writes a copy saved here back there, or copies again a file changed
@@ -532,7 +468,7 @@ fn watch(mirror: &Weak<Mirror>) {
         match failed {
             Some(e) if !failing => {
                 failing = true;
-                eprintln!("hof: files on {}: {e}", m.host);
+                eprintln!("hof: files on {}: {e}", m.reach.host());
             }
             Some(_) => {}
             None => failing = false,
@@ -544,7 +480,7 @@ fn watch(mirror: &Weak<Mirror>) {
         if watching.copies.is_empty() {
             watching.running = false;
             drop(watching);
-            lock(&m.session).client = None;
+            m.reach.hang_up();
             return;
         }
     }

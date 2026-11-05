@@ -63,6 +63,8 @@ enum Opened {
 struct Server {
     msize: u32,
     fids: HashMap<u32, Fid>,
+    /// Where the session was attached: `..` goes no higher.
+    root: PathBuf,
 }
 
 impl Default for Server {
@@ -70,6 +72,7 @@ impl Default for Server {
         Self {
             msize: FIRST_MSIZE,
             fids: HashMap::new(),
+            root: PathBuf::from("/"),
         }
     }
 }
@@ -168,16 +171,21 @@ impl Server {
         Ok(())
     }
 
-    /// The root is `aname` when it names a directory, else `/`.
+    /// The root is `aname` when it is a whole path, else `/`. It must be
+    /// a directory; walks go no higher than it.
     fn attach(&mut self, fid: u32, aname: &[u8]) -> Answer {
         let root = Path::new(OsStr::from_bytes(aname));
         let root = if root.is_absolute() {
-            root.to_path_buf()
+            fs::canonicalize(root).map_err(|e| err(&e))?
         } else {
             PathBuf::from("/")
         };
         let qid = qid_of(&root).map_err(|e| err(&e))?;
-        self.add(fid, root)?;
+        if qid.kind & QT_DIR == 0 {
+            return Err(errno::ENOTDIR);
+        }
+        self.add(fid, root.clone())?;
+        self.root = root;
         Ok(Reply::Attach(qid))
     }
 
@@ -189,7 +197,7 @@ impl Server {
         let mut path = from;
         let mut qids = Vec::new();
         for name in names {
-            let Some(next) = step(&path, name) else {
+            let Some(next) = step(&self.root, &path, name) else {
                 if qids.is_empty() {
                     return Err(errno::ENOENT);
                 }
@@ -399,10 +407,11 @@ fn child(dir: &Path, name: &[u8]) -> Option<PathBuf> {
 }
 
 /// Walking `name` from `path`: into a child, or `..` up (and not above
-/// the top), or `.` where it is.
-fn step(path: &Path, name: &[u8]) -> Option<PathBuf> {
+/// `root`, where the session was attached), or `.` where it is.
+fn step(root: &Path, path: &Path, name: &[u8]) -> Option<PathBuf> {
     match name {
         b"." => Some(path.to_path_buf()),
+        b".." if path == root => Some(path.to_path_buf()),
         b".." => Some(path.parent().unwrap_or(path).to_path_buf()),
         _ => child(path, name),
     }
@@ -507,11 +516,18 @@ mod tests {
     #[test]
     fn a_walk_takes_one_name_at_a_time_and_stops_at_the_top() {
         let top = Path::new("/");
-        assert_eq!(step(top, b".."), Some(top.to_path_buf()));
-        assert_eq!(step(Path::new("/a/b"), b".."), Some("/a".into()));
-        assert_eq!(step(Path::new("/a"), b"b"), Some("/a/b".into()));
-        assert_eq!(step(Path::new("/a"), b"b/c"), None);
-        assert_eq!(step(Path::new("/a"), b""), None);
+        assert_eq!(step(top, top, b".."), Some(top.to_path_buf()));
+        assert_eq!(step(top, Path::new("/a/b"), b".."), Some("/a".into()));
+        assert_eq!(step(top, Path::new("/a"), b"b"), Some("/a/b".into()));
+        assert_eq!(step(top, Path::new("/a"), b"b/c"), None);
+        assert_eq!(step(top, Path::new("/a"), b""), None);
+        // Attached below the top, `..` stops where it was attached.
+        let root = Path::new("/a/b");
+        assert_eq!(step(root, root, b".."), Some(root.to_path_buf()));
+        assert_eq!(
+            step(root, Path::new("/a/b/c"), b".."),
+            Some(root.to_path_buf())
+        );
         assert_eq!(child(Path::new("/a"), b".."), None);
         assert_eq!(child(Path::new("/a"), b"/etc"), None);
     }

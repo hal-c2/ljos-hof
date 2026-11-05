@@ -12,6 +12,11 @@ publish.workspace = true
 thiserror.workspace = true
 rustix = { workspace = true, features = ["net"] }
 
+# The other machine's files, mounted here: through `fusermount3`, with
+# no libfuse.
+[target.'cfg(target_os = "linux")'.dependencies]
+fuser = { version = "0.18", default-features = false }
+
 # `getpeereid`, which rustix lacks, for the sockets' peers off Linux.
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 libc = "0.2"

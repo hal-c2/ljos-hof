@@ -5,10 +5,15 @@
 //! ([`Client`]): when a program there runs `hof open FILE`, or its `file:`
 //! link is clicked, Hof copies the file here ([`Mirror`]), opens the copy
 //! with what opens such files here, and puts it back each time it is saved.
+//! A folder is opened where its machine's files are mounted ([`Mount`],
+//! on Linux), or else copied as it is.
 
 mod client;
 mod mirror;
+#[cfg_attr(not(target_os = "linux"), path = "unmounted.rs")]
+mod mount;
 pub mod ninep;
+mod reach;
 mod server;
 
 use std::io;
@@ -17,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 pub use client::Client;
 pub use mirror::{FOLDER_BYTES, FOLDER_FILES, FolderCopy, Mirror, Opened};
+pub use mount::Mount;
 pub use server::serve;
 
 use crate::relay::Socket;
@@ -105,6 +111,13 @@ pub fn cache_dir() -> Option<PathBuf> {
     } else {
         Some(home.join(".cache/hof"))
     }
+}
+
+/// Where Hof mounts other machines' files: `$XDG_RUNTIME_DIR/hof`, which
+/// is this user's alone and goes when they log out.
+pub fn runtime_dir() -> Option<PathBuf> {
+    let dir = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?);
+    dir.is_absolute().then(|| dir.join("hof"))
 }
 
 /// The directory a host's copies go in, under `cache`: `hosts/<name>`, the
