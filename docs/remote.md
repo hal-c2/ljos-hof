@@ -159,6 +159,12 @@ A carried connection works like this:
   Each end acknowledges what it has written with `Ack`, and stops reading
   from its socket while 1 MiB is unacknowledged. A program that floods
   the display can't starve the panes' output.
+- **Taking turns.** Each end sends in two lanes. Keystrokes, resizes,
+  pings, pane output and acknowledgements go first. What the channels
+  carry goes after, 64 KiB at a time. A keystroke or a pane's output waits
+  for one piece of a file or an X11 image, not for everything queued
+  ahead of it. A paste goes in 64 KiB pieces, so it neither passes a
+  frame's limit nor holds up the keys typed after it.
 - **Ending.** `Hangup` closes the channel once what was sent before it
   has been written. When the connection drops, every channel on it is
   closed, and the programs see their server go, as with `ssh -X`.

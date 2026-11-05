@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::queue::{Lane, Lanes};
 use crate::relay::{Relays, Socket};
 use crate::stream::{Backlog, Received, Resume};
 use crate::wire::{ChannelId, Decoder, Message, PaneId, VERSION};
@@ -477,16 +478,21 @@ struct Slot {
     over: bool,
 }
 
-/// Bytes of encoded output waiting for the transport. Relay readers wait
-/// for room; the driver drops a connection whose control traffic can't go.
+/// Bytes of encoded output waiting for the transport, in each lane. Relay
+/// readers wait for room; the driver drops a connection whose control
+/// traffic can't go.
 const TRANSPORT_MEMORY: usize = 4 * 1024 * 1024;
-/// Relay traffic may not spend the room a Ping, resize or keystroke needs.
-const DRIVER_ROOM: usize = 64 * 1024;
+/// Relays waiting for room leave this much of theirs for their hangups.
+const HANGUP_ROOM: usize = 64 * 1024;
+/// The most bulk written between looks at what is urgent: one relay piece.
+const BULK_PER_WRITE: usize = 64 * 1024;
+/// The most typed or pasted one `Input` carries; a paste goes in several.
+const INPUT_PIECE: usize = 64 * 1024;
 
 /// The connection that is up.
 struct Live {
     generation: u64,
-    frames: Arc<crate::queue::Queue>,
+    frames: Arc<Lanes>,
     /// Says when the writer has written all it was given, or can't.
     written: mpsc::Receiver<()>,
     end: Option<Box<dyn FnOnce() -> Option<String> + Send>>,
@@ -656,7 +662,7 @@ impl Driver {
             writer,
             end,
         } = connection;
-        let frames = Arc::new(crate::queue::Queue::default());
+        let frames = Arc::new(Lanes::default());
         let (wrote, written) = mpsc::channel();
         let to = self.to.clone();
         let writing = frames.clone();
@@ -676,17 +682,20 @@ impl Driver {
         let now = Instant::now();
         let to_relay = frames.clone();
         let relays = Relays::new(move |message, wait| {
+            // An acknowledgement is small, and what lets the other end go
+            // on sending: it goes with the panes' traffic, not behind data.
+            let lane = match message {
+                Message::Ack { .. } => Lane::Urgent,
+                _ => Lane::Bulk,
+            };
             let mut frame = Vec::new();
             message.encode(&mut frame);
-            to_relay.push(
-                frame,
-                if wait {
-                    TRANSPORT_MEMORY - DRIVER_ROOM
-                } else {
-                    TRANSPORT_MEMORY
-                },
-                wait,
-            )
+            let room = if wait && lane == Lane::Bulk {
+                TRANSPORT_MEMORY - HANGUP_ROOM
+            } else {
+                TRANSPORT_MEMORY
+            };
+            to_relay.push(lane, frame, room, wait)
         });
         self.live = Some(Live {
             generation,
@@ -771,10 +780,24 @@ impl Driver {
             let Some(live) = &self.live else { return };
             let mut frame = Vec::new();
             message.encode(&mut frame);
-            live.frames.push(frame, TRANSPORT_MEMORY, false)
+            live.frames
+                .push(Lane::Urgent, frame, TRANSPORT_MEMORY, false)
         };
         if !sent {
             self.lost(Some("the agent is not reading".into()));
+        }
+    }
+
+    /// What was typed from `at` on, in pieces: a paste neither passes a
+    /// frame's limit nor holds up the keystrokes after it for long.
+    fn send_input(&mut self, pane: PaneId, mut at: u64, bytes: &[u8]) {
+        for piece in bytes.chunks(INPUT_PIECE) {
+            self.send(Message::Input {
+                pane,
+                at,
+                bytes: piece.to_vec(),
+            });
+            at += piece.len() as u64;
         }
     }
 
@@ -813,7 +836,7 @@ impl Driver {
                 let at = slot.input.end();
                 slot.input.push(&bytes);
                 if let (true, Some(pane)) = (slot.attached, slot.remote) {
-                    self.send(Message::Input { pane, at, bytes });
+                    self.send_input(pane, at, &bytes);
                 }
             }
             Command::Resize { cols, rows } => {
@@ -958,13 +981,7 @@ impl Driver {
                 slot.input.acknowledge(input);
                 let size = (slot.cols, slot.rows);
                 slot.screen.state(State::Up { pane });
-                if !resend.is_empty() {
-                    self.send(Message::Input {
-                        pane,
-                        at: input,
-                        bytes: resend,
-                    });
-                }
+                self.send_input(pane, input, &resend);
                 if size != (cols, rows) && size.0 > 0 && size.1 > 0 {
                     self.send(Message::Resize {
                         pane,
@@ -1234,17 +1251,13 @@ fn message_weight(message: &Message) -> usize {
 
 fn write_frames(
     mut writer: Box<dyn Write + Send>,
-    frames: &crate::queue::Queue,
+    frames: &Lanes,
     to: &mpsc::Sender<Event>,
     generation: u64,
 ) {
     // Ends when the connection closes and everything before it has drained.
-    while let Some(frame) = frames.read() {
-        let mut batch = frame;
-        // Keystrokes come one frame each; a flush per batch is enough.
-        while let Some(more) = frames.try_read() {
-            batch.extend(more);
-        }
+    // Keystrokes come one frame each; a flush per batch is enough.
+    while let Some(batch) = frames.take(BULK_PER_WRITE) {
         if let Err(e) = writer.write_all(&batch).and_then(|()| writer.flush()) {
             let _ = to.send(Event::Ended(generation, Some(e.to_string())));
             return;

@@ -183,6 +183,25 @@ fn a_pane_opens_on_the_host_and_its_program_runs_there() {
 }
 
 #[test]
+fn a_paste_larger_than_a_message_reaches_the_program_whole() {
+    let agent = agent();
+    let (host, _, _) = host(&agent);
+    let seen = Arc::new(Seen::default());
+    let n = 300 * 1024;
+    let pane = host.open(
+        start(&format!(
+            "stty raw -echo; echo ready; head -c {n} | wc -c | tr -d ' '; echo done"
+        )),
+        seen.clone(),
+    );
+    seen.wait_for_text("ready");
+    pane.input(&vec![b'a'; n]);
+    seen.wait_for_text("done");
+    assert!(seen.text().contains(&n.to_string()), "{}", seen.text());
+    pane.close();
+}
+
+#[test]
 fn a_dropped_connection_comes_back_missing_nothing_and_typing_nothing_twice() {
     let agent = agent();
     let (host, connections, _) = host(&agent);

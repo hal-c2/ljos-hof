@@ -33,7 +33,7 @@ const HOLD_LIMIT: Duration = Duration::from_secs(1);
 /// The most output parsed under one lock. Small enough that the UI waits at
 /// most about a millisecond to read the screen, large enough that a flood is
 /// parsed in few passes.
-const READ_CHUNK: usize = 64 * 1024;
+pub(crate) const READ_CHUNK: usize = 64 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct Options {

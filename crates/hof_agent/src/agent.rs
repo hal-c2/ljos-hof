@@ -9,7 +9,7 @@
 //! snapshot of the screen in place of what it missed, so a slow client
 //! costs the agent no more memory than a fast one.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
@@ -508,20 +508,65 @@ fn watch_news(inner: &Weak<Inner>, news: &mpsc::Receiver<PaneId>) {
     }
 }
 
+/// The most relay traffic written between looks at the panes: one piece.
+const BULK_PER_WRITE: usize = 64 * 1024;
+
+/// Writes what the connection's panes and relays send. What a relay carries
+/// goes behind the panes' output, a piece at a time, so a file or an X11
+/// image on its way doesn't hold up what a pane shows; each relay's own
+/// messages stay in order. An acknowledgement is small, and lets Hof send
+/// on: it goes with the panes'.
 fn write_loop(inner: &Inner, wakes: &mpsc::Receiver<Wake>, mut out: impl Write) {
     let mut sent: HashMap<PaneId, Sent> = HashMap::new();
     let mut frames = Vec::new();
-    while let Ok(first) = wakes.recv() {
+    let mut bulk: VecDeque<Message> = VecDeque::new();
+    let mut open = true;
+    loop {
+        // Waits for news only with no bulk left to send.
+        let mut next = if bulk.is_empty() {
+            match wakes.recv() {
+                Ok(wake) => Some(wake),
+                Err(_) => return,
+            }
+        } else {
+            None
+        };
         // Whatever else is waiting goes in the same write.
-        let mut next = Some(first);
-        while let Some(wake) = next {
-            serve_wake(inner, &mut sent, wake, &mut frames);
-            next = wakes.try_recv().ok();
+        loop {
+            let wake = match next.take() {
+                Some(wake) => wake,
+                None if !open => break,
+                None => match wakes.try_recv() {
+                    Ok(wake) => wake,
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        open = false;
+                        break;
+                    }
+                },
+            };
+            match wake {
+                Wake::Send(
+                    message @ (Message::Data { .. }
+                    | Message::Connect { .. }
+                    | Message::Hangup { .. }),
+                ) => bulk.push_back(message),
+                wake => serve_wake(inner, &mut sent, wake, &mut frames),
+            }
+        }
+        let start = frames.len();
+        while frames.len() - start < BULK_PER_WRITE
+            && let Some(message) = bulk.pop_front()
+        {
+            message.encode(&mut frames);
         }
         if out.write_all(&frames).and_then(|()| out.flush()).is_err() {
             return;
         }
         frames.clear();
+        if !open && bulk.is_empty() {
+            return;
+        }
     }
 }
 
@@ -640,5 +685,59 @@ mod tests {
         assert_eq!(on, None);
         let other = path_with(Some(Path::new("/opt/x/hof-agent")), Some("/bin".into()));
         assert_eq!(other, None, "only a program called hof");
+    }
+
+    /// Each write the writer makes, apart.
+    #[derive(Default)]
+    struct Writes(Vec<Vec<u8>>);
+
+    impl Write for &mut Writes {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.push(bytes.to_vec());
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn what_the_panes_need_goes_ahead_of_relay_data_sent_before_it() {
+        let agent = Agent::new(Options::default());
+        let (wake, wakes) = mpsc::channel();
+        for n in 0..8u8 {
+            let bytes = vec![n; 60 * 1024];
+            wake.send(Wake::Send(Message::Data { channel: 1, bytes }))
+                .unwrap();
+        }
+        wake.send(Wake::Send(Message::Hangup { channel: 1 }))
+            .unwrap();
+        wake.send(Wake::Send(Message::Pong { nonce: 7 })).unwrap();
+        drop(wake);
+        let mut writes = Writes::default();
+        write_loop(&agent.inner, &wakes, &mut writes);
+
+        assert!(writes.0.len() > 2, "the data went a piece at a time");
+        let mut decoder = Decoder::new();
+        decoder.push(&writes.0.concat());
+        let mut heard = Vec::new();
+        while let Some(message) = decoder.next_message() {
+            heard.push(message.unwrap());
+        }
+        assert!(
+            matches!(heard[0], Message::Pong { nonce: 7 }),
+            "{:?}",
+            heard[0]
+        );
+        // The relay's own, as they were sent.
+        for (n, message) in heard[1..9].iter().enumerate() {
+            assert!(
+                matches!(message, Message::Data { bytes, .. } if bytes[0] == n as u8),
+                "{n}"
+            );
+        }
+        assert!(matches!(heard[9], Message::Hangup { channel: 1 }));
+        assert_eq!(heard.len(), 10);
     }
 }

@@ -51,7 +51,11 @@ impl Feed {
         let Some(io) = self.shared.upgrade() else {
             return;
         };
-        io.lock().output(bytes);
+        // A piece at a time, as a local program's: the UI reading the
+        // screen waits for one piece, not for a whole message's worth.
+        for piece in bytes.chunks(crate::session::READ_CHUNK) {
+            io.lock().output(piece);
+        }
         io.signals.mark(Changes::SCREEN);
         io.signals.kick();
     }
