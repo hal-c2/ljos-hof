@@ -1990,6 +1990,30 @@
               "notify": "sessionKeepRunningChanged"
             },
             {
+              "name": "sessionHost",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "sessionHostChanged"
+            },
+            {
+              "name": "sessionName",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "sessionNameChanged"
+            },
+            {
               "name": "bindingActions",
               "type": "var",
               "kind": "value",

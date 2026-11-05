@@ -331,6 +331,14 @@ pub struct Session {
     /// not Hof itself, so their programs run on when Hof closes (a new
     /// version started, say), and the next start attaches to them again.
     pub keep_running: bool,
+    /// The `[hosts]` host a plain `hof` keeps its session on, in place of
+    /// this machine: it opens as it was left there, its programs run on
+    /// there, and it is kept there as it changes.
+    pub host: Option<String>,
+    /// The session a plain `hof` keeps, in place of `default`. A second
+    /// window, while one has it open, keeps the first of `default`, `2`,
+    /// `3` and on that none has.
+    pub name: Option<String>,
 }
 
 impl Default for Session {
@@ -339,6 +347,8 @@ impl Default for Session {
             restore: false,
             save_scrollback: true,
             keep_running: true,
+            host: None,
+            name: None,
         }
     }
 }

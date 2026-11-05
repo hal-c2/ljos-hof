@@ -10,6 +10,7 @@
 //! ```text
 //! → "list"                         ← {"listed": [...]}
 //! → {"hold": {"name": "work"}}     ← {"held": {"name": "work", "session": ...}}
+//! → {"hold-free": {"first": "work"}}  ← {"held": {"name": "default", ...}}
 //! → {"save": {...}}                ← "saved"
 //! → "forget"                       ← "forgot"
 //!                                  ← {"refused": "why"}, for any of them
@@ -56,6 +57,11 @@ enum Ask {
     /// `None`: the session saved last that no Hof has open.
     Hold {
         name: Option<String>,
+    },
+    /// `first`, or when another Hof has it open the first of `default`,
+    /// `2`, `3` and on that none has: a plain `hof`'s.
+    HoldFree {
+        first: String,
     },
     Save(Carried),
     Forget,
@@ -169,20 +175,11 @@ pub fn serve(stream: impl Read + Write, places: &Places) -> io::Result<()> {
     while let Some(ask) = lines.read::<Ask>()? {
         let answer = match (ask, &held) {
             (Ask::List, _) => Answer::Listed(crate::list_in(&places.locks, &places.default)),
-            (Ask::Hold { .. }, Some(h)) => {
+            (Ask::Hold { .. } | Ask::HoldFree { .. }, Some(h)) => {
                 Answer::Refused(format!("the session {} is held here already", h.name))
             }
-            (Ask::Hold { name }, None) => match held_here(places, name) {
-                Ok((h, session)) => {
-                    let name = h.name.clone();
-                    held = Some(h);
-                    Answer::Held {
-                        name,
-                        session: session.map(Carried::of),
-                    }
-                }
-                Err(why) => Answer::Refused(why),
-            },
+            (Ask::Hold { name }, None) => taken(&mut held, held_here(places, name)),
+            (Ask::HoldFree { first }, None) => taken(&mut held, free_here(places, &first)),
             (Ask::Save(_) | Ask::Forget, None) => Answer::Refused("no session is held".into()),
             (Ask::Save(carried), Some(h)) => {
                 let file = crate::named_beside(&places.default, &h.name);
@@ -201,6 +198,21 @@ pub fn serve(stream: impl Read + Write, places: &Places) -> io::Result<()> {
     Ok(())
 }
 
+/// The answer to a hold: the session it `got`, now `held`, or why not.
+fn taken(held: &mut Option<Held>, got: Result<(Held, Option<Session>), String>) -> Answer {
+    match got {
+        Ok((h, session)) => {
+            let name = h.name.clone();
+            *held = Some(h);
+            Answer::Held {
+                name,
+                session: session.map(Carried::of),
+            }
+        }
+        Err(why) => Answer::Refused(why),
+    }
+}
+
 fn held_here(places: &Places, name: Option<String>) -> Result<(Held, Option<Session>), String> {
     let name = match name {
         Some(name) => name,
@@ -210,7 +222,18 @@ fn held_here(places: &Places, name: Option<String>) -> Result<(Held, Option<Sess
     let held = crate::hold_in(&places.locks, &name)
         .map_err(|e| format!("the session {name}: {e}"))?
         .ok_or_else(|| format!("another Hof has the session {name} open"))?;
-    let session = crate::load(&crate::named_beside(&places.default, &name))
+    saved_here(places, held)
+}
+
+fn free_here(places: &Places, first: &str) -> Result<(Held, Option<Session>), String> {
+    let held = crate::hold_free_in(&places.locks, first)
+        .map_err(|e| format!("the session {first}: {e}"))?;
+    saved_here(places, held)
+}
+
+fn saved_here(places: &Places, held: Held) -> Result<(Held, Option<Session>), String> {
+    let name = &held.name;
+    let session = crate::load(&crate::named_beside(&places.default, name))
         .map_err(|e| format!("the session {name} could not be read: {e}"))?;
     Ok((held, session))
 }
@@ -266,11 +289,36 @@ pub fn hold<S: Read + Write>(
     stream: S,
     name: Option<&str>,
 ) -> io::Result<(Holding<S>, Option<Session>)> {
+    held_there(
+        stream,
+        &Ask::Hold {
+            name: name.map(str::to_owned),
+        },
+    )
+}
+
+/// Holds the session `first` on the machine at the other end of `stream`,
+/// or when another Hof has it open there the first of `default`, `2`, `3`
+/// and on that none has: a plain `hof`'s. With it, the session as it was
+/// saved there, if it was.
+pub fn hold_free<S: Read + Write>(
+    stream: S,
+    first: &str,
+) -> io::Result<(Holding<S>, Option<Session>)> {
+    held_there(
+        stream,
+        &Ask::HoldFree {
+            first: first.to_owned(),
+        },
+    )
+}
+
+fn held_there<S: Read + Write>(
+    stream: S,
+    wanted: &Ask,
+) -> io::Result<(Holding<S>, Option<Session>)> {
     let mut lines = Lines::new(stream);
-    let wanted = Ask::Hold {
-        name: name.map(str::to_owned),
-    };
-    match ask(&mut lines, &wanted)? {
+    match ask(&mut lines, wanted)? {
         Answer::Held { name, session } => {
             Ok((Holding { lines, name }, session.map(Carried::into_session)))
         }
@@ -394,6 +442,17 @@ mod tests {
         assert_eq!((work.name.as_str(), session), ("new", None));
         let e = hold(channel(&there.places), Some("../up")).err().unwrap();
         assert!(e.to_string().contains("no session name"), "{e}");
+    }
+
+    #[test]
+    fn a_plain_hof_elsewhere_keeps_its_session_or_the_next_free() {
+        let there = there();
+        let (work, _) = hold_free(channel(&there.places), "work").unwrap();
+        let (beside, session) = hold_free(channel(&there.places), "work").unwrap();
+        assert_eq!(
+            (work.name.as_str(), beside.name.as_str(), session),
+            ("work", "default", None)
+        );
     }
 
     #[test]

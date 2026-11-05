@@ -59,9 +59,24 @@ enum Job {
 /// or with `None` the one saved last there that no Hof has open. Returns
 /// its name.
 pub fn open(host: &str, name: Option<&str>, config: &hof_config::Config) -> anyhow::Result<String> {
+    open_with(host, config, |c| service::hold(c, name))
+}
+
+/// Holds a plain `hof`'s session on the `[hosts]` host `host` for this
+/// window (`[session] host`): `first`, or when another Hof has it open the
+/// first of `default`, `2`, `3` and on there that none has. Returns its
+/// name.
+pub fn open_free(host: &str, first: &str, config: &hof_config::Config) -> anyhow::Result<String> {
+    open_with(host, config, |c| service::hold_free(c, first))
+}
+
+fn open_with(
+    host: &str,
+    config: &hof_config::Config,
+    hold: impl FnOnce(UnixStream) -> io::Result<(Holding<UnixStream>, Option<Session>)>,
+) -> anyhow::Result<String> {
     let (there, kept) = reach(host, config)?;
-    let (holding, session) =
-        service::hold(channel(&there, host)?, name).with_context(|| format!("on {host}"))?;
+    let (holding, session) = hold(channel(&there, host)?).with_context(|| format!("on {host}"))?;
     let ours = this_machine();
     let name = holding.name.clone();
     let (jobs, taken) = mpsc::channel();
@@ -251,6 +266,12 @@ fn channel(there: &Host, host: &str) -> anyhow::Result<UnixStream> {
     Ok(socket)
 }
 
+/// Whether the `[hosts]` host `host` is this machine, by its name: a
+/// config shared by both machines, its `[session] host` the one of them.
+pub fn is_this_machine(host: &str) -> bool {
+    host == this_machine()
+}
+
 /// This machine's name, as the agent here says it: what a pane here is
 /// saved as running on, there.
 fn this_machine() -> String {
@@ -342,5 +363,12 @@ mod tests {
         assert_eq!(session, panes([Some("desktop"), None, Some("dev")]));
         as_there(&mut session, "desktop", "laptop");
         assert_eq!(session, panes([None, Some("laptop"), Some("dev")]));
+    }
+
+    #[test]
+    fn a_config_shared_with_the_machine_it_names_keeps_its_session_there() {
+        assert!(is_this_machine(&this_machine()));
+        assert!(!this_machine().contains('.'), "the short name");
+        assert!(!is_this_machine("not-this-machine.invalid"));
     }
 }

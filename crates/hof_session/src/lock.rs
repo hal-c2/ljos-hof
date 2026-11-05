@@ -79,7 +79,16 @@ pub fn hold_in(dir: &Path, name: &str) -> io::Result<Option<Held>> {
 /// in `dir`: `default`, then `2`, `3` and on. A window opened beside
 /// another so keeps its own, rather than the other's.
 pub fn hold_first_free_in(dir: &Path) -> io::Result<Held> {
-    let names = std::iter::once(DEFAULT.to_owned()).chain((2..=MOST).map(|n| n.to_string()));
+    hold_free_in(dir, DEFAULT)
+}
+
+/// Holds the session `first`, its lock in `dir`, or when another Hof has
+/// it open the first of `default`, `2`, `3` and on that none has: a plain
+/// `hof` told which session is its own (`[session] name`).
+pub fn hold_free_in(dir: &Path, first: &str) -> io::Result<Held> {
+    let names = std::iter::once(first.to_owned())
+        .chain(std::iter::once(DEFAULT.to_owned()))
+        .chain((2..=MOST).map(|n| n.to_string()));
     for name in names {
         if let Some(held) = hold_in(dir, &name)? {
             return Ok(held);
@@ -183,6 +192,15 @@ mod tests {
         );
         drop(second);
         assert_eq!(hold_first_free_in(dir.path()).unwrap().name, "2");
+    }
+
+    #[test]
+    fn a_plain_hof_told_its_session_keeps_it_or_the_next_free() {
+        let dir = tempfile::tempdir().unwrap();
+        let work = hold_free_in(dir.path(), "work").unwrap();
+        let beside = hold_free_in(dir.path(), "work").unwrap();
+        assert_eq!([&work.name, &beside.name], ["work", "default"]);
+        assert!(hold_free_in(dir.path(), "../up").is_err(), "no such name");
     }
 
     #[test]

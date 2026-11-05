@@ -89,6 +89,10 @@ fn the_defaults_are_the_promised_ones() {
     assert!(c.dropdown.hide_on_focus_loss);
     assert_eq!(c.dropdown.animation_ms, 150);
     assert!(!c.session.restore && c.session.save_scrollback && c.session.keep_running);
+    assert_eq!(
+        (c.session.host.as_ref(), c.session.name.as_ref()),
+        (None, None)
+    );
     assert!(!c.mcp.enabled && c.mcp.socket.is_none());
     assert!(c.notify.agent_waiting);
 }
@@ -197,6 +201,8 @@ fn every_key_is_read_into_its_field() {
         restore = true
         save-scrollback = false
         keep-running = false
+        host = "desktop"
+        name = "work"
 
         [notify]
         agent-waiting = false
@@ -282,6 +288,8 @@ fn every_key_is_read_into_its_field() {
     assert_eq!(c.dropdown.animation_ms, 0);
     assert_eq!(c.keys.overrides[&Action::NewTab], [chord("ctrl+t")]);
     assert!(c.session.restore && !c.session.save_scrollback && !c.session.keep_running);
+    assert_eq!(c.session.host.as_deref(), Some("desktop"));
+    assert_eq!(c.session.name.as_deref(), Some("work"));
     assert!(!c.notify.agent_waiting);
     assert!(c.mcp.enabled);
     assert_eq!(c.mcp.socket.as_deref(), Some(Path::new("/run/hof.sock")));

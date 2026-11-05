@@ -68,24 +68,37 @@ enum Action {
         name: Option<String>,
         /// The session kept on this `[hosts]` host, in place of this
         /// machine: its programs run on there, and it is kept there.
+        /// `[session] host` is the one taken when it is not given.
         #[arg(long)]
         host: Option<String>,
+        /// The session kept on this machine, whatever `[session] host`
+        /// says.
+        #[arg(long, conflicts_with = "host")]
+        here: bool,
     },
     /// List the saved sessions: whether a Hof has each open, and what it
     /// holds.
     Sessions {
-        /// Those on this `[hosts]` host, in place of this machine.
+        /// Those on this `[hosts]` host, in place of this machine;
+        /// `[session] host` when it is not given.
         #[arg(long)]
         host: Option<String>,
+        /// Those on this machine, whatever `[session] host` says.
+        #[arg(long, conflicts_with = "host")]
+        here: bool,
     },
     /// End the programs a session kept running, here and on its hosts, and
     /// forget it. Not one a Hof has open: close its panes there.
     Forget {
         name: String,
         /// The session kept on this `[hosts]` host, in place of this
-        /// machine.
+        /// machine; `[session] host` when it is not given.
         #[arg(long)]
         host: Option<String>,
+        /// The session kept on this machine, whatever `[session] host`
+        /// says.
+        #[arg(long, conflicts_with = "host")]
+        here: bool,
     },
     #[command(flatten)]
     Here(hof_agent::cli::Here),
@@ -108,19 +121,19 @@ fn main() -> Result<()> {
             std::process::exit(done.code);
         }
         Some(Action::Here(here)) => return hof_agent::cli::run(here),
-        Some(Action::Sessions { host }) => {
-            let listed = match host {
-                Some(host) => hof::away::list(&host, &config_of(&cli)?.config)?,
+        Some(Action::Sessions { host, here }) => {
+            let listed = match kept_on(host, here, &cli)? {
+                Some(e) => hof::away::list(&e.host, &e.config)?,
                 None => hof::held::list(),
             };
             hof_qml::remote::finish(std::time::Duration::from_secs(2));
             print!("{}", listing(&listed, std::time::SystemTime::now()));
             return Ok(());
         }
-        Some(Action::Forget { name, host }) => {
+        Some(Action::Forget { name, host, here }) => {
             let agent = hof_agent::daemon::socket_path();
-            let ended = match host {
-                Some(host) => hof::away::forget(&host, &name, &config_of(&cli)?.config, &agent)?,
+            let ended = match kept_on(host, here, &cli)? {
+                Some(e) => hof::away::forget(&e.host, &name, &e.config, &agent)?,
                 None => {
                     let config = cli.config.clone().unwrap_or_else(hof_config::path);
                     hof::held::forget(&name, &config, &agent)?
@@ -132,7 +145,7 @@ fn main() -> Result<()> {
             }
             return Ok(());
         }
-        Some(Action::Attach { name, host }) => Some((name, host)),
+        Some(Action::Attach { name, host, here }) => Some((name, kept_on(host, here, &cli)?)),
         None => None,
     };
     if attach.is_some() && (cli.dropdown || cli.toggle || cli.tab || !cli.command.is_empty()) {
@@ -209,12 +222,15 @@ fn main() -> Result<()> {
 ///
 /// `hof attach --host` keeps the session on that host, which holds it: the
 /// name returned is the one it had there.
+///
+/// `[session] host` keeps a plain `hof`'s session on that host in the same
+/// way, and `[session] name` names it.
 fn session(
-    attach: Option<(Option<String>, Option<String>)>,
+    attach: Option<(Option<String>, Option<Elsewhere>)>,
     cli: &Cli,
 ) -> Result<(Option<hof::held::Held>, Option<String>, Option<bool>)> {
-    if let Some((name, Some(host))) = attach {
-        let name = hof::away::open(&host, name.as_deref(), &config_of(cli)?.config)?;
+    if let Some((name, Some(e))) = attach {
+        let name = hof::away::open(&e.host, name.as_deref(), &e.config)?;
         return Ok((None, Some(name), Some(true)));
     }
     if let Some((name, None)) = attach {
@@ -237,7 +253,21 @@ fn session(
     if !cli.command.is_empty() {
         return Ok((None, None, Some(false)));
     }
-    match hof::held::hold_first_free() {
+    // A config that can't be read still opens a window, which says why.
+    let config = config_of(cli).ok().map(|c| c.config);
+    let first = config
+        .as_ref()
+        .and_then(|c| c.session.name.clone())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| hof_session::DEFAULT.to_owned());
+    if let Some((host, config)) = config.as_ref().and_then(|c| Some((configured_host(c)?, c))) {
+        match hof::away::open_free(&host, &first, config) {
+            Ok(name) => return Ok((None, Some(name), Some(true))),
+            // A window of this machine's, rather than none.
+            Err(e) => eprintln!("hof: the session on {host} is not opened: {e:#}"),
+        }
+    }
+    match hof::held::hold_free(&first) {
         Ok(held) => {
             let name = held.name.clone();
             Ok((Some(held), Some(name), None))
@@ -247,6 +277,44 @@ fn session(
             Ok((None, None, Some(false)))
         }
     }
+}
+
+/// The `[hosts]` host a session is kept on, and the config that says how
+/// to reach it.
+struct Elsewhere {
+    host: String,
+    config: hof_config::Config,
+}
+
+/// Where a session is kept: `host` given, else `[session] host` unless
+/// `here` is. `None` for this machine.
+fn kept_on(host: Option<String>, here: bool, cli: &Cli) -> Result<Option<Elsewhere>> {
+    if here {
+        return Ok(None);
+    }
+    if let Some(host) = host {
+        return Ok(Some(Elsewhere {
+            host,
+            config: config_of(cli)?.config,
+        }));
+    }
+    // A config that can't be read keeps them here; the window says why.
+    Ok(config_of(cli).ok().and_then(|c| {
+        Some(Elsewhere {
+            host: configured_host(&c.config)?,
+            config: c.config,
+        })
+    }))
+}
+
+/// `[session] host`, unless it names this machine: a config shared by
+/// both machines, the one of them its sessions are kept on.
+fn configured_host(config: &hof_config::Config) -> Option<String> {
+    config
+        .session
+        .host
+        .clone()
+        .filter(|h| !h.is_empty() && !hof::away::is_this_machine(h))
 }
 
 /// The config, as the command line says where it is.

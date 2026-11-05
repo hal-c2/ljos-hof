@@ -146,6 +146,24 @@ on `desktop`, a `[hosts]` name. `hof sessions --host desktop` lists that
 machine's sessions, and `hof forget --host desktop work` ends one's
 programs and forgets it there.
 
+To keep them there always, set it in the config or in Settings
+(Window → Session):
+
+```toml
+[session]
+host = "desktop"   # a plain `hof` opens its session on desktop
+name = "work"      # and that one, not `default`
+```
+
+A plain `hof` then opens `work` on `desktop` as `hof attach --host
+desktop work` would. A second window, while one has it open, keeps the
+first of `default`, `2`, `3` there that none has. `hof attach`, `hof
+sessions` and `hof forget` take that host too; `--here` is for this
+machine's. A config shared by both machines can name either: on
+`desktop` itself (its short host name) the sessions are its own. When the
+host can't be reached in 30 seconds, the window opens with a session of
+this machine's, and says why on its standard error.
+
 - The agent there serves a `sessions` channel
   (`hof_session::service`): one JSON object a line each way, to list,
   hold, save and forget. The scrollback the file keeps apart is carried

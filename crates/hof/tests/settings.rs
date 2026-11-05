@@ -186,6 +186,32 @@ fn a_change_in_the_settings_is_written_into_the_file_and_followed() {
         .unwrap();
     assert!(!refused.to_boolean());
 
+    // The session kept on it, by name; the next start opens it there.
+    let kept_on = hof.find("settingSessionHost");
+    assert_eq!(
+        hof.engine.read_by_name(kept_on, "currentIndex").to_number(),
+        0.0
+    );
+    assert_eq!(hof.put("session", "host", Value::from("dev")), "");
+    assert_eq!(hof.put("session", "name", Value::from("work")), "");
+    assert!(
+        hof.file().contains("host = \"dev\"\nname = \"work\""),
+        "{}",
+        hof.file()
+    );
+    assert_eq!(
+        hof.engine.read_by_name(kept_on, "currentIndex").to_number(),
+        1.0
+    );
+    let name = hof.find("settingSessionName");
+    let name = hof.engine.read_by_name(name, "text").to_js_string();
+    assert_eq!(name.as_str(), "work");
+    assert_eq!(hof.put("session", "host", Value::Null), "");
+    assert_eq!(
+        hof.engine.read_by_name(kept_on, "currentIndex").to_number(),
+        0.0
+    );
+
     hof.engine
         .invoke_by_name(dialog, "removeHost", &[Value::from("dev")])
         .unwrap();

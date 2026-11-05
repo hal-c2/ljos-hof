@@ -195,6 +195,10 @@ restore = false               # reopen the last session's windows, tabs and pane
 save-scrollback = true        # keep each pane's scrollback with the saved session
 keep-running = true           # with restore: panes' programs run on when Hof
                               # closes, under `hof agent`, and are attached again
+# host = "desktop"            # a plain `hof` keeps its session on this [hosts]
+                              # host: opened as left there, its programs run on
+                              # there (`hof attach --host` for one window)
+# name = "work"               # the session a plain `hof` keeps, not `default`
 
 # Desktop notifications, by `notify-send`.
 [notify]

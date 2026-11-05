@@ -105,6 +105,8 @@ const CONFIG_KEYS: &[(&str, Node)] = &[
             ("restore", Value),
             ("save-scrollback", Value),
             ("keep-running", Value),
+            ("host", Value),
+            ("name", Value),
         ]),
     ),
     ("notify", Table(&[("agent-waiting", Value)])),

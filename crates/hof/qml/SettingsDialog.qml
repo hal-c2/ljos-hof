@@ -588,6 +588,34 @@ Popup {
                                 }
                             }
                             SettingRow {
+                                title: "Keep it on"
+                                description: "This machine, or a host its programs run on and it is kept on. From the next start."
+
+                                ShellComboBox {
+                                    objectName: "settingSessionHost"
+                                    Layout.preferredWidth: 220
+                                    outline: true
+                                    model: ["This machine"].concat(Settings.hosts)
+                                    currentIndex: Settings.hosts.indexOf(Settings.sessionHost) + 1
+                                    Accessible.name: "Keep the session on"
+                                    onActivated: index => dialog.put("session", "host", index > 0 ? Settings.hosts[index - 1] : null)
+                                }
+                            }
+                            SettingRow {
+                                title: "Its name"
+                                description: "The session a plain hof opens. From the next start."
+
+                                ShellTextField {
+                                    objectName: "settingSessionName"
+                                    Layout.preferredWidth: 220
+                                    text: Settings.sessionName
+                                    placeholderText: "default"
+                                    Accessible.name: "Session name"
+                                    onEditingFinished: if (text !== Settings.sessionName)
+                                        dialog.putText("session", "name", text)
+                                }
+                            }
+                            SettingRow {
                                 title: "Tell me when an agent waits"
                                 description: "A notification when an agent out of sight needs you."
 

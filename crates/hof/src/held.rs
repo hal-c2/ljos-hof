@@ -17,11 +17,12 @@ pub fn hold(name: &str) -> io::Result<Option<Held>> {
     hof_session::hold_in(&runtime_dir(), name)
 }
 
-/// Holds the first session of a plain `hof`'s no other Hof has:
-/// `default`, then `2`, `3` and on. A window opened beside another so
-/// keeps its own, rather than the other's.
-pub fn hold_first_free() -> io::Result<Held> {
-    hof_session::hold_first_free_in(&runtime_dir())
+/// Holds a plain `hof`'s session: `first` (`default`, or `[session]
+/// name`), or when another Hof has it open the first of `default`, `2`,
+/// `3` and on that none has. A window opened beside another so keeps its
+/// own, rather than the other's.
+pub fn hold_free(first: &str) -> io::Result<Held> {
+    hof_session::hold_free_in(&runtime_dir(), first)
 }
 
 /// Where the window keeping the session `name` takes `hof ctl`, as does

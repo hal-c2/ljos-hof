@@ -87,8 +87,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub use lock::{
-    Held, Listed, hold_first_free_in, hold_in, is_open_in, last_free_in, list_in, runtime_dir,
-    saved_at,
+    Held, Listed, hold_first_free_in, hold_free_in, hold_in, is_open_in, last_free_in, list_in,
+    runtime_dir, saved_at,
 };
 pub use named::{
     DEFAULT, forget, forget_beside, is_name, named, named_beside, saved, saved_beside,

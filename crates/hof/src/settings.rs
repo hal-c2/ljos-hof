@@ -123,6 +123,14 @@ pub struct Settings {
     /// Panes' programs run on when Hof closes, under the agent here.
     #[qml(notify, readonly)]
     pub session_keep_running: bool,
+    /// `[session] host`: the `[hosts]` host a plain `hof` keeps its
+    /// session on; empty for this machine.
+    #[qml(notify, readonly)]
+    pub session_host: String,
+    /// `[session] name`: the session a plain `hof` keeps; empty for
+    /// `default`.
+    #[qml(notify, readonly)]
+    pub session_name: String,
 
     /// Key bindings, as two lists of the same length: the action and the
     /// key sequence, in the form `Shortcut.sequence` takes.
@@ -357,6 +365,8 @@ impl Settings {
             session_restore: crate::launch().restore.unwrap_or(config.session.restore),
             session_save_scrollback: config.session.save_scrollback,
             session_keep_running: config.session.keep_running,
+            session_host: config.session.host.clone().unwrap_or_default(),
+            session_name: config.session.name.clone().unwrap_or_default(),
             binding_actions,
             binding_sequences,
             commands: crate::scripts::commands(&config),
@@ -474,6 +484,8 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
         session_restore => SESSION_RESTORE,
         session_save_scrollback => SESSION_SAVE_SCROLLBACK,
         session_keep_running => SESSION_KEEP_RUNNING,
+        session_host => SESSION_HOST,
+        session_name => SESSION_NAME,
         binding_actions => BINDING_ACTIONS,
         binding_sequences => BINDING_SEQUENCES,
         commands => COMMANDS,

@@ -101,6 +101,8 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   programs still running there, and keeps it there as it changes. Back
   at `desktop`, `hof attach work` opens it as it was left. `hof sessions
   --host desktop` and `hof forget --host desktop work` do the same there.
+  `[session] host = "desktop"` (and `name`), or Window → Session in
+  Settings, makes that where a plain `hof` keeps its session.
   It needs this Hof on both machines.
 - **Themes.** Nine are built in, and you can add your own as
   `themes/<name>.toml`.
