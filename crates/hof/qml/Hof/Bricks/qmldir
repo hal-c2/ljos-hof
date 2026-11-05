@@ -1,0 +1,13 @@
+module Hof.Bricks
+singleton Theme 1.0 Theme.qml
+ShellButton 1.0 ShellButton.qml
+ShellCheckBox 1.0 ShellCheckBox.qml
+ShellComboBox 1.0 ShellComboBox.qml
+ShellIcon 1.0 ShellIcon.qml
+ShellMenu 1.0 ShellMenu.qml
+ShellMenuItem 1.0 ShellMenuItem.qml
+ShellMenuSeparator 1.0 ShellMenuSeparator.qml
+ShellSpinBox 1.0 ShellSpinBox.qml
+ShellSwitch 1.0 ShellSwitch.qml
+ShellTextField 1.0 ShellTextField.qml
+ShellSlider 1.0 ShellSlider.qml
