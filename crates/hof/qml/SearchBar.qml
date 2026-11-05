@@ -11,7 +11,7 @@ Rectangle {
     required property Terminal terminal
     property color background
     property color foreground
-    property color border
+    property color line
     property string fontFamily
     property real fontSize: 11
 
@@ -40,9 +40,11 @@ Rectangle {
     visible: false
     width: Math.min(parent.width - 16, 360)
     height: row.implicitHeight + 12
-    radius: 4
-    color: root.background
-    border.color: root.border
+    radius: 8
+    // Raised a little from the terminal behind it.
+    color: Qt.tint(root.background, Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06))
+    border.width: 1
+    border.color: root.line
 
     Row {
         id: row
@@ -60,7 +62,7 @@ Rectangle {
             width: row.width - count.width - shut.width - 2 * row.spacing
             anchors.verticalCenter: parent.verticalCenter
             color: root.foreground
-            selectionColor: root.border
+            selectionColor: root.line
             font.family: root.fontFamily
             font.pointSize: root.fontSize
             clip: true

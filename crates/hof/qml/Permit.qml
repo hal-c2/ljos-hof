@@ -3,7 +3,8 @@ import Hof
 
 // Asks whether the program may do something: read the clipboard, open a
 // URL. Ctrl+Enter lets it this once, Ctrl+Shift+A always (for this pane),
-// Escape not. Approval needs an intentional chord or click, never a stray key.
+// Escape not; Cmd for Ctrl on a Mac. Approval needs an intentional chord
+// or click, never a stray key.
 Rectangle {
     id: root
 
@@ -11,11 +12,13 @@ Rectangle {
     property bool active: true
     property color background
     property color foreground
-    property color border
+    property color line
     property string fontFamily
     property real fontSize: 11
 
     property string question
+    // Control, which a Mac calls Command.
+    readonly property string mod: Qt.platform.os === "osx" ? "⌘" : "Ctrl+"
     property string detail
 
     signal answered(bool allow, bool always)
@@ -40,9 +43,11 @@ Rectangle {
     visible: false
     width: Math.min(parent.width - 32, 520)
     height: column.implicitHeight + 24
-    radius: 6
-    color: root.background
-    border.color: root.border
+    radius: 8
+    // Raised a little from the terminal behind it.
+    color: Qt.tint(root.background, Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06))
+    border.width: 1
+    border.color: root.line
     focus: root.visible
 
     Keys.onPressed: event => {
@@ -103,12 +108,12 @@ Rectangle {
                         always: false
                     },
                     {
-                        label: "Always (Ctrl+Shift+A)",
+                        label: "Always (" + root.mod + "Shift+A)",
                         allow: true,
                         always: true
                     },
                     {
-                        label: "Allow (Ctrl+Enter)",
+                        label: "Allow (" + root.mod + "Enter)",
                         allow: true,
                         always: false
                     }
@@ -123,7 +128,7 @@ Rectangle {
                     height: label.implicitHeight + 10
                     radius: 3
                     color: button.modelData.allow && !button.modelData.always ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.15) : "transparent"
-                    border.color: root.border
+                    border.color: root.line
 
                     Text {
                         id: label

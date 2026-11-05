@@ -9,7 +9,7 @@ Rectangle {
     required property Terminal terminal
     property color background
     property color foreground
-    property color border
+    property color line
     property string fontFamily
     property real fontSize: 11
 
@@ -36,9 +36,11 @@ Rectangle {
     visible: false
     width: Math.min(parent.width - 32, 520)
     height: column.implicitHeight + 24
-    radius: 6
-    color: root.background
-    border.color: root.border
+    radius: 8
+    // Raised a little from the terminal behind it.
+    color: Qt.tint(root.background, Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06))
+    border.width: 1
+    border.color: root.line
     focus: root.visible
 
     Keys.onPressed: event => {
@@ -117,7 +119,7 @@ Rectangle {
                     height: label.implicitHeight + 10
                     radius: 3
                     color: button.modelData.paste ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.15) : "transparent"
-                    border.color: root.border
+                    border.color: root.line
 
                     Text {
                         id: label

@@ -71,6 +71,19 @@ Item {
 
     clip: true
 
+    // A `file:` URL as the path it names; any other as it is.
+    function shownUrl(url) {
+        if (!url.startsWith("file://"))
+            return url;
+        const rest = url.slice(7);
+        const path = rest.slice(Math.max(0, rest.indexOf("/")));
+        try {
+            return decodeURIComponent(path);
+        } catch (e) {
+            return url;
+        }
+    }
+
     function openSearch() {
         search.open();
     }
@@ -169,7 +182,8 @@ Item {
         onOpenRequested: url => {
             confirm.z = 3;
             clipboardPermit.z = 3;
-            openPermit.ask(root.programName + " wants to open:", url.length > 300 ? url.slice(0, 300) + "…" : url);
+            const shown = root.shownUrl(url);
+            openPermit.ask(root.programName + " wants to open" + (root.remote && shown.startsWith("/") ? " a copy here of:" : ":"), shown.length > 300 ? shown.slice(0, 300) + "…" : shown);
         }
         onBell: root.hook("bell", [])
         onCommandStarted: command => {
@@ -254,7 +268,7 @@ Item {
         terminal: terminal
         background: root.background
         foreground: root.foreground
-        border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+        line: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
         fontFamily: Settings.fontFamily
         fontSize: root.fontSize
     }
@@ -268,7 +282,7 @@ Item {
         terminal: terminal
         background: root.background
         foreground: root.foreground
-        border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+        line: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
         fontFamily: Settings.fontFamily
         fontSize: root.fontSize
     }
@@ -282,7 +296,7 @@ Item {
         terminal: terminal
         background: root.background
         foreground: root.foreground
-        border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+        line: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
         fontFamily: Settings.fontFamily
         fontSize: root.fontSize
         active: root.focused && root.shown
@@ -299,7 +313,7 @@ Item {
         terminal: terminal
         background: root.background
         foreground: root.foreground
-        border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+        line: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
         fontFamily: Settings.fontFamily
         fontSize: root.fontSize
         active: root.focused && root.shown
