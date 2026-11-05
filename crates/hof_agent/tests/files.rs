@@ -79,6 +79,29 @@ fn until(what: &str, mut done: impl FnMut() -> bool) {
 }
 
 #[test]
+fn a_host_kept_connected_with_no_pane_gives_a_channel() {
+    let agent = Agent::new(Options {
+        name: "test".into(),
+        ..Options::default()
+    });
+    let host = Host::new(Pipe(agent), client::Options::default());
+    let kept = host.keep_connected();
+    let socket = host
+        .connect_within(files::SERVICE, Vec::new(), PATIENCE)
+        .expect("the connection is made for the kept, and a channel had on it");
+    socket.set_read_timeout(Some(PATIENCE)).unwrap();
+    let there = tempfile::tempdir().unwrap();
+    std::fs::write(there.path().join("a.txt"), "kept\n").unwrap();
+    let mut client = Client::new(socket, "me").unwrap();
+    let mut got = Vec::new();
+    client
+        .read_file(&bytes(&there.path().join("a.txt")), &mut got)
+        .unwrap();
+    assert_eq!(got, b"kept\n");
+    drop(kept);
+}
+
+#[test]
 fn a_client_reads_lists_and_writes_the_agents_files() {
     let (agent, host) = host();
     let there = tempfile::tempdir().unwrap();

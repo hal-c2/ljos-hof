@@ -385,13 +385,25 @@ impl Host {
     /// comes back. Fails if the connection is not up within a moment;
     /// an agent that has no such service hangs up, and the socket ends.
     pub fn connect(&self, service: &str, opening: Vec<u8>) -> io::Result<UnixStream> {
-        let given_up = Instant::now() + CONNECT_WAIT;
+        self.connect_within(service, opening, CONNECT_WAIT)
+    }
+
+    /// [`Host::connect`], waiting up to `within` for the connection: the
+    /// first over ssh may take that long. Only a pane, or a [`Kept`],
+    /// makes the connection.
+    pub fn connect_within(
+        &self,
+        service: &str,
+        opening: Vec<u8>,
+        within: Duration,
+    ) -> io::Result<UnixStream> {
+        let given_up = Instant::now() + within;
         let relays = loop {
             let (answer, answered) = mpsc::channel();
             if self.to.send(Event::Relays(answer)).is_err() {
                 return Err(io::ErrorKind::NotConnected.into());
             }
-            match answered.recv_timeout(CONNECT_WAIT) {
+            match answered.recv_timeout(within) {
                 Ok(Some(relays)) => break relays,
                 Ok(None) if Instant::now() < given_up => {
                     thread::sleep(Duration::from_millis(100));
@@ -413,6 +425,15 @@ impl Host {
             Box::new(theirs),
         );
         Ok(ours)
+    }
+
+    /// The connection, made and kept up while the [`Kept`] lives, with no
+    /// pane to want it.
+    pub fn keep_connected(&self) -> Kept {
+        let _ = self.to.send(Event::Keep(true));
+        Kept {
+            to: self.to.clone(),
+        }
     }
 
     /// A new pane running `start`.
@@ -515,6 +536,20 @@ enum Event {
         keep: bool,
         done: mpsc::Sender<()>,
     },
+    /// A [`Kept`] made (`true`) or dropped.
+    Keep(bool),
+}
+
+/// The connection to a host kept up though no pane wants it, for as long
+/// as this lives: for a channel such as a session's to be had on it.
+pub struct Kept {
+    to: mpsc::Sender<Event>,
+}
+
+impl Drop for Kept {
+    fn drop(&mut self) {
+        let _ = self.to.send(Event::Keep(false));
+    }
 }
 
 /// One pane, as the connection knows it.
@@ -583,6 +618,8 @@ struct Driver {
     retry_wait: Duration,
     /// Why the last connection ended, for the panes that wait on the next.
     why: Option<String>,
+    /// The [`Kept`]s living: the connection is wanted for them too.
+    kept: usize,
 }
 
 impl Driver {
@@ -608,6 +645,7 @@ impl Driver {
             to_close: Vec::new(),
             retry_at: None,
             why: None,
+            kept: 0,
         }
     }
 
@@ -634,6 +672,8 @@ impl Driver {
                     return;
                 }
                 Some(Event::Pane(id, command)) => self.command(id, command),
+                Some(Event::Keep(true)) => self.kept += 1,
+                Some(Event::Keep(false)) => self.kept = self.kept.saturating_sub(1),
                 Some(Event::Relays(answer)) => {
                     let relays = self
                         .live
@@ -668,7 +708,9 @@ impl Driver {
     /// A pane whose program ended is still the agent's until it is
     /// closed, so it still wants the connection to close it on.
     fn wanted(&self) -> bool {
-        !self.to_close.is_empty() || self.slots.values().any(|s| !s.over || s.remote.is_some())
+        self.kept > 0
+            || !self.to_close.is_empty()
+            || self.slots.values().any(|s| !s.over || s.remote.is_some())
     }
 
     /// When the loop has something to do with no event.
