@@ -17,6 +17,9 @@ bold-is-bright = false        # draw bold text in the bright ANSI colour
 [window]
 padding = 6.0                 # space around the cells, in logical pixels
 opacity = 1.0                 # background opacity, 0 (clear) to 1 (opaque)
+pane-border = 2.0             # line round each pane of a split, the focused
+                              # one's in a highlight colour; 0 for none
+pane-radius = 8.0             # roundness of its corners; 0 for square
 decorations = true            # ask for a title bar and borders
 width = 100                   # initial width, in cells
 height = 30                   # initial height, in cells

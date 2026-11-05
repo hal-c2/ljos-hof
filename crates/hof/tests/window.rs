@@ -134,8 +134,13 @@ fn splitting_right_puts_a_second_terminal_beside_the_first() {
     assert_ne!(first, second, "the new pane has the keys");
     let (w, _) = hof.size();
     let (a, b) = (hof.number(first, "width"), hof.number(second, "width"));
-    assert!((a - w / 2.0).abs() <= 1.0, "first is {a} of {w}");
-    assert!((a + b - w).abs() <= 0.5, "together they fill {w}");
+    // Each is the half less its frame: 2 apart and 2 of line each side.
+    let frame = 8.0;
+    assert!((a + frame - w / 2.0).abs() <= 1.0, "first is {a} of {w}");
+    assert!(
+        (a + b + 2.0 * frame - w).abs() <= 0.5,
+        "with their frames they fill {w}"
+    );
 }
 
 #[test]
@@ -979,4 +984,48 @@ fn the_settings_open_in_the_window_and_escape_puts_them_away() {
     hof.window.settle().unwrap();
     assert!(!hof.flag("settingsShown"));
     assert!(hof.has_keys(t), "the keys go back to the terminal");
+}
+
+#[test]
+fn the_panes_of_a_split_are_framed_and_the_focused_ones_frame_stands_out() {
+    let mut hof = opened();
+    let frames = |hof: &Hof| {
+        let mut found = Vec::new();
+        let mut items = vec![hof.root];
+        while let Some(item) = items.pop() {
+            let name = hof.engine.read_by_name(item, "objectName").to_js_string();
+            let shown = hof.engine.read_by_name(item, "visible").to_boolean();
+            if name.as_str() == "paneFrame" && shown {
+                found.push(item);
+            }
+            items.extend(hof.engine.children(item));
+        }
+        found
+    };
+    let colour = |hof: &Hof, frame: ObjectId| {
+        hof.engine
+            .read_by_name(frame, "edge")
+            .to_js_string()
+            .to_string()
+    };
+    assert!(frames(&hof).is_empty(), "one pane has no frame");
+    let first = hof.current().unwrap();
+    let whole = hof.number(first, "width");
+    hof.run("split-right");
+    let second = hof.current().unwrap();
+    let framed = frames(&hof);
+    assert_eq!(framed.len(), 2, "both panes are framed");
+    let colours: Vec<_> = framed.iter().map(|&f| colour(&hof, f)).collect();
+    assert_ne!(
+        colours[0], colours[1],
+        "the focused pane's frame stands out"
+    );
+    // The frame is round the cells, not over them.
+    let (w, _) = hof.size();
+    let (a, b) = (hof.number(first, "width"), hof.number(second, "width"));
+    assert!(
+        a + b < w - 8.0,
+        "{a} and {b} leave room for the frames in {w}"
+    );
+    assert!(a < whole / 2.0);
 }

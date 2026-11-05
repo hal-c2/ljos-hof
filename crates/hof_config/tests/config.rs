@@ -69,6 +69,8 @@ fn the_defaults_are_the_promised_ones() {
     assert!(!c.font.bold_is_bright);
     assert_eq!(c.window.padding, 6.0);
     assert_eq!(c.window.opacity, 1.0);
+    assert_eq!(c.window.pane_border, 2.0);
+    assert_eq!(c.window.pane_radius, 8.0);
     assert!(c.window.decorations);
     assert_eq!((c.window.width, c.window.height), (100, 30));
     assert_eq!(c.window.title, "Hof");
@@ -151,6 +153,8 @@ fn every_key_is_read_into_its_field() {
         [window]
         padding = 2
         opacity = 0.9
+        pane-border = 3
+        pane-radius = 0
         decorations = false
         width = 120
         height = 40
@@ -234,6 +238,8 @@ fn every_key_is_read_into_its_field() {
     assert!(c.font.bold_is_bright);
     assert_eq!(c.window.padding, 2.0);
     assert_eq!(c.window.opacity, 0.9);
+    assert_eq!(c.window.pane_border, 3.0);
+    assert_eq!(c.window.pane_radius, 0.0);
     assert!(!c.window.decorations);
     assert_eq!((c.window.width, c.window.height), (120, 40));
     assert_eq!(c.window.title, "Shrine");

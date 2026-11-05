@@ -12,8 +12,10 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
 
 ## What it does
 
-- **Tabs and splits**, each of which can be zoomed and resized. Search, and
-  jumping between prompts when the shell has shell integration.
+- **Tabs and splits**, each of which can be zoomed and resized. The panes
+  of a split are framed, the focused one in a highlight colour; how thick
+  the line is and how round its corners are is in the settings. Search,
+  and jumping between prompts when the shell has shell integration.
 - **A dropdown.** `hof --dropdown` slides in from the top or bottom edge,
   and `hof --toggle` shows or hides it (bind that in your desktop).
   `hof --tab -- cmd` opens a tab in it.
@@ -28,8 +30,9 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
   there has the mouse; Shift+right click then). `[window] menu` chooses
   the bar, the button or neither.
 - **A settings window** (Ctrl+Shift+, or Cmd+,) for the theme, font,
-  opacity, cursor, clipboard, menu and session, and the remote hosts: add
-  one, set its address, user and port, what it may share, or remove it.
+  opacity, the frames round split panes, cursor, clipboard, menu and
+  session, and the remote hosts: add one, set its address, user and port,
+  what it may share, or remove it.
   Each change is written into the config file at once, keeping your
   comments, and applies straight away. The controls take their colours
   from the terminal's theme, and the test suite holds the settings, the

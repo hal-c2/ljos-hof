@@ -1537,6 +1537,30 @@
               "notify": "opacityChanged"
             },
             {
+              "name": "paneBorder",
+              "type": "real",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "paneBorderChanged"
+            },
+            {
+              "name": "paneRadius",
+              "type": "real",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "paneRadiusChanged"
+            },
+            {
               "name": "decorations",
               "type": "bool",
               "kind": "value",

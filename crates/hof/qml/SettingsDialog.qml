@@ -288,6 +288,39 @@ Popup {
                                 }
                             }
                         }
+
+                        SettingGroup {
+                            title: "Splits"
+
+                            SettingRow {
+                                title: "Line round each pane"
+                                description: "In pixels; the focused pane's is in a highlight colour. 0 for a plain line between them."
+
+                                ShellSpinBox {
+                                    objectName: "settingPaneBorder"
+                                    from: 0
+                                    to: 12
+                                    value: Math.round(Settings.paneBorder)
+                                    editable: true
+                                    Accessible.name: "Line round each pane"
+                                    onValueModified: dialog.put("window", "pane-border", value)
+                                }
+                            }
+                            SettingRow {
+                                title: "Rounded corners"
+                                description: "How round, in pixels; 0 for square."
+
+                                ShellSpinBox {
+                                    objectName: "settingPaneRadius"
+                                    from: 0
+                                    to: 32
+                                    value: Math.round(Settings.paneRadius)
+                                    editable: true
+                                    Accessible.name: "Rounded corners"
+                                    onValueModified: dialog.put("window", "pane-radius", value)
+                                }
+                            }
+                        }
                     }
 
                     SettingPage {

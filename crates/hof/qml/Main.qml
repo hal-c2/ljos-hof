@@ -784,6 +784,7 @@ Window {
                     fontSize: window.fontSize
                     background: window.background
                     foreground: window.foreground
+                    border: window.border
                     keyOf: window.menuKeyText
                     onTerminalReady: (terminal, item) => window.register(slot.pane, terminal, item)
                     onTerminalGone: window.unregister(slot.pane)

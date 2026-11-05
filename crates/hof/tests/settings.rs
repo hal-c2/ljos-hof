@@ -138,6 +138,13 @@ fn a_change_in_the_settings_is_written_into_the_file_and_followed() {
     assert!(file.contains("size = 14 # points"), "{file}");
     assert!(file.contains("bold-is-bright = true"), "{file}");
 
+    // Square corners for the panes of a split, which the box then shows.
+    assert_eq!(hof.put("window", "pane-radius", Value::from(0)), "");
+    assert!(hof.file().contains("pane-radius = 0"), "{}", hof.file());
+    let radius = hof.find("settingPaneRadius");
+    assert_eq!(hof.engine.read_by_name(radius, "value").to_number(), 0.0);
+    let file = hof.file();
+
     // What the file cannot have is turned down, and the file left alone.
     let error = hof.put("font", "no-such-key", Value::from(1));
     assert!(error.contains("no-such-key"), "{error}");

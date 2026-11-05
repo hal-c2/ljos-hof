@@ -52,9 +52,6 @@ fn the_settings_the_menus_and_the_host_picker_pass_the_design_audit() {
     engine
         .write_by_name(root, "height", Value::from(640.0))
         .unwrap();
-    engine
-        .invoke_by_name(root, "run", &[Value::from("settings")])
-        .unwrap();
     let dialog = find(&engine, root, "settingsDialog");
     let pictures = std::env::var_os("HOF_PICTURES").map(std::path::PathBuf::from);
 
@@ -81,6 +78,17 @@ fn the_settings_the_menus_and_the_host_picker_pass_the_design_audit() {
             failed.push_str(&format!("{name}: {errors} error(s)\n"));
         }
     };
+    // Panes of a split, each framed, the focused one's frame bright.
+    for action in ["split-right", "split-down"] {
+        engine
+            .invoke_by_name(root, "run", &[Value::from(action)])
+            .unwrap();
+    }
+    look("splits");
+
+    engine
+        .invoke_by_name(root, "run", &[Value::from("settings")])
+        .unwrap();
     for (page, name) in ["appearance", "terminal", "window", "hosts"]
         .iter()
         .enumerate()

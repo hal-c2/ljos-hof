@@ -81,6 +81,13 @@ pub struct Window {
     pub padding: f64,
     /// Background opacity, 0 (clear) to 1 (opaque).
     pub opacity: f64,
+    /// Width of the line round each pane of a split, in logical pixels:
+    /// the focused one's in a highlight colour. 0 for none, and a plain
+    /// line between the panes instead.
+    pub pane_border: f64,
+    /// How round the corners of that line are, in logical pixels; 0 for
+    /// square.
+    pub pane_radius: f64,
     /// Ask the window manager for a title bar and borders.
     pub decorations: bool,
     /// Initial width in cells.
@@ -125,6 +132,8 @@ impl Default for Window {
         Self {
             padding: 6.0,
             opacity: 1.0,
+            pane_border: 2.0,
+            pane_radius: 8.0,
             decorations: true,
             width: 100,
             height: 30,

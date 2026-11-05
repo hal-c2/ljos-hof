@@ -18,6 +18,16 @@ Item {
     property real fontSize: 11
     property color background
     property color foreground
+    // The line round a pane of a split that does not have the keys.
+    property color border: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.15)
+    // The line round the one that has them.
+    readonly property color highlight: Settings.palette.length > 12 ? Settings.palette[12] : Settings.palette.length > 4 ? Settings.palette[4] : "lightsteelblue"
+    // One of several in its tab: drawn in a frame, a little apart from the
+    // others, when the config wants a line round the panes.
+    readonly property bool framed: Settings.paneBorder > 0 && root.parent !== null && (root.width < root.parent.width || root.height < root.parent.height)
+    // The space between the pane's edge and its frame: half the gap
+    // between two frames.
+    readonly property real gap: root.framed ? 2 : 0
     // The chord bound to an action, for the right-click menu to show.
     property var keyOf: name => ""
 
@@ -85,6 +95,7 @@ Item {
         id: terminal
 
         anchors.fill: parent
+        anchors.margins: root.framed ? root.gap + Settings.paneBorder : 0
         font.family: Settings.fontFamily
         // Points to pixels, as at 96 dpi; the Terminal's own default font
         // is in pixels, which a point size would not win over.
@@ -220,14 +231,6 @@ Item {
         onClosed: root.giveFocus()
     }
 
-    // A dimmer over the panes that do not have the keys, when there are
-    // others to tell them from.
-    Rectangle {
-        anchors.fill: parent
-        visible: !root.focused && root.width < root.parent.width
-        color: root.background
-        opacity: 0.25
-    }
 
     Scrollbar {
         anchors.top: parent.top
@@ -300,15 +303,23 @@ Item {
         onAnswered: (allow, always) => terminal.answerOpen(allow, always)
     }
 
-    // An agent waiting for the user: a frame round the pane, seen from
-    // across the window.
+    // The frame round a pane of a split, in the highlight colour for the
+    // one with the keys. An agent waiting for the user turns it its own
+    // colour, seen from across the window, split or not.
     Rectangle {
+        objectName: "paneFrame"
+
+        readonly property bool waiting: root.agentState === "waiting"
+        readonly property color edge: waiting ? root.waitingColor : root.focused ? root.highlight : root.border
+
         anchors.fill: parent
+        anchors.margins: root.gap
         z: 1
-        visible: root.agentState === "waiting"
+        visible: root.framed || waiting
         color: "transparent"
-        border.width: 2
-        border.color: root.waitingColor
+        radius: Settings.paneRadius
+        border.width: waiting ? Math.max(2, Settings.paneBorder) : Settings.paneBorder
+        border.color: edge
     }
 
     // Which agent runs, and how it is.

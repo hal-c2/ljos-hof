@@ -51,6 +51,8 @@ const CONFIG_KEYS: &[(&str, Node)] = &[
         Table(&[
             ("padding", Value),
             ("opacity", Value),
+            ("pane-border", Value),
+            ("pane-radius", Value),
             ("decorations", Value),
             ("width", Value),
             ("height", Value),
@@ -288,6 +290,12 @@ pub(crate) fn config(text: &str, path: Option<&Path>) -> Result<Loaded, Error> {
     });
     check.number("window.opacity", &mut config.window.opacity, |v| {
         clamp(v, 0.0, 1.0, 1.0)
+    });
+    check.number("window.pane-border", &mut config.window.pane_border, |v| {
+        (!(v >= 0.0 && v.is_finite())).then_some(2.0)
+    });
+    check.number("window.pane-radius", &mut config.window.pane_radius, |v| {
+        (!(v >= 0.0 && v.is_finite())).then_some(8.0)
     });
     check.number("dropdown.height", &mut config.dropdown.height, |v| {
         fraction(v, 0.4)

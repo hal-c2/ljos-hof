@@ -1,5 +1,6 @@
 import QtQuick
 import Hof
+import Hof.App
 
 // The line between the two halves of a split; drag it to share the space
 // anew. `rx`..`rh` are the whole split's, as fractions of the area.
@@ -31,8 +32,11 @@ Item {
     height: root.upright ? Math.round(root.spanHeight) : root.grip
     z: 1
 
+    // A plain line, when the panes have no frames of their own to tell
+    // them apart.
     Rectangle {
         anchors.centerIn: parent
+        visible: Settings.paneBorder <= 0
         width: root.upright ? 1 : parent.width
         height: root.upright ? parent.height : 1
         color: root.color

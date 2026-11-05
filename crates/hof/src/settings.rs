@@ -29,6 +29,11 @@ pub struct Settings {
     /// Of the window's background, 0 to 1.
     #[qml(notify, readonly)]
     pub opacity: f64,
+    /// The line round each pane of a split, and its corners' radius.
+    #[qml(notify, readonly)]
+    pub pane_border: f64,
+    #[qml(notify, readonly)]
+    pub pane_radius: f64,
     #[qml(notify, readonly)]
     pub decorations: bool,
     #[qml(notify, readonly)]
@@ -273,6 +278,8 @@ impl Settings {
             bold_is_bright: font.bold_is_bright,
             padding: window.padding,
             opacity: window.opacity,
+            pane_border: window.pane_border,
+            pane_radius: window.pane_radius,
             decorations: window.decorations,
             title: window.title.clone(),
             columns: i32::from(window.width),
@@ -420,6 +427,8 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
         bold_is_bright => BOLD_IS_BRIGHT,
         padding => PADDING,
         opacity => OPACITY,
+        pane_border => PANE_BORDER,
+        pane_radius => PANE_RADIUS,
         decorations => DECORATIONS,
         title => TITLE,
         columns => COLUMNS,
