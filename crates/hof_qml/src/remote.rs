@@ -34,12 +34,14 @@ impl Reach {
         // installed (on a Mac, or named by `$HOF_YSERVER`), started when a
         // program first opens a window, so each X window is a window of
         // its own here; else the X server `$DISPLAY` names. With neither,
-        // none.
+        // each program is told what to install.
         if self.x11 {
             if let Some(y) = yserver() {
                 services.push(y);
             } else if let Some(x) = hof_remote::x11::Forward::from_env() {
                 services.push(Arc::new(x));
+            } else {
+                services.push(Arc::new(hof_remote::x11::Missing::here()));
             }
         }
         if self.sound

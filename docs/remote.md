@@ -228,6 +228,8 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
      - When the server here can't be reached, or yserver won't start, the
        client there is refused with the reason (`Hof: no X server on …`),
        so the program prints why rather than only "Can't open display".
+       With no X server here at all, it is told what to install (on a
+       Mac, XQuartz or yserver).
      - Apps die when the connection drops, as with `ssh -X`.
   2. **Apps that survive a dropped connection, as with xpra.**
      [yserver](https://github.com/joske/yserver)'s core is backend-agnostic:

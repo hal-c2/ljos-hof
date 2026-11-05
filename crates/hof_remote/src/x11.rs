@@ -394,9 +394,64 @@ impl Service for Forward {
     }
 }
 
+/// No X server here to serve with: each program there is told `why`, so
+/// it says what to do rather than only that it can't open the display.
+#[derive(Debug)]
+pub struct Missing {
+    why: String,
+}
+
+impl Missing {
+    pub fn new(why: impl Into<String>) -> Self {
+        Self { why: why.into() }
+    }
+
+    /// What to say on this machine, where there is no X server to use.
+    pub fn here() -> Self {
+        let host = host_name();
+        Self::new(if cfg!(target_os = "macos") {
+            format!(
+                "Hof: no X server on {host}; install XQuartz \
+                 (brew install --cask xquartz) or yserver, then open a new tab"
+            )
+        } else {
+            format!("Hof: no X server on {host} ($DISPLAY is not set)")
+        })
+    }
+}
+
+impl Service for Missing {
+    fn name(&self) -> &str {
+        SERVICE
+    }
+
+    fn open(&self, opening: &[u8]) -> io::Result<(Box<dyn Socket>, Vec<u8>)> {
+        let not = || io::Error::new(io::ErrorKind::InvalidData, NotSetup);
+        let (setup, _) = Setup::parse(opening).map_err(|_| not())?.ok_or_else(not)?;
+        Ok(refused(&setup, &self.why))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn with_no_x_server_a_program_is_told_what_to_do() {
+        let setup = Setup {
+            big_endian: false,
+            major: 11,
+            minor: 0,
+            auth_name: Vec::new(),
+            auth_data: Vec::new(),
+        };
+        let (mut socket, first) = Missing::new("install one").open(&setup.encode()).unwrap();
+        assert!(first.is_empty());
+        let mut answer = Vec::new();
+        io::Read::read_to_end(&mut socket, &mut answer).unwrap();
+        assert_eq!(answer[0], 0, "failed");
+        assert_eq!(&answer[8..8 + usize::from(answer[1])], b"install one");
+    }
 
     fn setup(big_endian: bool) -> Setup {
         Setup {
