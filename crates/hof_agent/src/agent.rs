@@ -38,6 +38,9 @@ pub struct Options {
     pub name: String,
     /// The `PATH` its panes get, when it is not the agent's own.
     pub path: Option<OsString>,
+    /// This machine's sessions, for a Hof elsewhere to open
+    /// (`hof attach --host`).
+    pub sessions: hof_session::service::Places,
 }
 
 impl Default for Options {
@@ -50,6 +53,7 @@ impl Default for Options {
                 std::env::current_exe().ok().as_deref(),
                 std::env::var_os("PATH"),
             ),
+            sessions: hof_session::service::Places::here(),
         }
     }
 }
@@ -380,6 +384,12 @@ impl Agent {
                 relays.add(channel, hof_remote::files::open_server);
             }
             // The other connections the agent takes; Hof only passes them on.
+            Message::Connect {
+                channel, service, ..
+            } if service == hof_session::service::SERVICE => {
+                let places = self.inner.options.sessions.clone();
+                relays.add(channel, move || open_sessions(places));
+            }
             Message::Connect { channel, .. } => send(Message::Hangup { channel }),
             // What the agent sends, not what it is sent, and what it can't
             // read: nothing to do.
@@ -740,4 +750,18 @@ mod tests {
         assert!(matches!(heard[9], Message::Hangup { channel: 1 }));
         assert_eq!(heard.len(), 10);
     }
+}
+
+/// The agent's end of a new sessions channel: a socket whose other end a
+/// thread serves from `places`.
+fn open_sessions(
+    places: hof_session::service::Places,
+) -> io::Result<(Box<dyn hof_remote::Socket>, Vec<u8>)> {
+    let (ours, theirs) = std::os::unix::net::UnixStream::pair()?;
+    std::thread::Builder::new()
+        .name("hof-sessions".into())
+        .spawn(move || {
+            let _ = hof_session::service::serve(theirs, &places);
+        })?;
+    Ok((Box::new(ours), Vec::new()))
 }

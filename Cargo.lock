@@ -1931,6 +1931,7 @@ dependencies = [
  "anyhow",
  "clap",
  "hof_remote",
+ "hof_session",
  "hof_vt",
  "rustix 1.1.6",
  "tempfile",

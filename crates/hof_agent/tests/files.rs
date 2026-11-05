@@ -102,6 +102,44 @@ fn a_host_kept_connected_with_no_pane_gives_a_channel() {
 }
 
 #[test]
+fn a_hof_elsewhere_holds_and_keeps_a_session_here() {
+    use hof_session::service;
+    let here = tempfile::tempdir().unwrap();
+    let places = service::Places {
+        locks: here.path().join("run"),
+        default: here.path().join("state/session.json"),
+    };
+    let agent = Agent::new(Options {
+        name: "test".into(),
+        sessions: places.clone(),
+        ..Options::default()
+    });
+    let host = Host::new(Pipe(agent), client::Options::default());
+    let _kept = host.keep_connected();
+    let channel = || {
+        let socket = host
+            .connect_within(service::SERVICE, Vec::new(), PATIENCE)
+            .unwrap();
+        socket.set_read_timeout(Some(PATIENCE)).unwrap();
+        socket
+    };
+
+    let (mut work, session) = service::hold(channel(), Some("work")).unwrap();
+    assert_eq!((work.name.as_str(), session), ("work", None), "a new one");
+    assert!(hof_session::is_open_in(&places.locks, "work"), "held here");
+    let e = service::hold(channel(), Some("work")).err().unwrap();
+    assert_eq!(e.to_string(), "another Hof has the session work open");
+    work.save(&hof_session::Session::default()).unwrap();
+    let listed = service::list(channel()).unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!((listed[0].name.as_str(), listed[0].open), ("work", true));
+    drop(work);
+    until("the session to be let go", || {
+        !hof_session::is_open_in(&places.locks, "work")
+    });
+}
+
+#[test]
 fn a_client_reads_lists_and_writes_the_agents_files() {
     let (agent, host) = host();
     let there = tempfile::tempdir().unwrap();
