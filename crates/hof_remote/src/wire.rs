@@ -195,6 +195,19 @@ pub enum Message {
     Hangup {
         channel: ChannelId,
     },
+    /// Become `program` (empty: the program the agent was started as,
+    /// which may have been installed anew since), keeping every pane's
+    /// program running. Connections end with the old program; clients
+    /// connect again, to the new one, and find their panes there.
+    Upgrade {
+        program: String,
+    },
+    /// The agent stays as it is, and why: in answer to an [`Upgrade`].
+    ///
+    /// [`Upgrade`]: Message::Upgrade
+    NotUpgraded {
+        reason: String,
+    },
     /// A frame of a kind this end doesn't know, skipped.
     Unknown {
         tag: u8,
@@ -226,6 +239,8 @@ const CONNECT: u8 = 21;
 const DATA: u8 = 22;
 const ACK: u8 = 23;
 const HANGUP: u8 = 24;
+const UPGRADE: u8 = 25;
+const NOT_UPGRADED: u8 = 26;
 
 /// A frame that is not what its tag says.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -406,6 +421,14 @@ impl Message {
                 w.u8(HANGUP);
                 w.u32(*channel);
             }
+            Upgrade { program } => {
+                w.u8(UPGRADE);
+                w.str(program);
+            }
+            NotUpgraded { reason } => {
+                w.u8(NOT_UPGRADED);
+                w.str(reason);
+            }
             Unknown { tag } => panic!("a frame of unknown kind {tag} cannot be sent"),
         }
         let len = (out.len() - start - 4) as u32;
@@ -517,6 +540,8 @@ impl Message {
                 bytes: r.u32()?,
             },
             HANGUP => Message::Hangup { channel: r.u32()? },
+            UPGRADE => Message::Upgrade { program: r.str()? },
+            NOT_UPGRADED => Message::NotUpgraded { reason: r.str()? },
             tag => return Ok(Message::Unknown { tag }),
         };
         match r.0.len() {
@@ -790,6 +815,12 @@ mod tests {
                 bytes: 3,
             },
             Message::Hangup { channel: 5 },
+            Message::Upgrade {
+                program: "/usr/bin/hof".into(),
+            },
+            Message::NotUpgraded {
+                reason: "no".into(),
+            },
         ]
     }
 
