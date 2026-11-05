@@ -267,8 +267,10 @@ disabled = []                 # plugins, by name, to leave unloaded
 # sound = false               # let programs there play sound here: through
 #                             # the PulseAudio or PipeWire running here, else,
 #                             # on a Mac, Hof itself, nothing to install
-# files = false               # mount that machine's files here (not yet);
-#                             # `hof open FILE` there works without it
+# files = false               # mount that machine's files here as soon as
+#                             # it is reached, at $XDG_RUNTIME_DIR/hof/
+#                             # hosts/<name> (Linux); else the first time
+#                             # `hof open DIR` there wants it
 # clipboard = "ask"           # programs there reading your clipboard:
 #                             # "ask", "allow" or "deny"
 

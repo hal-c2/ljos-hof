@@ -25,6 +25,9 @@ pub struct Reach {
     pub x11: bool,
     /// Programs there may play sound here.
     pub sound: bool,
+    /// Its files are mounted here as soon as it is reached, not only when
+    /// a folder there is opened.
+    pub files: bool,
 }
 
 impl Reach {
@@ -87,6 +90,8 @@ struct Known {
     host: Option<Arc<Host>>,
     /// Copies of its files, made when a program there first opens one.
     mirror: Option<Arc<hof_remote::files::Mirror>>,
+    /// Its files, mounted here when a folder there is first opened.
+    mount: Option<Arc<hof_remote::files::Mount>>,
 }
 
 static HOSTS: Mutex<BTreeMap<String, Known>> = Mutex::new(BTreeMap::new());
@@ -108,6 +113,7 @@ pub fn set_hosts(hosts: impl IntoIterator<Item = (String, Reach)>) {
                 transport: None,
                 host: k.host.clone(),
                 mirror: k.mirror.clone(),
+                mount: k.mount.clone(),
             };
             (name.clone(), k)
         })
@@ -118,12 +124,14 @@ pub fn set_hosts(hosts: impl IntoIterator<Item = (String, Reach)>) {
             .filter(|k| k.transport.as_ref() == Some(&transport));
         let host = same.and_then(|k| k.host.clone());
         let mirror = same.and_then(|k| k.mirror.clone());
+        let mount = same.and_then(|k| k.mount.clone());
         new.insert(
             name,
             Known {
                 transport: Some(transport),
                 host,
                 mirror,
+                mount,
             },
         );
     }
@@ -139,6 +147,7 @@ pub fn set_host(name: &str, host: Host) {
             transport: None,
             host: Some(Arc::new(host)),
             mirror: None,
+            mount: None,
         },
     );
 }
@@ -150,6 +159,63 @@ static CACHE: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
 /// user's cache, as a test does.
 pub fn set_cache_dir(dir: impl Into<std::path::PathBuf>) {
     *CACHE.lock().unwrap_or_else(PoisonError::into_inner) = Some(dir.into());
+}
+
+/// Where other machines' files are mounted, if not the user's runtime
+/// directory, and the folder on each that is mounted, if not all of it.
+static MOUNTS: Mutex<Option<(std::path::PathBuf, Vec<u8>)>> = Mutex::new(None);
+
+/// Mounts only the folder `root` of each machine, under `dir` rather
+/// than the user's runtime directory, as a test does: what is done in
+/// the mount, removing it all included, reaches nothing else there.
+pub fn set_mounts(dir: impl Into<std::path::PathBuf>, root: impl Into<Vec<u8>>) {
+    *MOUNTS.lock().unwrap_or_else(PoisonError::into_inner) = Some((dir.into(), root.into()));
+}
+
+/// `name`'s files, mounted here: the first time, only for a host that is
+/// connected, and only where this system can (Linux, with FUSE).
+pub(crate) fn mount(name: &str) -> Option<Arc<hof_remote::files::Mount>> {
+    // One mounting at a time: two would mount the same host twice.
+    static MOUNTING: Mutex<()> = Mutex::new(());
+    let _mounting = MOUNTING.lock().unwrap_or_else(PoisonError::into_inner);
+    let set = MOUNTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let (dir, root) = match set {
+        Some(set) => set,
+        None => (hof_remote::files::runtime_dir()?, b"/".to_vec()),
+    };
+    let host = {
+        let known = HOSTS.lock().unwrap_or_else(PoisonError::into_inner);
+        let k = known.get(name)?;
+        if let Some(mount) = &k.mount {
+            return Some(mount.clone());
+        }
+        k.host.clone()?
+    };
+    // Not with the hosts locked: what is there may be slow to answer.
+    let at = hof_remote::files::host_dir(&dir, name);
+    let reach = host.clone();
+    let mounted = hof_remote::files::Mount::of(at, name, &root, move || {
+        reach.connect(hof_remote::files::SERVICE, Vec::new())
+    });
+    let mount = match mounted {
+        Ok(mount) => Arc::new(mount),
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::Unsupported {
+                eprintln!("hof: could not mount the files on {name}: {e}");
+            }
+            return None;
+        }
+    };
+    let mut known = HOSTS.lock().unwrap_or_else(PoisonError::into_inner);
+    // Kept only if the host is still the one it was mounted for.
+    let k = known
+        .get_mut(name)
+        .filter(|k| k.host.as_ref().is_some_and(|h| Arc::ptr_eq(h, &host)))?;
+    k.mount = Some(mount.clone());
+    Some(mount)
 }
 
 /// The copies here of `name`'s files, kept the same as them: made the
@@ -195,6 +261,13 @@ pub fn finish(within: std::time::Duration) {
     for wait in waits {
         let _ = wait.join();
     }
+    // Unmounted, though a program here may still be in one: it keeps
+    // what it has open.
+    let mounts: Vec<_> = {
+        let mut known = HOSTS.lock().unwrap_or_else(PoisonError::into_inner);
+        known.values_mut().filter_map(|k| k.mount.take()).collect()
+    };
+    drop(mounts);
 }
 
 /// The host called `name`, connecting the first time; `None` for a name no
@@ -219,6 +292,13 @@ pub(crate) fn host(name: &str) -> Option<Arc<Host>> {
         };
         k.host = Some(Arc::new(host));
         k.mirror = None;
+        k.mount = None;
+        if reach.files {
+            let name = name.to_owned();
+            let _ = std::thread::Builder::new()
+                .name("hof-mount".into())
+                .spawn(move || mount(&name));
+        }
     }
     k.host.clone()
 }

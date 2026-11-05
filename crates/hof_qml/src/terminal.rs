@@ -1492,8 +1492,9 @@ pub(crate) fn open_link(engine: &Engine, me: ObjectId, url: &str) {
 }
 
 /// Opens `url` here; or, for a program on another machine naming a file
-/// there, a copy of it here, kept the same as it (see
-/// [`hof_remote::files::Mirror`]).
+/// there, that file here: a folder where that machine's files are
+/// mounted (see [`hof_remote::files::Mount`]), and a file, or a folder
+/// where they can't be, as a copy (see [`hof_remote::files::Mirror`]).
 fn open_wanted(engine: &Engine, me: ObjectId, url: &str) {
     let remote = shared_of(engine, me).is_some_and(|s| s.remote.borrow().is_some());
     if !(remote && names_a_file(url)) {
@@ -1510,22 +1511,27 @@ fn open_wanted(engine: &Engine, me: ObjectId, url: &str) {
         let _ = Terminal::emit_notice(&cx(engine, me), why);
         return;
     };
-    let _ = Terminal::emit_notice(&cx(engine, me), format!("Copying {shown} from {host}…"));
+    let _ = Terminal::emit_notice(&cx(engine, me), format!("Opening {shown} from {host}…"));
     let post = Platform::of(engine).poster();
     let fetching = std::thread::Builder::new()
         .name("hof-files-open".into())
         .spawn(move || {
-            let fetched = mirror.open(&path);
-            post.send(move |e: &Engine| match fetched {
-                Ok(opened) => {
-                    let said = match &opened {
-                        hof_remote::files::Opened::File(_) => String::new(),
-                        hof_remote::files::Opened::Folder(_, copied) => {
-                            folder_notice(&shown, &host, *copied)
-                        }
-                    };
+            // A folder is opened where it is mounted, if it can be; a
+            // file, and a folder where nothing can be mounted, is copied.
+            let opened = mirror.is_folder(&path).and_then(|folder| {
+                if !folder {
+                    return mirror.fetch(&path).map(|local| (local, String::new()));
+                }
+                if let Some(local) = mounted_folder(&host, &path) {
+                    return Ok((local, String::new()));
+                }
+                let (local, copied) = mirror.fetch_folder(&path)?;
+                Ok((local, folder_notice(&shown, &host, copied)))
+            });
+            post.send(move |e: &Engine| match opened {
+                Ok((local, said)) => {
                     let _ = Terminal::emit_notice(&cx(e, me), said);
-                    open_url(e, &hof_remote::files::file_url(opened.path()));
+                    open_url(e, &hof_remote::files::file_url(&local));
                 }
                 Err(why) => {
                     let why = format!("Could not open {shown} from {host}: {why}");
@@ -1536,6 +1542,16 @@ fn open_wanted(engine: &Engine, me: ObjectId, url: &str) {
     if fetching.is_err() {
         let _ = Terminal::emit_notice(&cx(engine, me), String::new());
     }
+}
+
+/// Where the folder at `path` on `host` is here, if that machine's
+/// files can be mounted.
+fn mounted_folder(host: &str, path: &[u8]) -> Option<std::path::PathBuf> {
+    let mount = remote::mount(host)?;
+    let local = mount.local_of(path).ok()?;
+    std::fs::metadata(&local)
+        .is_ok_and(|m| m.is_dir())
+        .then_some(local)
 }
 
 /// What to say of a folder copied from `host`: that it is a copy as it

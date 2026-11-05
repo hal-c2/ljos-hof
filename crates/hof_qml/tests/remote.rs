@@ -135,12 +135,20 @@ fn a_program_on_a_host_reads_and_writes_the_clipboard_here() {
     );
 }
 
+/// Where copies of remote files go, for every test here: the setting is
+/// the process's, and tests run side by side.
+fn cache() -> &'static std::path::Path {
+    static CACHE: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let dir = CACHE.get_or_init(|| tempfile::tempdir().unwrap()).path();
+    hof_qml::remote::set_cache_dir(dir);
+    dir
+}
+
 #[test]
 fn a_remote_programs_file_is_copied_here_and_the_copy_opened() {
     use ljos::prelude::*;
     let there = tempfile::tempdir().unwrap();
-    let cache = tempfile::tempdir().unwrap();
-    hof_qml::remote::set_cache_dir(cache.path());
+    let cache = cache();
     let remote = there.path().join("notes.md");
     std::fs::write(&remote, "# from there\n").unwrap();
 
@@ -168,10 +176,7 @@ fn a_remote_programs_file_is_copied_here_and_the_copy_opened() {
     assert_eq!(opened.len(), 1, "{opened:?}");
     let copy = hof_remote::files::path_of_url(&opened[0]).unwrap();
     let copy = std::path::PathBuf::from(String::from_utf8(copy).unwrap());
-    assert!(
-        copy.starts_with(cache.path().join("hosts/opens")),
-        "{copy:?}"
-    );
+    assert!(copy.starts_with(cache.join("hosts/opens")), "{copy:?}");
     assert_ne!(copy, remote, "a copy, not the file there");
     assert_eq!(std::fs::read(&copy).unwrap(), b"# from there\n");
 
@@ -181,4 +186,58 @@ fn a_remote_programs_file_is_copied_here_and_the_copy_opened() {
         .unwrap();
     s.window.settle().unwrap();
     assert_eq!(urls.urls()[1..], ["https://a.example"]);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_remote_programs_folder_opens_where_that_machines_files_are_mounted() {
+    use ljos::prelude::*;
+    use std::os::unix::ffi::OsStrExt;
+    /// Takes the mount away when the test ends, as it passes or fails,
+    /// before what it is in is removed.
+    struct Unmount(std::path::PathBuf);
+    impl Drop for Unmount {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("fusermount3")
+                .args(["-u", "-z", "-q"])
+                .arg(&self.0)
+                .status();
+        }
+    }
+    let there = tempfile::tempdir().unwrap();
+    let mounts = tempfile::tempdir().unwrap();
+    let cache = cache();
+    // Only the folder the test made is mounted, never all of this machine.
+    hof_qml::remote::set_mounts(mounts.path(), there.path().as_os_str().as_bytes());
+    let at = mounts.path().join("hosts/mounts");
+    let _unmount = Unmount(at.clone());
+    let folder = there.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("a.txt"), "a").unwrap();
+
+    let (_agent, _) = host("mounts");
+    let mut s = shown("mounts", "read x", -1);
+    let urls = RecordedUrls::default();
+    Platform::of(&s.engine).set_open_url(std::rc::Rc::new(urls.clone()));
+    s.engine
+        .set(s.t, Terminal::OPEN_URLS, "allow".to_owned())
+        .unwrap();
+    let url = hof_remote::files::file_url(&folder);
+    let request = String::from_utf8(hof_vt::open_request(&url)).unwrap();
+    s.engine
+        .invoke_by_name(s.t, "write", &[Value::from(request.as_str())])
+        .unwrap();
+    s.until("the folder to open", |_| !urls.urls().is_empty());
+    let opened = hof_remote::files::path_of_url(&urls.urls()[0]).unwrap();
+    let opened = std::path::PathBuf::from(String::from_utf8(opened).unwrap());
+    if !opened.starts_with(&at) {
+        eprintln!("skipped: can't mount here; opened {opened:?}");
+        return;
+    }
+    assert_eq!(opened, at.join("project"));
+    // The folder there, not a copy: what is made there is in it.
+    assert_eq!(std::fs::read(opened.join("a.txt")).unwrap(), b"a");
+    std::fs::write(folder.join("b.txt"), "b").unwrap();
+    assert_eq!(std::fs::read(opened.join("b.txt")).unwrap(), b"b");
+    assert!(!cache.join("hosts/mounts").exists(), "nothing copied");
 }

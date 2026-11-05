@@ -398,8 +398,10 @@ pub struct Host {
     pub x11: bool,
     /// Let programs there play sound here.
     pub sound: bool,
-    /// Let Hof mount that machine's files here (not yet). `hof open FILE`
-    /// there needs only `open-urls`.
+    /// Mount that machine's files here as soon as it is reached, at
+    /// `$XDG_RUNTIME_DIR/hof/hosts/<name>` (Linux). Without it they are
+    /// mounted the first time `hof open DIR` there opens a folder;
+    /// `hof open` there needs only `open-urls`.
     pub files: bool,
     /// Whether programs there may read this machine's clipboard. Writing
     /// to it is as `terminal.clipboard-write` says.

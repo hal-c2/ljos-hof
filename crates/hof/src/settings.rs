@@ -375,6 +375,7 @@ impl Settings {
                         }),
                         x11: host.x11,
                         sound: host.sound,
+                        files: host.files,
                     };
                     (name.clone(), reach)
                 })

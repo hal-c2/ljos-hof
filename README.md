@@ -188,7 +188,11 @@ reach the clipboard and the browser where you sit. `hof open FILE` there,
 or a click on a program's `file:` link, copies the file here and opens
 the copy with what opens such files here. Each save goes back to the
 machine it came from, and a change there is copied again. `hof open DIR`
-there copies the folder here read-only, as it is then, and opens it. Both ends need
+there opens the folder itself: on Linux, Hof mounts that machine's files
+at `$XDG_RUNTIME_DIR/hof/hosts/<name>` over the same connection, so what
+you change in it changes there. Elsewhere, or with no FUSE, it opens a
+read-only copy of the folder as it is then. `files = true` on the host
+mounts them as soon as it is reached. Both ends need
 this Hof; an older agent says to update it. With `x11 = true` and
 `sound = true` on the host, programs there open their windows on your
 display and play through your speakers, as with `ssh -X`, carried over
@@ -202,11 +206,6 @@ Mac has none, so Hof serves the sound itself and plays it through the
 Mac's own output, the one chosen in its Sound settings. Nothing needs
 installing on either end: programs there that play through PulseAudio
 or PipeWire (most do, from `paplay` to `mpv` and browsers) just play.
-
-## Not yet
-
-- Mounting a remote machine's whole tree here (`files = true`), so any
-  program here can browse it.
 
 ## Licence
 

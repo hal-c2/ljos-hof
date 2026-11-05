@@ -211,10 +211,11 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
   - `hof open FILE` in a local pane opens the file. In a remote pane, as
     for a click on a program's `file:` link there, Hof copies the file
     here over a files channel and opens the copy with the local handler.
-    The pane shows "Copying … from <host>…" meanwhile, and why, if it
+    The pane shows "Opening … from <host>…" meanwhile, and why, if it
     could not.
-  - `hof open DIR` in a remote pane copies the folder here as it is then,
-    level by level, at most 2000 files and 256 MiB; what is past that,
+  - `hof open DIR` in a remote pane opens the folder where that machine's
+    files are mounted here (below). Where they can't be (off Linux, or
+    with no FUSE), it copies the folder here as it is then, level by level, at most 2000 files and 256 MiB; what is past that,
     links, and anything not a file or folder are left out, and the pane
     says how many. The copy's files are read-only and not watched. Copied
     again, what went there goes here too. `hof open FILE` on one of its
@@ -239,9 +240,35 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
     (`hof_remote::files`), no more than this needs: walk, open, create,
     read, write, readdir, getattr and setattr, mkdir, rename, unlink,
     readlink, fsync and statfs.
-  - Still to come: the remote machine's whole tree mounted at
-    `hosts/<name>`, with `files = true`. That needs a local FUSE client
-    on the same codec.
+  - **The mount** (Linux): the remote machine's whole tree at
+    `$XDG_RUNTIME_DIR/hof/hosts/<name>`, made the first time a folder
+    there is opened (a file opened is copied, and mounts nothing), or
+    as soon as the host is reached with `files = true`. It is a FUSE file system served in Hof, through
+    `fusermount3` with no libfuse (`fuser`, its pure-Rust mount), and
+    every request on it is a 9P request on a files channel of its own.
+    Nothing is copied: the page cache is dropped each time a file is
+    opened, and what the kernel knows of a file is trusted for a second.
+  - Each file is known by its path there. A file moved through the
+    mount is known by its new path, and so is everything in it; one
+    moved there is, here, a file gone and another made.
+  - Every file shows as this user's; what may be done with it is what
+    the agent's user may do there, which the agent answers. Changing
+    whose a file is, links (`ln`, `ln -s`), devices and
+    `rename(RENAME_NOREPLACE)` are refused.
+  - When the channel goes, the next request opens another, and files
+    open through the mount are opened again on it. While the files
+    can't be reached, requests fail at once with `EIO` for five
+    seconds before Hof tries again.
+  - Hof unmounts when it quits, or when the host's config changes,
+    lazily: a program still in it keeps what it has open. A mount left
+    by a Hof that ended is taken away the next time; one a running Hof
+    has there is used as it is.
+  - A mount is the other machine's own files, so `rm -r` in it removes
+    them there, and so does anything that walks into it removing a tree
+    (`std::fs::remove_dir_all` and `TempDir` do not stop at a mount).
+    A session can be attached at a folder rather than `/` (`aname`):
+    the agent then walks no higher than it, `..` included. The tests
+    mount only a folder they made, and unmount before it is removed.
 - **X11, in two steps:**
   1. **A tunnel, like `ssh -X` but over our mux.** Done.
      - The agent takes the first display from `:10` that has no lock
@@ -398,8 +425,9 @@ The idea comes from herdr. What follows is Hof's own design.
    their own flow control, the display and sound sockets in the agent,
    and the cookies put in by Hof. Tested against stand-in servers, and
    with `xdpyinfo` and `pactl` against a real desktop (an ignored test).
-8. **Files over 9P**, then the FUSE mount. The channel, the agent's
-   server and copies kept in sync are done; the mount is not.
+8. **Files over 9P**, then the FUSE mount. Done: the channel, the
+   agent's server, copies kept in sync, and the mount on Linux. Tested
+   through the kernel against a real agent.
 9. **X11 apps that survive a dropped connection**, built on yserver, and the
    **UDP transport**.
 
