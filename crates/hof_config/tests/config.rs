@@ -300,6 +300,34 @@ fn every_key_is_read_into_its_field() {
 }
 
 #[test]
+fn a_hosts_user_and_port_go_to_ssh_before_its_options() {
+    let c = ok(r#"
+        [hosts.dev]
+        ssh = "dev.example.com"
+        user = "olafur"
+        port = 2222
+        ssh-options = ["-o", "ForwardAgent=yes"]
+    "#)
+    .config;
+    let dev = &c.hosts["dev"];
+    assert_eq!((dev.user.as_str(), dev.port), ("olafur", Some(2222)));
+    assert_eq!(
+        dev.ssh_argv("dev"),
+        [
+            "ssh",
+            "-T",
+            "-l",
+            "olafur",
+            "-p",
+            "2222",
+            "-o",
+            "ForwardAgent=yes",
+            "dev.example.com"
+        ]
+    );
+}
+
+#[test]
 fn a_host_is_reached_through_ssh_unless_it_names_another_way() {
     let c = ok(r#"
         [hosts.box]

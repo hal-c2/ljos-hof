@@ -137,6 +137,12 @@ pub struct Settings {
     /// clipboard here: as `clipboardRead`.
     #[qml(notify, readonly)]
     pub host_clipboards: Vec<String>,
+    /// Each of `hosts`, in its order, as the settings window shows it: a
+    /// JSON array of `{name, ssh, user, port, x11, sound, files, command}`,
+    /// `port` 0 when unset and `command` whether it is reached some other
+    /// way than ssh.
+    #[qml(notify, readonly)]
+    pub host_details: String,
 
     /// What was wrong with the file, a line each; empty when nothing was.
     #[qml(notify, readonly)]
@@ -324,6 +330,25 @@ impl Settings {
             commands: crate::scripts::commands(&config),
             hooks: crate::scripts::hooks(&config.hooks),
             hosts: config.hosts.keys().cloned().collect(),
+            host_details: serde_json::Value::Array(
+                config
+                    .hosts
+                    .iter()
+                    .map(|(name, h)| {
+                        serde_json::json!({
+                            "name": name,
+                            "ssh": h.ssh,
+                            "user": h.user,
+                            "port": h.port.unwrap_or(0),
+                            "x11": h.x11,
+                            "sound": h.sound,
+                            "files": h.files,
+                            "command": !h.command.is_empty(),
+                        })
+                    })
+                    .collect(),
+            )
+            .to_string(),
             host_clipboards: config
                 .hosts
                 .values()
@@ -433,6 +458,7 @@ fn apply(engine: &Engine, me: ObjectId, new: Settings) {
         hooks => HOOKS,
         hosts => HOSTS,
         host_clipboards => HOST_CLIPBOARDS,
+        host_details => HOST_DETAILS,
         problems => PROBLEMS,
     );
 }
@@ -526,6 +552,19 @@ impl Settings {
         };
         let path = PathBuf::from(cx.get(Settings::PATH).unwrap_or_default());
         if let Err(e) = hof_config::edit::set(&path, &section, &key, setting) {
+            return e.to_string();
+        }
+        reload_now(cx);
+        String::new()
+    }
+
+    /// Takes the host `name` out of the file, with all it says about it,
+    /// and reads the file again. Returns what went wrong, empty when
+    /// nothing did.
+    #[qml(invokable, name = "removeHost")]
+    fn remove_host(cx: &Cx, name: String) -> String {
+        let path = PathBuf::from(cx.get(Settings::PATH).unwrap_or_default());
+        if let Err(e) = hof_config::edit::remove(&path, &format!("hosts.{name}")) {
             return e.to_string();
         }
         reload_now(cx);

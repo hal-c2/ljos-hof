@@ -367,7 +367,13 @@ pub struct Host {
     /// What to give `ssh` to reach it; empty means the host's name, which
     /// `~/.ssh/config` may know.
     pub ssh: String,
-    /// More for `ssh`, before the destination: `["-p", "2222"]`.
+    /// The user to log in as there; empty means ssh's choice (`ssh`'s
+    /// `user@`, `~/.ssh/config`, or this machine's user).
+    pub user: String,
+    /// The port ssh connects to; none means ssh's choice (22, or
+    /// `~/.ssh/config`'s).
+    pub port: Option<u16>,
+    /// More for `ssh`, before the destination: `["-o", "ForwardAgent=yes"]`.
     pub ssh_options: Vec<String>,
     /// A program, and its arguments, whose stdin and stdout reach `hof
     /// agent --stdio` some other way than ssh. Set, it replaces ssh.
@@ -391,6 +397,8 @@ impl Default for Host {
     fn default() -> Self {
         Self {
             ssh: String::new(),
+            user: String::new(),
+            port: None,
             ssh_options: Vec::new(),
             command: Vec::new(),
             hof: "hof".into(),
@@ -422,6 +430,12 @@ impl Host {
         // -T: the agent speaks frames on stdio, which a remote pty would
         // mangle.
         let mut argv = vec!["ssh".to_owned(), "-T".to_owned()];
+        if !self.user.is_empty() {
+            argv.extend(["-l".to_owned(), self.user.clone()]);
+        }
+        if let Some(port) = self.port {
+            argv.extend(["-p".to_owned(), port.to_string()]);
+        }
         argv.extend(self.ssh_options.iter().cloned());
         argv.push(dest.to_owned());
         argv

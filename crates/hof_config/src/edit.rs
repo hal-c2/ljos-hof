@@ -47,15 +47,40 @@ pub enum EditError {
 }
 
 /// Sets `section.key` (`font`, `size`) in the file at `path` to `value`,
-/// or with `None` takes the key out, back to its default. A file that does
-/// not exist yet is started from the example ([`crate::EXAMPLE`]), as
-/// `edit-config` starts it. The file is replaced whole, so a reader never
-/// sees half of it.
+/// or with `None` takes the key out, back to its default. A host's keys are
+/// in the section `hosts.<name>`, which is added when the file has no such
+/// host. A file that does not exist yet is started from the example
+/// ([`crate::EXAMPLE`]), as `edit-config` starts it. The file is replaced
+/// whole, so a reader never sees half of it.
 pub fn set(path: &Path, section: &str, key: &str, value: Option<Setting>) -> Result<(), EditError> {
     let name = format!("{section}.{key}");
     if !crate::parse::is_setting(section, key) {
         return Err(EditError::Unknown(name));
     }
+    let value = match value {
+        None => None,
+        Some(v) => Some(to_value(&name, v)?),
+    };
+    change(path, |doc| apply(doc, section, key, value))
+}
+
+/// Takes the entry `section` (`hosts.dev`) out of the file at `path`, with
+/// every key it has; one the file lacks is no change.
+pub fn remove(path: &Path, section: &str) -> Result<(), EditError> {
+    if !crate::parse::is_entry(section) {
+        return Err(EditError::Unknown(section.to_owned()));
+    }
+    let (top, entry) = section.split_once('.').unwrap_or((section, ""));
+    change(path, |doc| {
+        if let Some(table) = doc.get_mut(top).and_then(Item::as_table_like_mut) {
+            table.remove(entry);
+        }
+    })
+}
+
+/// Reads the file at `path` (the example when there is none), changes it
+/// with `edit`, and writes it back.
+fn change(path: &Path, edit: impl FnOnce(&mut DocumentMut)) -> Result<(), EditError> {
     let io = |source| EditError::Io {
         path: path.to_path_buf(),
         source,
@@ -72,12 +97,34 @@ pub fn set(path: &Path, section: &str, key: &str, value: Option<Setting>) -> Res
                 path: path.to_path_buf(),
                 message: e.message().to_owned(),
             })?;
-    let value = match value {
-        None => None,
-        Some(v) => Some(to_value(&name, v)?),
-    };
-    apply(&mut doc, section, key, value);
+    edit(&mut doc);
     write(path, &doc.to_string()).map_err(io)
+}
+
+/// The table `section` names, `font` or `hosts.dev`, made when the file
+/// lacks it (or has something else there, which the load reported).
+/// `hosts` itself is left unwritten, so the file says `[hosts.dev]`.
+fn table<'a>(doc: &'a mut DocumentMut, section: &str) -> &'a mut dyn toml_edit::TableLike {
+    let (top, entry) = match section.split_once('.') {
+        Some((top, entry)) => (top, Some(entry)),
+        None => (section, None),
+    };
+    if !doc.get(top).is_some_and(Item::is_table_like) {
+        let mut made = Table::new();
+        made.set_implicit(entry.is_some());
+        doc.insert(top, Item::Table(made));
+    }
+    let outer = doc[top].as_table_like_mut().expect("made a table above");
+    let Some(entry) = entry else {
+        return outer;
+    };
+    if !outer.get(entry).is_some_and(Item::is_table_like) {
+        outer.insert(entry, Item::Table(Table::new()));
+    }
+    outer
+        .get_mut(entry)
+        .and_then(Item::as_table_like_mut)
+        .expect("made a table above")
 }
 
 fn to_value(name: &str, value: Setting) -> Result<Value, EditError> {
@@ -95,19 +142,20 @@ fn to_value(name: &str, value: Setting) -> Result<Value, EditError> {
 
 fn apply(doc: &mut DocumentMut, section: &str, key: &str, value: Option<Value>) {
     let Some(value) = value else {
-        if let Some(table) = doc.get_mut(section).and_then(Item::as_table_like_mut) {
+        let (top, entry) = match section.split_once('.') {
+            Some((top, entry)) => (top, Some(entry)),
+            None => (section, None),
+        };
+        let mut found = doc.get_mut(top).and_then(Item::as_table_like_mut);
+        if let Some(entry) = entry {
+            found = found.and_then(|t| t.get_mut(entry)?.as_table_like_mut());
+        }
+        if let Some(table) = found {
             table.remove(key);
         }
         return;
     };
-    if !doc.contains_key(section) {
-        doc.insert(section, Item::Table(Table::new()));
-    }
-    let Some(table) = doc[section].as_table_like_mut() else {
-        // `section = 3`: not a table, and the load says so; make it one.
-        doc[section] = Item::Table(Table::new());
-        return apply(doc, section, key, Some(value));
-    };
+    let table = table(doc, section);
     match table.get_mut(key).and_then(Item::as_value_mut) {
         Some(old) => {
             // Its spacing and the comment after it stay, the comment in
@@ -277,6 +325,66 @@ mod tests {
         let err = set(&path, "font", "size", Some(Setting::Number(3.0))).unwrap_err();
         assert!(matches!(err, EditError::Parse { .. }), "{err}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "[font\nsize = 1\n");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_host_is_added_changed_and_taken_out() {
+        let d = dir();
+        let path = d.join("hof.toml");
+        std::fs::write(
+            &path,
+            "[font]\nsize = 12\n\n[hosts.box]   # the NAS\nx11 = true\n",
+        )
+        .unwrap();
+        let text = |s: &str| Some(Setting::Text(s.into()));
+        set(&path, "hosts.dev", "ssh", text("dev.example.com")).unwrap();
+        set(&path, "hosts.dev", "user", text("olafur")).unwrap();
+        set(&path, "hosts.dev", "port", Some(Setting::Number(2222.0))).unwrap();
+        set(&path, "hosts.box", "user", text("admin")).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("[hosts.box]   # the NAS\n"), "{written}");
+        assert!(written.contains("[hosts.dev]\n"), "{written}");
+        assert!(!written.contains("[hosts]\n"), "{written}");
+        let c = crate::parse(&written).unwrap().config;
+        assert_eq!(
+            c.hosts["dev"].ssh_argv("dev")[2..6],
+            ["-l", "olafur", "-p", "2222"]
+        );
+        assert_eq!(c.hosts["box"].user, "admin");
+        assert!(c.hosts["box"].x11);
+
+        set(&path, "hosts.dev", "user", None).unwrap();
+        remove(&path, "hosts.box").unwrap();
+        let c = crate::parse(&std::fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .config;
+        assert_eq!(c.hosts.keys().collect::<Vec<_>>(), ["dev"]);
+        assert_eq!(c.hosts["dev"].user, "");
+        assert_eq!(c.font.size, 12.0);
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn only_a_hosts_own_keys_and_entries_can_be_written() {
+        let d = dir();
+        let path = d.join("hof.toml");
+        for (section, key) in [
+            ("hosts.dev", "colour"),
+            ("hosts", "user"),
+            ("hosts. ", "user"),
+            ("font.x", "size"),
+        ] {
+            assert!(
+                matches!(
+                    set(&path, section, key, Some(Setting::Bool(true))),
+                    Err(EditError::Unknown(_))
+                ),
+                "{section}.{key}"
+            );
+        }
+        assert!(matches!(remove(&path, "font"), Err(EditError::Unknown(_))));
+        assert!(!path.exists());
         std::fs::remove_dir_all(&d).unwrap();
     }
 }

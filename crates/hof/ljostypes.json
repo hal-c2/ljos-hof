@@ -1984,6 +1984,18 @@
               "notify": "hostClipboardsChanged"
             },
             {
+              "name": "hostDetails",
+              "type": "string",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "hostDetailsChanged"
+            },
+            {
               "name": "problems",
               "type": "var",
               "kind": "value",
@@ -2034,6 +2046,16 @@
                 {
                   "name": "value",
                   "type": "var"
+                }
+              ],
+              "returnType": "string"
+            },
+            {
+              "name": "removeHost",
+              "parameters": [
+                {
+                  "name": "name",
+                  "type": "string"
                 }
               ],
               "returnType": "string"

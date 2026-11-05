@@ -118,6 +118,8 @@ const CONFIG_KEYS: &[(&str, Node)] = &[
         "hosts",
         Each(&[
             ("ssh", Value),
+            ("user", Value),
+            ("port", Value),
             ("ssh-options", Value),
             ("command", Value),
             ("hof", Value),
@@ -170,10 +172,33 @@ const THEME_FILE_KEYS: &[(&str, Node)] = &[
 
 /// Whether `section.key` is a value Hof knows, as `font.size` is: the
 /// keys a program may change one at a time ([`crate::edit::set`]).
+///
+/// A table of tables, as `[hosts]` is, takes its entry's name after a dot:
+/// `hosts.dev`, `ssh`.
 pub(crate) fn is_setting(section: &str, key: &str) -> bool {
+    let has = |keys: &[(&str, Node)]| keys.iter().any(|(k, n)| *k == key && matches!(n, Value));
+    let (top, entry) = match section.split_once('.') {
+        Some((top, entry)) => (top, Some(entry)),
+        None => (section, None),
+    };
     CONFIG_KEYS.iter().any(|(name, node)| {
-        *name == section
-            && matches!(node, Table(keys) if keys.iter().any(|(k, n)| *k == key && matches!(n, Value)))
+        *name == top
+            && match (node, entry) {
+                (Table(keys), None) => has(keys),
+                (Each(keys), Some(entry)) => !entry.trim().is_empty() && has(keys),
+                _ => false,
+            }
+    })
+}
+
+/// Whether `section` is an entry of a table of tables, as `hosts.dev`
+/// is: what [`crate::edit::remove`] may take out.
+pub(crate) fn is_entry(section: &str) -> bool {
+    section.split_once('.').is_some_and(|(top, entry)| {
+        !entry.trim().is_empty()
+            && CONFIG_KEYS
+                .iter()
+                .any(|(name, node)| *name == top && matches!(node, Each(_)))
     })
 }
 
