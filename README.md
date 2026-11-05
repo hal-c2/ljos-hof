@@ -178,7 +178,12 @@ again at the next start. `hof copy`, `hof paste` and `hof open URL` there
 reach the clipboard and the browser where you sit. With `x11 = true` and
 `sound = true` on the host, programs there open their windows on your
 display and play through your speakers, as with `ssh -X`, carried over
-Hof's own connection.
+Hof's own connection. On a Mac they open through
+[yserver](https://github.com/joske/yserver) when it is installed (on the
+`PATH`, in Applications, or named by `HOF_YSERVER`): Hof starts it
+rootless the first time a window opens, so each X window is a Mac window
+of its own. Without yserver, the X server `$DISPLAY` names (XQuartz) is
+used.
 
 ## Not yet
 

@@ -30,12 +30,17 @@ pub struct Reach {
 impl Reach {
     fn options(&self) -> client::Options {
         let mut services: Vec<Arc<dyn client::Service>> = Vec::new();
-        // Looked for when the host is first reached: a desktop with no X
-        // server offers none.
-        if self.x11
-            && let Some(x) = hof_remote::x11::Forward::from_env()
-        {
-            services.push(Arc::new(x));
+        // Looked for when the host is first reached: yserver where it is
+        // installed (on a Mac, or named by `$HOF_YSERVER`), started when a
+        // program first opens a window, so each X window is a window of
+        // its own here; else the X server `$DISPLAY` names. With neither,
+        // none.
+        if self.x11 {
+            if let Some(y) = yserver() {
+                services.push(y);
+            } else if let Some(x) = hof_remote::x11::Forward::from_env() {
+                services.push(Arc::new(x));
+            }
         }
         if self.sound
             && let Some(sound) = hof_remote::pulse::Forward::from_env()
@@ -47,6 +52,15 @@ impl Reach {
             ..client::Options::default()
         }
     }
+}
+
+/// yserver, if it is installed: one for every host, so their windows
+/// share one server.
+fn yserver() -> Option<Arc<dyn client::Service>> {
+    static ONE: std::sync::OnceLock<Option<Arc<hof_remote::yserver::Yserver>>> =
+        std::sync::OnceLock::new();
+    let one = ONE.get_or_init(|| hof_remote::yserver::Yserver::find().map(Arc::new));
+    one.clone().map(|y| y as Arc<dyn client::Service>)
 }
 
 /// A name a pane's `host` can take.

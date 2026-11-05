@@ -293,6 +293,27 @@ fn an_x11_client_is_told_when_no_hof_is_connected() {
     }
 }
 
+#[test]
+fn an_x11_client_is_told_when_there_is_no_x_server_here() {
+    let dir = tempfile::tempdir().unwrap();
+    let (listener, service) = x_server(dir.path());
+    // The server here goes, as XQuartz does when it is not running.
+    drop(listener);
+    std::fs::remove_file(dir.path().join("X0")).unwrap();
+    let agent = agent();
+    let host = host(&agent, vec![service]);
+    let seen = pane_saying(&host, &["DISPLAY", "XAUTHORITY"]);
+    let display = seen.line("DISPLAY=");
+    let fake = cookie_in(&seen.line("XAUTHORITY="), &display);
+    let mut client = x_client(&display);
+    client.write_all(&setup_with(&fake)).unwrap();
+    let mut answer = Vec::new();
+    client.read_to_end(&mut answer).unwrap();
+    assert_eq!(answer.first(), Some(&0), "failed: {answer:?}");
+    let reason = String::from_utf8_lossy(&answer[8..8 + usize::from(answer[1])]).into_owned();
+    assert!(reason.starts_with("Hof: no X server on "), "{reason}");
+}
+
 /// A client's authorization, as libpulse sends it: offering to share
 /// memory, with the cookie it has.
 fn pulse_auth(cookie: u8, shares: bool) -> Vec<u8> {

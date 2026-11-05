@@ -216,7 +216,18 @@ clipboard = "ask"              # ask, allow or deny: the remote machine reading 
      - Hof takes the agent's cookie out of the client's setup, and puts
        in the local display's own, read from `$XAUTHORITY` or
        `~/.Xauthority` for each connection. Then it connects to the local
-       X server or Xwayland.
+       X server or Xwayland. A `DISPLAY` from macOS's launchd
+       (`/private/tmp/com.apple.launchd.…/org.xquartz:0`) names its socket
+       whole, `:0` and all.
+     - Where yserver is installed (on a Mac, or named by `HOF_YSERVER`),
+       Hof uses it instead: it starts
+       `yserver --rootless :N -auth FILE -terminate` the first time a
+       window opens, with a cookie of its own in that file, and each X
+       window becomes a window of its own here. yserver ends with its last
+       window, and is started again for the next.
+     - When the server here can't be reached, or yserver won't start, the
+       client there is refused with the reason (`Hof: no X server on …`),
+       so the program prints why rather than only "Can't open display".
      - Apps die when the connection drops, as with `ssh -X`.
   2. **Apps that survive a dropped connection, as with xpra.**
      [yserver](https://github.com/joske/yserver)'s core is backend-agnostic:

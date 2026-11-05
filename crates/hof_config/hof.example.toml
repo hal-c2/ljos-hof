@@ -256,7 +256,9 @@ disabled = []                 # plugins, by name, to leave unloaded
 # command = []                # reach the agent with this instead of ssh
 # hof = "hof"                 # the Hof to run there
 # bootstrap = true            # with no Hof there, copy Hof's agent over ssh
-# x11 = false                 # let programs there open X11 windows here
+# x11 = false                 # let programs there open X11 windows here:
+#                             # through yserver on a Mac when it is installed,
+#                             # else the X server $DISPLAY names
 # sound = false               # let programs there play sound here
 # files = false               # show that machine's files here
 # clipboard = "ask"           # programs there reading your clipboard:

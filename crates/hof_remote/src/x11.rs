@@ -16,6 +16,7 @@ use std::io;
 use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::client::Service;
 use crate::relay::Socket;
@@ -144,6 +145,56 @@ pub fn refusal(big_endian: bool, reason: &str) -> Vec<u8> {
     out
 }
 
+/// What to hand the relay for a client that cannot be served: a socket
+/// that answers its setup with a refusal saying `why`, so the program
+/// there prints that, not just that it can't open the display.
+pub fn refused(setup: &Setup, why: &str) -> (Box<dyn Socket>, Vec<u8>) {
+    let answer = Refused(Arc::new(Mutex::new(io::Cursor::new(refusal(
+        setup.big_endian,
+        why,
+    )))));
+    (Box::new(answer), Vec::new())
+}
+
+/// A socket that reads as a refusal, then as closed, and takes whatever is
+/// written to it.
+struct Refused(Arc<Mutex<io::Cursor<Vec<u8>>>>);
+
+impl io::Read for Refused {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .read(buf)
+    }
+}
+
+impl io::Write for Refused {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Socket for Refused {
+    fn another(&self) -> io::Result<Box<dyn Socket>> {
+        Ok(Box::new(Refused(self.0.clone())))
+    }
+
+    fn close(&self) {
+        let mut answer = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let end = answer.get_ref().len() as u64;
+        answer.set_position(end);
+    }
+
+    fn read_timeout(&self, _: Option<std::time::Duration>) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Any address, in an [`Auth`].
 pub const FAMILY_WILD: u16 = 0xffff;
 /// This machine, by its host name, in an [`Auth`].
@@ -222,7 +273,8 @@ impl Auth {
 pub enum Target {
     /// `:N`: the socket for display N on this machine.
     Local(u32),
-    /// `/path:N`, as macOS's launchd gives: the socket at the path.
+    /// `/path:N`, as macOS's launchd gives: the socket at the whole of
+    /// it, `:N` and all (`org.xquartz:0`), or else at the path before it.
     Path(PathBuf),
     /// `host:N`: TCP, port 6000 + N.
     Tcp(String, u16),
@@ -237,7 +289,7 @@ impl Target {
         let n: u32 = number.parse().ok()?;
         let target = match host {
             "" | "unix" => Target::Local(n),
-            path if path.starts_with('/') => Target::Path(path.into()),
+            path if path.starts_with('/') => Target::Path(format!("{path}:{number}").into()),
             host => Target::Tcp(host.into(), u16::try_from(6000 + n).ok()?),
         };
         Some((target, number.into()))
@@ -259,7 +311,17 @@ impl Target {
                     "/tmp/.X11-unix/X{n}"
                 ))?))
             }
-            Target::Path(path) => Ok(Box::new(UnixStream::connect(path)?)),
+            Target::Path(path) => match UnixStream::connect(path) {
+                Ok(s) => Ok(Box::new(s)),
+                Err(e) => {
+                    // The path before `:N`, as libxcb also tries.
+                    let whole = path.to_string_lossy();
+                    match whole.rsplit_once(':') {
+                        Some((bare, _)) => Ok(Box::new(UnixStream::connect(bare).map_err(|_| e)?)),
+                        None => Err(e),
+                    }
+                }
+            },
             Target::Tcp(host, port) => Ok(Box::new(TcpStream::connect((host.as_str(), *port))?)),
         }
     }
@@ -322,7 +384,13 @@ impl Service for Forward {
         let (setup, len) = Setup::parse(opening).map_err(|_| not())?.ok_or_else(not)?;
         let mut first = setup.with_cookie(self.cookie().as_deref()).encode();
         first.extend_from_slice(&opening[len..]);
-        Ok((self.target.connect()?, first))
+        match self.target.connect() {
+            Ok(socket) => Ok((socket, first)),
+            Err(e) => Ok(refused(
+                &setup,
+                &format!("Hof: no X server on {} ({e})", host_name()),
+            )),
+        }
     }
 }
 
@@ -417,11 +485,37 @@ mod tests {
         assert_eq!(
             Target::of("/private/tmp/launchd/org.xquartz:0"),
             Some((
-                Target::Path("/private/tmp/launchd/org.xquartz".into()),
+                Target::Path("/private/tmp/launchd/org.xquartz:0".into()),
                 "0".into()
             ))
         );
         assert_eq!(Target::of("wayland-1"), None);
         assert_eq!(Target::of(":x"), None);
+    }
+
+    #[test]
+    fn a_launchd_display_is_reached_at_its_whole_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("org.xquartz:0");
+        let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let display = format!("{}:0", dir.path().join("org.xquartz").display());
+        let (target, number) = Target::of(&display).unwrap();
+        assert_eq!(number, "0");
+        assert!(target.connect().is_ok(), "{target:?}");
+    }
+
+    #[test]
+    fn an_x_server_that_is_not_there_is_a_refusal_saying_so() {
+        use std::io::Read as _;
+        let dir = tempfile::tempdir().unwrap();
+        let display = format!("{}:0", dir.path().join("none").display());
+        let forward = Forward::new(&display, None).unwrap();
+        let (mut socket, first) = forward.open(&setup(false).encode()).unwrap();
+        assert!(first.is_empty());
+        let mut answer = Vec::new();
+        socket.read_to_end(&mut answer).unwrap();
+        assert_eq!(answer[0], 0, "failed");
+        let reason = String::from_utf8_lossy(&answer[8..8 + usize::from(answer[1])]).into_owned();
+        assert!(reason.starts_with("Hof: no X server on "), "{reason}");
     }
 }

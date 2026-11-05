@@ -24,6 +24,7 @@ pub mod relay;
 pub mod stream;
 pub mod wire;
 pub mod x11;
+pub mod yserver;
 
 pub use relay::{Relays, Socket};
 pub use stream::{Backlog, Gap, Received, Resume};
