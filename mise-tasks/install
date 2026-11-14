@@ -18,12 +18,15 @@ if [ "${usage_agents:-false}" = true ]; then
   root="$(dirname "$bin")"
   mise run agents
   mkdir -p "$root/lib/hof"
-  # Only the targets agents just built; an older build's file for a
-  # target since removed stays out.
+  # Only the targets agents just built. One installed earlier for a target
+  # no longer built goes, or hof would copy that old agent to machines.
   for arch in x86_64 aarch64; do
     target="$arch-unknown-linux-musl"
-    rustup target list --installed | grep -qx "$target" || continue
-    cp "${CARGO_TARGET_DIR:-target}/$target/agent/hof-agent" "$root/lib/hof/hof-agent-$arch-linux"
+    if rustup target list --installed | grep -qx "$target"; then
+      cp "${CARGO_TARGET_DIR:-target}/$target/agent/hof-agent" "$root/lib/hof/hof-agent-$arch-linux"
+    else
+      rm -f "$root/lib/hof/hof-agent-$arch-linux"
+    fi
   done
   echo "agents in $root/lib/hof"
 fi
