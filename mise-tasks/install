@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 #MISE description="Install hof on your PATH with cargo install (~/.cargo/bin unless --root), and with --agents the hof-agent builds for remote machines"
-#USAGE flag "--root <dir>" help="Install under DIR/bin instead of cargo's own root (CARGO_INSTALL_ROOT, else ~/.cargo)"
+#USAGE flag "--root <dir>" help="Install under DIR/bin instead of cargo's own root (CARGO_INSTALL_ROOT, install.root, else ~/.cargo)"
 #USAGE flag "--agents" help="Also build the static hof-agent for each musl target installed, into ROOT/lib/hof where hof looks for it"
 set -euo pipefail
 args=(--locked --path crates/hof)
 [ -z "${usage_root:-}" ] || args+=(--root "$usage_root")
-cargo install "${args[@]}"
+log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+cargo install "${args[@]}" 2>&1 | tee "$log"
 if [ "${usage_agents:-false}" = true ]; then
-  root="${usage_root:-${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}}"
+  # Where cargo put hof, whichever of --root, CARGO_INSTALL_ROOT,
+  # install.root or CARGO_HOME chose it: the agents go beside it.
+  bin="$(sed -n 's/\x1b\[[0-9;]*m//g; s/^ *\(Installing\|Replacing\) \(.*\)\/hof$/\2/p' "$log" | tail -1)"
+  [ -n "$bin" ] || { echo "cargo didn't say where hof went (already installed?); pass --root DIR for the agents" >&2; exit 1; }
+  root="$(dirname "$bin")"
   mise run agents
   mkdir -p "$root/lib/hof"
   cp "${CARGO_TARGET_DIR:-target}"/release/hof-agent-*-linux "$root/lib/hof/"
