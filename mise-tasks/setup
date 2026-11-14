@@ -1,11 +1,82 @@
 #!/usr/bin/env bash
-#MISE description="First, after cloning: link the Ljós UI checkout into third_party/ (LJOS_UI_DIR, default ~/dev/ljos-ui) and fetch the dependencies"
+#MISE description="First, after cloning, and safe to run again: install Rust and Zig, link or clone Ljós UI into third_party/, fetch the crates, and say what's missing"
+#USAGE flag "--ljos-ui <dir>" help="The Ljós UI checkout to link into third_party/ljos-ui (default: the one linked already, else $LJOS_UI_DIR, ~/dev/ljos-ui)"
+#USAGE flag "--no-clone" help="When no Ljós UI checkout is found, fail instead of cloning hal-c2/ljos-ui into third_party/ljos-ui"
 set -euo pipefail
-dir="${LJOS_UI_DIR:-$HOME/dev/ljos-ui}"
-[ -f "$dir/crates/ljos/Cargo.toml" ] || { echo "no Ljós UI checkout at $dir (set LJOS_UI_DIR)" >&2; exit 1; }
-mkdir -p third_party
-ln -sfn "$dir" third_party/ljos-ui
-echo "third_party/ljos-ui -> $dir"
+did=()
+skipped=()
+missing=()
+
+mise install --quiet
+did+=("mise install: Rust $(rustc --version | cut -d' ' -f2) and Zig $(zig version)")
+
+# Ljós UI is a path dependency in third_party/ljos-ui. In order: the
+# directory named, what is linked or cloned there already, $LJOS_UI_DIR,
+# and last a clone of our own.
+ljos_ok() { [ -f "$1/crates/ljos/Cargo.toml" ]; }
+link="third_party/ljos-ui"
+dir="${usage_ljos_ui:-}"
+if [ -n "$dir" ]; then
+  ljos_ok "$dir" || { echo "no Ljós UI checkout at $dir" >&2; exit 1; }
+  mkdir -p third_party
+  [ -L "$link" ] || [ ! -e "$link" ] || { echo "$link is a directory, not a link; move it away to link $dir" >&2; exit 1; }
+  ln -sfn "$(cd "$dir" && pwd)" "$link"
+  did+=("linked $link -> $dir")
+elif ljos_ok "$link"; then
+  did+=("kept $link ($(readlink "$link" || echo "a clone"))")
+elif ljos_ok "${LJOS_UI_DIR:-}"; then
+  mkdir -p third_party
+  ln -sfn "$LJOS_UI_DIR" "$link"
+  did+=("linked $link -> $LJOS_UI_DIR")
+elif [ "${usage_no_clone:-false}" = true ]; then
+  echo "no Ljós UI checkout at ${LJOS_UI_DIR:-~/dev/ljos-ui}; pass --ljos-ui DIR or set LJOS_UI_DIR" >&2
+  exit 1
+else
+  # Its submodules are its corpus and prior art; Hof builds without them.
+  rm -f "$link"
+  git clone --quiet --depth 1 https://github.com/hal-c2/ljos-ui "$link"
+  did+=("cloned hal-c2/ljos-ui into $link (no checkout at ${LJOS_UI_DIR:-~/dev/ljos-ui}; --ljos-ui DIR links one instead)")
+fi
+
 # Everything cargo needs from the network, once: libghostty-rs from git
-# and the crates. After this, builds work offline too.
-cargo fetch
+# and the crates. After this, builds work offline too. (Ghostty's own
+# source is fetched by libghostty-vt-sys's build script, at the first build.)
+cargo fetch --quiet
+did+=("cargo fetch")
+
+# What Hof needs from the system, which setup can't install.
+case "$(uname -s)" in
+  Linux)
+    command -v cc >/dev/null || missing+=("a C compiler (cc), for the -sys crates: gcc or clang")
+    if command -v pkg-config >/dev/null; then
+      pkg-config --exists alsa || missing+=("ALSA headers, for remote panes' sound (cpal): libasound2-dev / alsa-lib-devel / alsa-lib")
+      pkg-config --exists fontconfig || missing+=("fontconfig, to find fonts: libfontconfig-dev / fontconfig-devel / fontconfig")
+      pkg-config --exists xkbcommon || skipped+=("xkbcommon not found: keyboard layouts need libxkbcommon at run time")
+      pkg-config --exists wayland-client || skipped+=("wayland-client not found: Hof will open X11 windows only")
+    else
+      missing+=("pkg-config, which the -sys crates use to find ALSA and fontconfig")
+    fi
+    ;;
+  Darwin)
+    xcode-select -p >/dev/null 2>&1 || missing+=("the Xcode command line tools: xcode-select --install")
+    ;;
+esac
+command -v docker >/dev/null || skipped+=("docker not found: mise run remote-test needs it")
+for arch in x86_64 aarch64; do
+  rustup target list --installed 2>/dev/null | grep -qx "$arch-unknown-linux-musl" ||
+    skipped+=("$arch-unknown-linux-musl not installed: mise run agents skips it (rustup target add $arch-unknown-linux-musl)")
+done
+
+echo
+echo "setup did:"
+printf '  - %s\n' "${did[@]}"
+if [ ${#skipped[@]} -gt 0 ]; then
+  echo "skipped, and what it means:"
+  printf '  - %s\n' "${skipped[@]}"
+fi
+if [ ${#missing[@]} -gt 0 ]; then
+  echo "missing, and the build needs it (install it with your system's package manager):"
+  printf '  - %s\n' "${missing[@]}"
+  exit 1
+fi
+echo "next: mise run dev"

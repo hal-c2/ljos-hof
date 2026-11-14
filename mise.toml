@@ -6,5 +6,7 @@ zig = "0.17.1"
 
 [env]
 CARGO_TERM_COLOR = "always"
-# Where the Ljós UI checkout lives; `mise setup` links it into third_party/.
-LJOS_UI_DIR = "{{env.HOME}}/dev/ljos-ui"
+# Where the Ljós UI checkout lives; `mise run setup` links it into
+# third_party/, or clones one there when there is none. Your own
+# LJOS_UI_DIR wins.
+LJOS_UI_DIR = "{{ get_env(name='LJOS_UI_DIR', default=env.HOME ~ '/dev/ljos-ui') }}"
