@@ -26,7 +26,8 @@ elif ljos_ok "$link"; then
   did+=("kept $link ($(readlink "$link" || echo "a clone"))")
 elif ljos_ok "${LJOS_UI_DIR:-}"; then
   mkdir -p third_party
-  ln -sfn "$LJOS_UI_DIR" "$link"
+  # A relative link would resolve from third_party/, not from here.
+  ln -sfn "$(cd "$LJOS_UI_DIR" && pwd)" "$link"
   did+=("linked $link -> $LJOS_UI_DIR")
 elif [ "${usage_no_clone:-false}" = true ]; then
   echo "no Ljós UI checkout at ${LJOS_UI_DIR:-~/dev/ljos-ui}; pass --ljos-ui DIR or set LJOS_UI_DIR" >&2
