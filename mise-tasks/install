@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="Install hof on your PATH with cargo install (~/.cargo/bin unless --root), and with --agents the hof-agent builds for remote machines"
+#USAGE flag "--root <dir>" help="Install under DIR/bin instead of cargo's own root (CARGO_INSTALL_ROOT, else ~/.cargo)"
+#USAGE flag "--agents" help="Also build the static hof-agent for each musl target installed, into ROOT/lib/hof where hof looks for it"
+set -euo pipefail
+args=(--locked --path crates/hof)
+[ -z "${usage_root:-}" ] || args+=(--root "$usage_root")
+cargo install "${args[@]}"
+if [ "${usage_agents:-false}" = true ]; then
+  root="${usage_root:-${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}}"
+  mise run agents
+  mkdir -p "$root/lib/hof"
+  cp "${CARGO_TARGET_DIR:-target}"/release/hof-agent-*-linux "$root/lib/hof/"
+  echo "agents in $root/lib/hof"
+fi
