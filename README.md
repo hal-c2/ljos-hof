@@ -108,31 +108,42 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
 - **Themes.** Nine are built in, and you can add your own as
   `themes/<name>.toml`.
 
-## Building
+## Getting started
 
-You need [mise](https://mise.jdx.dev). It installs Rust and Zig;
-libghostty-vt's build script needs Zig to build Ghostty's parser.
+Install [mise](https://mise.jdx.dev/getting-started.html), then:
 
 ```sh
-mise install          # Rust and Zig, at the versions mise.toml pins
-mise setup            # links your Ljós UI checkout ($LJOS_UI_DIR) into third_party/,
-                      # and fetches the dependencies
-mise hof              # builds Hof and opens a window; `mise hof --dropdown`
+mise run setup        # Rust and Zig at mise.toml's versions, Ljós UI in third_party/,
+                      # the crates; then what it skipped and what the system lacks
+mise run dev          # builds Hof and opens a window; `mise run dev --dropdown`
+mise run install      # puts hof on your PATH (cargo install; --root DIR, --agents)
 ```
 
-| task                     | what it does                                        |
-|--------------------------|-----------------------------------------------------|
-| `mise hof [ARGS]`        | builds and runs Hof, with ARGS                      |
-| `mise build`             | an optimised build, `target/release/hof`            |
-| `mise test [ARGS]`       | every test, or what ARGS pick (`mise test -p hof_vt`) |
-| `mise check`             | what a change must pass: fmt, clippy and every test |
-| `mise check-macos`       | that it compiles for macOS, checked from Linux      |
-| `mise types`             | regenerates the QML types (see below)               |
-| `mise fire [SECONDS]`    | the stress test (see below)                         |
-| `mise agents`            | the static agents for remote machines               |
-| `mise remote-test [IMG]` | bootstrapping a container over ssh, with Docker     |
+Hof builds against a checkout of [Ljós UI](https://github.com/hal-c2/ljos-ui)
+at `third_party/ljos-ui`. `setup` links the one at `$LJOS_UI_DIR`
+(`~/dev/ljos-ui` by default) or the one `--ljos-ui DIR` names, and clones
+one there when there is none (`--no-clone` fails instead). Zig is for
+libghostty-vt, whose build script builds Ghostty's parser. The system must
+have a C compiler and pkg-config, and on Linux the ALSA and fontconfig
+headers; `setup` says which are missing, and never installs them.
 
-`mise <task>` is short for `mise run <task>`.
+| task                          | what it does                                        |
+|-------------------------------|-----------------------------------------------------|
+| `mise run setup`              | the first run after cloning; safe to run again      |
+| `mise run dev [ARGS]`         | builds and runs Hof, with ARGS (`mise run hof` too) |
+| `mise run build [ARGS]`       | an optimised build, `target/release/hof`            |
+| `mise run install`            | `cargo install` of hof; `--root DIR`, `--agents`    |
+| `mise run test [ARGS]`        | every test, or what ARGS pick (`mise run test -p hof_vt`) |
+| `mise run check`              | what a change must pass: fmt, clippy and every test |
+| `mise run check-macos`        | that it compiles for macOS, checked from Linux      |
+| `mise run types`              | regenerates the QML types (see below)               |
+| `mise run fire [SECONDS]`     | the stress test (see below)                         |
+| `mise run agents`             | the static agents for remote machines               |
+| `mise run remote-test [IMG]`  | bootstrapping a container over ssh, with Docker     |
+
+`mise run <task> --help` says what a task takes, and `mise <task>` is short
+for `mise run <task>`. There is nothing to deploy: Hof is installed from a
+checkout.
 
 The QML is compiled ahead of time against generated types. After changing a
 Rust type that QML can see, regenerate them:
