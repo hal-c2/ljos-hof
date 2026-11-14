@@ -11,7 +11,9 @@ cargo install "${args[@]}" 2>&1 | tee "$log"
 if [ "${usage_agents:-false}" = true ]; then
   # Where cargo put hof, whichever of --root, CARGO_INSTALL_ROOT,
   # install.root or CARGO_HOME chose it: the agents go beside it.
-  bin="$(sed -n 's/\x1b\[[0-9;]*m//g; s/^ *\(Installing\|Replacing\) \(.*\)\/hof$/\2/p' "$log" | tail -1)"
+  # Portable to macOS's sed: -E, and the escape byte itself, not \x1b.
+  esc="$(printf '\033')"
+  bin="$(sed -E "s/${esc}[[][0-9;]*m//g" "$log" | sed -nE 's/^ *(Installing|Replacing) (.*)\/hof$/\2/p' | tail -1)"
   [ -n "$bin" ] || { echo "cargo didn't say where hof went (already installed?); pass --root DIR for the agents" >&2; exit 1; }
   root="$(dirname "$bin")"
   mise run agents
