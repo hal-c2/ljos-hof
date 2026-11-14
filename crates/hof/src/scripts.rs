@@ -75,7 +75,7 @@ impl Drop for Slot<'_> {
 
 fn take_slot(count: &std::sync::atomic::AtomicUsize) -> io::Result<Slot<'_>> {
     count
-        .fetch_update(
+        .try_update(
             std::sync::atomic::Ordering::AcqRel,
             std::sync::atomic::Ordering::Acquire,
             |used| (used < MOST_BACKGROUND).then_some(used + 1),
