@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-#MISE description="Copy hof-agent to a machine with no Hof, in a container reached over ssh, and run a pane there (remote-test [BASE-IMAGE])"
+#MISE description="Copy hof-agent to a machine with no Hof, in a container reached over ssh, and run a pane there (remote-test alpine:3.22)"
+#USAGE arg "[base_image]" default="debian:bookworm-slim" help="The Docker image the container starts from"
 set -euo pipefail
-base="${1:-debian:bookworm-slim}"
-[ -f target/release/hof-agent-x86_64-linux ] || mise run agents
+base="${usage_base_image:-debian:bookworm-slim}"
+release="${CARGO_TARGET_DIR:-target}/release"
+[ -f "$release/hof-agent-x86_64-linux" ] || mise run agents
 work="$(mktemp -d "${TMPDIR:-/tmp}/hof-remote-test.XXXXXX")"
 name="hof-remote-test-$$"
 cleanup() {
@@ -19,7 +21,7 @@ port="$(docker port "$name" 22/tcp | head -1 | sed 's/.*://')"
 ssh="ssh -T -p $port -i $work/key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR me@127.0.0.1"
 for _ in $(seq 50); do $ssh true 2>/dev/null && break; sleep 0.2; done
 echo "== $base on port $port, no Hof there: $($ssh 'command -v hof || echo none')"
-HOF_TEST_SSH="$ssh" HOF_AGENT_DIR="$PWD/target/release" \
+HOF_TEST_SSH="$ssh" HOF_AGENT_DIR="$(cd "$release" && pwd)" \
   cargo test -p hof --test bootstrap -- --ignored --nocapture
 echo "== what Hof left there"
 $ssh 'ls -la ~/.local/share/hof/*/ ~/.local/bin/'
