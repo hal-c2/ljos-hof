@@ -16,17 +16,21 @@ if [ "${usage_agents:-false}" = true ]; then
   bin="$(sed -E "s/${esc}[[][0-9;]*m//g" "$log" | sed -nE 's/^ *(Installing|Replacing) (.*)\/hof$/\2/p' | tail -1)"
   [ -n "$bin" ] || { echo "cargo didn't say where hof went (already installed?); pass --root DIR for the agents" >&2; exit 1; }
   root="$(dirname "$bin")"
-  mise run agents
+  # Only the targets agents builds now. One installed earlier for a target
+  # no longer built goes first, even if agents then fails (no target at
+  # all), or hof would copy that old agent to machines.
+  built=()
   mkdir -p "$root/lib/hof"
-  # Only the targets agents just built. One installed earlier for a target
-  # no longer built goes, or hof would copy that old agent to machines.
   for arch in x86_64 aarch64; do
-    target="$arch-unknown-linux-musl"
-    if rustup target list --installed | grep -qx "$target"; then
-      cp "${CARGO_TARGET_DIR:-target}/$target/agent/hof-agent" "$root/lib/hof/hof-agent-$arch-linux"
+    if rustup target list --installed | grep -qx "$arch-unknown-linux-musl"; then
+      built+=("$arch")
     else
       rm -f "$root/lib/hof/hof-agent-$arch-linux"
     fi
+  done
+  mise run agents
+  for arch in "${built[@]}"; do
+    cp "${CARGO_TARGET_DIR:-target}/$arch-unknown-linux-musl/agent/hof-agent" "$root/lib/hof/hof-agent-$arch-linux"
   done
   echo "agents in $root/lib/hof"
 fi
