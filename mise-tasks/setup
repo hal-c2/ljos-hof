@@ -8,7 +8,7 @@ skipped=()
 missing=()
 
 mise install --quiet
-did+=("mise install: Rust $(rustc --version | cut -d' ' -f2) and Zig $(zig version)")
+did+=("mise install: Rust ${RUSTUP_TOOLCHAIN:-} and Zig $(zig version), as mise.toml pins them")
 
 # Ljós UI is a path dependency in third_party/ljos-ui. In order: the
 # directory named, what is linked or cloned there already, $LJOS_UI_DIR,
@@ -61,6 +61,12 @@ case "$(uname -s)" in
     xcode-select -p >/dev/null 2>&1 || missing+=("the Xcode command line tools: xcode-select --install")
     ;;
 esac
+# mise's Rust is rustup's; a system Rust earlier on PATH shadows it in tasks.
+pinned="${RUSTUP_TOOLCHAIN:-}"
+have="$(rustc --version | cut -d' ' -f2)"
+if [ -n "$pinned" ] && [ "$have" != "$pinned" ]; then
+  skipped+=("rustc on PATH is $have ($(command -v rustc)), not mise.toml's $pinned: tasks build with it; put rustup's ~/.cargo/bin before it, or remove the system Rust")
+fi
 command -v docker >/dev/null || skipped+=("docker not found: mise run remote-test needs it")
 for arch in x86_64 aarch64; do
   rustup target list --installed 2>/dev/null | grep -qx "$arch-unknown-linux-musl" ||
