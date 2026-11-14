@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Build Hof and open a window; what follows goes to hof (hof --dropdown)"
+#USAGE arg "[args]" var=#true double_dash="automatic" help="Arguments for hof, such as --dropdown or -e htop"
 set -euo pipefail
 cargo run --release -p hof -- "$@"

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Check that Hof compiles for macOS, from Linux: clippy for aarch64-apple-darwin, with Zig as the C compiler"
+#USAGE arg "[cargo_args]" var=#true double_dash="automatic" help="More arguments for cargo clippy, such as -p hof"
 set -euo pipefail
 # Some dependencies build C, and cc-rs needs a compiler for the target.
 # Zig has one, with macOS's headers; cc-rs's own --target is dropped for

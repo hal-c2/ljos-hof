@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-#MISE description="Stress test: a fire, parsed headless, painted offscreen, then drawn in this terminal (fire SECONDS)"
+#MISE description="Stress test: a fire, parsed headless, painted offscreen, then drawn in this terminal (fire 10)"
+#USAGE arg "[seconds]" default="5" help="How long the last part, drawn in this terminal, lasts"
 set -euo pipefail
+out="${CARGO_TARGET_DIR:-target}/release/examples"
 cargo build --release -p hof_vt --example fire -p hof_qml --example paint_fire
 echo "== the parser and the grid"
-./target/release/examples/fire headless
+"$out/fire" headless
 echo "== painted"
-./target/release/examples/paint_fire
+"$out/paint_fire"
 # Last, as it takes the screen.
-if [ -t 1 ]; then ./target/release/examples/fire "${1:-5}"; fi
+if [ -t 1 ]; then "$out/fire" "${usage_seconds:-5}"; fi
