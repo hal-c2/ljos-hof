@@ -890,9 +890,11 @@ fn catch_up(id: PaneId, pane: &Pane, sent: &mut Sent, out: &mut Vec<u8>) {
     // Linux reads it empty between the new program's memory and its
     // arguments. Not known yet, so nothing is told: the agent looks again
     // shortly, and when the program it becomes writes.
-    let known = process.as_ref().is_none_or(|p| !p.args.is_empty());
-    if known {
+    // A program can also empty its own arguments for good, so after
+    // the looks again it is told as it reads, with no command line.
+    let tell = if process.as_ref().is_none_or(|p| !p.args.is_empty()) {
         sent.rechecks = 0;
+        true
     } else if sent.rechecks < RECHECKS {
         sent.rechecks += 1;
         let stream = Arc::clone(&pane.stream);
@@ -900,8 +902,11 @@ fn catch_up(id: PaneId, pane: &Pane, sent: &mut Sent, out: &mut Vec<u8>) {
             thread::sleep(RECHECK_AFTER);
             lock(&stream).wake(id);
         });
-    }
-    if known && sent.told_foreground.as_ref() != Some(&process) {
+        false
+    } else {
+        true
+    };
+    if tell && sent.told_foreground.as_ref() != Some(&process) {
         sent.told_foreground = Some(process.clone());
         Message::Foreground { pane: id, process }.encode(out);
     }
