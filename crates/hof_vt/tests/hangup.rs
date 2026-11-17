@@ -52,3 +52,50 @@ fn closing_ends_the_program_when_hof_was_started_ignoring_hangups() {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+
+/// Every signal, the real-time ones too: the program ignores none of what
+/// Hof ignores. Linux, where `/proc` says what a process ignores.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_program_ignores_no_signal_that_hof_ignores() {
+    // SAFETY: setting dispositions to SIG_IGN, before any session's thread.
+    unsafe {
+        assert_ne!(libc::signal(libc::SIGHUP, libc::SIG_IGN), libc::SIG_ERR);
+        assert_ne!(
+            libc::signal(libc::SIGRTMIN() + 1, libc::SIG_IGN),
+            libc::SIG_ERR
+        );
+    }
+
+    let (tx, rx) = mpsc::channel();
+    let tx = Mutex::new(tx);
+    let spawn = Spawn::command(
+        "/bin/sh",
+        ["-c", "grep '^SigIgn' /proc/self/status; read x"],
+    );
+    let session = Session::spawn(&spawn, Options::default(), move || {
+        let _ = tx.lock().unwrap().send(());
+    })
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let ignored = loop {
+        let text = session.text();
+        if let Some(mask) = text
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("SigIgn:"))
+            .map(str::trim)
+            .filter(|m| m.len() == 16)
+        {
+            break mask.to_owned();
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        assert!(!left.is_zero(), "no SigIgn line; screen:\n{text}");
+        let _ = rx.recv_timeout(left);
+        session.take_changes();
+    };
+    assert_eq!(
+        u64::from_str_radix(&ignored, 16).unwrap(),
+        0,
+        "the program ignores signals (mask {ignored}, bit n-1 is signal n)"
+    );
+}

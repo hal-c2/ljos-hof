@@ -146,13 +146,19 @@ impl Pty {
 /// a signal ignored on entry to a non-interactive shell ignored. std resets
 /// only the signal mask and SIGPIPE.
 fn default_signals() {
+    // The real-time signals too, on Linux. macOS and the BSDs have 31.
+    #[cfg(target_os = "linux")]
+    let last = libc::SIGRTMAX();
+    #[cfg(not(target_os = "linux"))]
+    let last = 31;
     // SAFETY: sigaction is async-signal-safe, and the action is a plain
-    // SIG_DFL with an empty mask. SIGKILL and SIGSTOP refuse it, harmlessly.
+    // SIG_DFL with an empty mask. SIGKILL, SIGSTOP and the real-time
+    // signals the C library keeps for itself refuse it, harmlessly.
     unsafe {
         let mut action: libc::sigaction = std::mem::zeroed();
         action.sa_sigaction = libc::SIG_DFL;
         libc::sigemptyset(&raw mut action.sa_mask);
-        for signal in 1..32 {
+        for signal in 1..=last {
             libc::sigaction(signal, &raw const action, std::ptr::null_mut());
         }
     }
