@@ -80,7 +80,11 @@ fn a_program_here_outlives_hof_and_the_next_one_attaches_to_it() {
     drop(again);
     let deadline = Instant::now() + PATIENCE;
     while !agent.is_idle() {
-        assert!(Instant::now() < deadline, "the agent kept the pane");
+        assert!(
+            Instant::now() < deadline,
+            "the agent kept the pane\n{}",
+            support::held::held()
+        );
         thread::sleep(Duration::from_millis(10));
     }
 }

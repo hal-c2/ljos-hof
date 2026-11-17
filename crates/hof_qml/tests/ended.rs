@@ -46,7 +46,11 @@ fn a_program_no_window_shows_is_ended_and_one_gone_is_not_counted() {
     assert_eq!(ended, 1, "the one it had, not the one it never had");
     let deadline = Instant::now() + PATIENCE;
     while !agent.is_idle() {
-        assert!(Instant::now() < deadline, "the program was left running");
+        assert!(
+            Instant::now() < deadline,
+            "the program was left running\n{}",
+            support::held::held()
+        );
         thread::sleep(Duration::from_millis(10));
     }
 

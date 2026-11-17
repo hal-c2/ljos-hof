@@ -1,5 +1,8 @@
 //! Hof's client against a real agent, over connections the test can cut.
 
+#[path = "common/held.rs"]
+mod held;
+
 use std::io;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc;
@@ -177,7 +180,11 @@ fn a_pane_opens_on_the_host_and_its_program_runs_there() {
     pane.close();
     let deadline = Instant::now() + PATIENCE;
     while !agent.is_idle() {
-        assert!(Instant::now() < deadline, "the agent still has the pane");
+        assert!(
+            Instant::now() < deadline,
+            "the agent still has the pane\n{}",
+            held::held()
+        );
         thread::sleep(Duration::from_millis(10));
     }
 }
@@ -381,7 +388,11 @@ fn finishing_closes_the_panes_still_open() {
     host.finish(false, PATIENCE);
     let deadline = Instant::now() + PATIENCE;
     while !agent.is_idle() {
-        assert!(Instant::now() < deadline, "the agent still has the pane");
+        assert!(
+            Instant::now() < deadline,
+            "the agent still has the pane\n{}",
+            held::held()
+        );
         thread::sleep(Duration::from_millis(10));
     }
 }

@@ -15,6 +15,9 @@ use hof_remote::client::{self, Connection, Host, Transport};
 use ljos::prelude::*;
 use ljos::testing::TestWindow;
 
+#[path = "../../../hof_agent/tests/common/held.rs"]
+pub mod held;
+
 pub const PATIENCE: Duration = Duration::from_secs(10);
 
 /// Reaches `agent`, keeping each connection's end for the test to cut.
