@@ -19,7 +19,9 @@ case "$docker_arch" in
   aarch64 | arm64) arch=aarch64 ;;
   *) echo "remote-test: Hof has no agent for Docker's architecture, $docker_arch" >&2; exit 1 ;;
 esac
-[ -f "$release/hof-agent-$arch-linux" ] || mise run agents --only "$arch"
+# Every time: the test copies whatever agent is there, and a stale one
+# would pass for the code as it is. Cargo rebuilds only what changed.
+mise run agents --only "$arch"
 work="$(mktemp -d "${TMPDIR:-/tmp}/hof-remote-test.XXXXXX")"
 name="hof-remote-test-$$"
 cleanup() {
