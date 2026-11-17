@@ -111,7 +111,8 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
 ## Getting started
 
 Install [mise](https://mise.jdx.dev/getting-started.html) and
-[rustup](https://rustup.rs), then:
+[rustup](https://rustup.rs), then, in the clone (mise may first ask you
+to trust its `mise.toml`):
 
 ```sh
 mise run setup        # Rust and Zig at mise.toml's versions, with the targets the
