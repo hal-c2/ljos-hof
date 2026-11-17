@@ -54,12 +54,21 @@ elif [ "${usage_no_clone:-false}" = true ]; then
   exit 1
 else
   # Only the pinned commit: its submodules are its corpus and prior art,
-  # and Hof builds without them.
+  # and Hof builds without them. Made beside it and moved into place when
+  # complete, so a fetch that fails (no network) leaves nothing that the
+  # next run would take for a checkout or trip over.
+  if [ -e "$link" ] && [ ! -L "$link" ]; then
+    echo "setup: $link is a directory with no Ljós UI in it; move it away, or pass --ljos-ui DIR" >&2
+    exit 1
+  fi
+  partial="$link.partial"
+  rm -rf "$partial"
+  git init --quiet "$partial"
+  git -C "$partial" remote add origin https://github.com/hal-c2/ljos-ui
+  git -C "$partial" fetch --quiet --depth 1 origin "$rev"
+  git -C "$partial" checkout --quiet FETCH_HEAD
   rm -f "$link"
-  git init --quiet "$link"
-  git -C "$link" remote add origin https://github.com/hal-c2/ljos-ui
-  git -C "$link" fetch --quiet --depth 1 origin "$rev"
-  git -C "$link" checkout --quiet FETCH_HEAD
+  mv "$partial" "$link"
   did+=("cloned hal-c2/ljos-ui at $rev into $link${LJOS_UI_DIR:+ (no checkout at $LJOS_UI_DIR)}; --ljos-ui DIR links one instead")
 fi
 
@@ -102,6 +111,7 @@ case "$(uname -s)" in
     xcode-select -p >/dev/null 2>&1 || missing+=("the Xcode command line tools: xcode-select --install")
     ;;
 esac
+command -v python3 >/dev/null || missing+=("python3, which the tasks read cargo's JSON with")
 command -v docker >/dev/null || skipped+=("docker not found: mise run remote-test needs it")
 
 echo
