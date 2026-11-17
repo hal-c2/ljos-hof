@@ -182,7 +182,17 @@ struct Sent {
     told_exit: bool,
     /// The foreground process last told; `None` until told.
     told_foreground: Option<Option<wire::Process>>,
+    /// Looks again at a foreground caught in the middle of `exec`, since
+    /// it was last known: a program that writes nothing once it is in
+    /// gives no output to look again on.
+    rechecks: u8,
 }
+
+/// How many times, and how far apart, the agent looks again at a
+/// foreground caught in `exec`, which takes a few milliseconds; after
+/// that, the program's next output tells it.
+const RECHECKS: u8 = 5;
+const RECHECK_AFTER: Duration = Duration::from_millis(10);
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     // A panic elsewhere left the data as it was; the agent keeps serving.
@@ -843,6 +853,7 @@ fn serve_wake(inner: &Inner, sent: &mut HashMap<PaneId, Sent>, wake: Wake, out: 
                 at: have,
                 told_exit: false,
                 told_foreground: None,
+                rechecks: 0,
             });
             catch_up(id, &p, at.into_mut(), out);
         }
@@ -875,7 +886,22 @@ fn catch_up(id: PaneId, pane: &Pane, sent: &mut Sent, out: &mut Vec<u8>) {
         name: p.name,
         args: p.args,
     });
-    if sent.told_foreground.as_ref() != Some(&process) {
+    // A live process with no command line is one in the middle of `exec`:
+    // Linux reads it empty between the new program's memory and its
+    // arguments. Not known yet, so nothing is told: the agent looks again
+    // shortly, and when the program it becomes writes.
+    let known = process.as_ref().is_none_or(|p| !p.args.is_empty());
+    if known {
+        sent.rechecks = 0;
+    } else if sent.rechecks < RECHECKS {
+        sent.rechecks += 1;
+        let stream = Arc::clone(&pane.stream);
+        thread::spawn(move || {
+            thread::sleep(RECHECK_AFTER);
+            lock(&stream).wake(id);
+        });
+    }
+    if known && sent.told_foreground.as_ref() != Some(&process) {
         sent.told_foreground = Some(process.clone());
         Message::Foreground { pane: id, process }.encode(out);
     }
