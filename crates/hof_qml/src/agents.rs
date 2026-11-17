@@ -11,7 +11,7 @@
 //! 3. Otherwise there is no agent.
 //!
 //! A terminal looks again a moment after its screen changes, at most
-//! every [`LOOK_AFTER`], so an agent drawing as fast as it can costs a few
+//! every 300 ms (`LOOK_AFTER`), so an agent drawing as fast as it can costs a few
 //! looks a second and a quiet terminal none.
 
 use std::sync::{Mutex, PoisonError};
