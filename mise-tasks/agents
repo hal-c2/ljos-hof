@@ -22,8 +22,16 @@ if [ -z "${GHOSTTY_SOURCE_DIR:-}" ]; then
     if [ -f "$src/build.zig" ]; then GHOSTTY_SOURCE_DIR="$(cd "$src" && pwd)"; export GHOSTTY_SOURCE_DIR; break; fi
   done
 fi
+# The host's cc links only for the host's architecture. For another, Rust's
+# own rust-lld links musl's self-contained objects, with nothing to
+# install; a linker set for the target in the environment wins.
+host="$(uname -m)"
 for arch in "${arches[@]}"; do
   target="$arch-unknown-linux-musl"
+  var="CARGO_TARGET_$(printf '%s' "$target" | tr 'a-z-' 'A-Z_')_LINKER"
+  if [ "$arch" != "$host" ] && [ -z "${!var:-}" ]; then
+    export "$var=rust-lld"
+  fi
   cargo build --locked --profile agent -p hof_agent --bin hof-agent --target "$target"
   # Beside Hof's own program, where it looks for them.
   for dir in "$out/debug" "$out/release"; do
