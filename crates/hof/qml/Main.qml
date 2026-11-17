@@ -723,7 +723,9 @@ Window {
             return;
         window.hiding = true;
         window.shownFraction = 0;
-        if (Settings.animationMs <= 0) {
+        // Before the slide in has moved there is nothing to slide out,
+        // and the fraction, at 0 already, never says it got there.
+        if (Settings.animationMs <= 0 || window.shownFraction === 0) {
             window.hiding = false;
             window.visible = false;
         }
