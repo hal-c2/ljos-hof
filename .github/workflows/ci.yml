@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          version: 2026.9.9
+      # What setup can't install: the headers the -sys crates build against,
+      # and shellcheck for tasks:smoke's static checks. No display: the tests
+      # and tasks:smoke never open a window.
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libasound2-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev shellcheck
+      # setup clones hal-c2/ljos-ui at third_party/ljos-ui.rev.
+      - run: mise run setup
+      - run: mise run check
+      - run: mise run test
+      - run: mise run tasks:smoke
+      # A fresh clone's build must not rewrite Cargo.lock or the type dump.
+      - name: The build left the checkout clean
+        run: git diff --exit-code && test -z "$(git status --porcelain)"
+
+  # Hof runs on macOS, and its tasks run there under bash 3.2. Linux's
+  # check-macos already type-checks the macOS code, so this job builds
+  # nothing: it runs setup and dry-runs every task with the static checks.
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          version: 2026.9.9
+      - run: brew install shellcheck
+      - run: mise run setup
+      - run: mise run tasks:smoke --dry

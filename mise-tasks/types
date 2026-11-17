@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
-#MISE description="Regenerate the types the QML is compiled against, after changing a Rust type QML sees"
+#MISE description="Regenerate the types the QML is compiled against, after changing a Rust type QML sees; --check only says whether they are current"
+#USAGE flag "--check" help="Write nothing; fail when the committed types differ from the Rust types"
 set -euo pipefail
-LJOS_TYPES=write cargo test -p hof --test types
+# The test compares the committed type dump with the Rust types; with
+# LJOS_TYPES=write it rewrites the dump instead.
+if [ "${usage_check:-false}" = true ]; then
+  # A LJOS_TYPES=write in the caller's environment would make this write.
+  env -u LJOS_TYPES cargo test --locked -p hof --test types
+else
+  LJOS_TYPES="write" cargo test --locked -p hof --test types
+  git status --short -- crates/hof
+fi

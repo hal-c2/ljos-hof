@@ -69,16 +69,18 @@ mod tests {
 
     #[test]
     fn a_fallback_directory_is_private_and_cannot_be_a_symlink() {
+        // Whoever runs the test: CI's runners are not uid 1000.
+        let uid = rustix::process::getuid().as_raw();
         let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path().join("hof-1000");
-        ensure_private_dir(&dir, 1000).unwrap();
+        let dir = temp.path().join(format!("hof-{uid}"));
+        ensure_private_dir(&dir, uid).unwrap();
         assert_eq!(
             fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o700
         );
-        ensure_private_dir(&dir, 1000).unwrap();
+        ensure_private_dir(&dir, uid).unwrap();
         fs::remove_dir(&dir).unwrap();
         std::os::unix::fs::symlink(temp.path(), &dir).unwrap();
-        assert!(ensure_private_dir(&dir, 1000).is_err());
+        assert!(ensure_private_dir(&dir, uid).is_err());
     }
 }

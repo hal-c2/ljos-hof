@@ -5,8 +5,12 @@ set -euo pipefail
 # Some dependencies build C, and cc-rs needs a compiler for the target.
 # Zig has one, with macOS's headers; cc-rs's own --target is dropped for
 # Zig's. Nothing is linked, so no macOS SDK is needed.
-rustup target add aarch64-apple-darwin >/dev/null
-bin=$(mktemp -d)
+command -v zig >/dev/null || { echo "check-macos: zig is not on PATH; run mise run setup (mise.toml pins it)" >&2; exit 1; }
+# setup adds the target; adding it here would change the toolchain behind
+# the caller's back.
+rustup target list --installed 2>/dev/null | grep -qx aarch64-apple-darwin ||
+  { echo "check-macos: Rust's aarch64-apple-darwin target is not installed: run mise run setup (or rustup target add aarch64-apple-darwin)" >&2; exit 1; }
+bin=$(mktemp -d "${TMPDIR:-/tmp}/hof-check-macos.XXXXXX")
 trap 'rm -rf "$bin"' EXIT
 cat > "$bin/cc" <<'CC'
 #!/bin/sh
@@ -22,4 +26,4 @@ CC
 printf '#!/bin/sh\nexec zig ar "$@"\n' > "$bin/ar"
 chmod +x "$bin/cc" "$bin/ar"
 CC_aarch64_apple_darwin="$bin/cc" AR_aarch64_apple_darwin="$bin/ar" \
-  cargo clippy --workspace --all-targets --target aarch64-apple-darwin "$@" -- -D warnings
+  cargo clippy --locked --workspace --all-targets --target aarch64-apple-darwin "$@" -- -D warnings

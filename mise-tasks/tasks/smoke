@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+#MISE description="Run every mise task in a quick, non-interactive mode, so a broken task turns CI red"
+#USAGE flag "--list" help="Print the table of tasks and how each is smoke-tested, and run nothing"
+#USAGE flag "--only <task>" help="Smoke-test this one task"
+#USAGE flag "--dry" help="Dry-run every task, the ones the table runs too: what a machine that can't build Hof checks (CI's macOS job)"
+set -euo pipefail
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$root"
+
+# task | mode | arguments | why it is only a dry run
+#   run: a real, quick, non-interactive run of `mise run <task> <arguments>`
+#   dry: `mise run -n <task> <arguments>` (usage and depends resolve) and bash -n
+# @tmp@ in the arguments is a scratch directory removed at the end. Adding
+# or removing a task without changing this table fails the smoke test.
+# tasks:smoke tests only its own --list, so it never recurses. The runs
+# reuse what CI's check and test steps built before it.
+table() {
+  cat <<'EOF_TABLE'
+setup|run|--no-clone|
+check|dry||CI runs it in full as its own step, before this
+fmt|run|--check|
+test|dry||CI runs it in full as its own step, before this
+types|run|--check|
+docs|run||
+build|dry||an optimised build with LTO is minutes long; CI's check and test steps build the same code
+hof|dry|--dropdown|opens a window and runs until it is closed; driven off-screen by hand
+dev|dry|--dropdown|opens a window and runs until it is closed; driven off-screen by hand
+fire|dry|1|two more optimised builds, and a benchmark that wants a quiet machine
+agents|run|--only x86_64|
+install|run|--dry-run --agents --root @tmp@/install|
+check-macos|run||
+remote-test|dry||builds a Docker image from the network and runs a container with sshd
+tasks:smoke|run|--list|
+EOF_TABLE
+}
+
+if [ "${usage_list:-}" = true ]; then
+  printf '%-12s %-4s %-45s %s\n' TASK MODE ARGUMENTS "WHY DRY"
+  table | while IFS='|' read -r task mode args why; do
+    printf '%-12s %-4s %-45s %s\n' "$task" "$mode" "${args:--}" "$why"
+  done
+  exit 0
+fi
+only="${usage_only:-}"
+all_dry="${usage_dry:-false}"
+
+# The tasks this repo defines, as "name<TAB>source"; mise also lists any
+# global tasks, which are not this repo's to test.
+command -v python3 >/dev/null || { echo "tasks:smoke: python3 is not on PATH; it reads mise tasks --json" >&2; exit 1; }
+tasks="$(mise tasks --json | python3 -c '
+import json, sys
+root = sys.argv[1].rstrip("/") + "/"
+for t in json.load(sys.stdin):
+    if t["source"].startswith(root):
+        print(t["name"] + "\t" + t["source"])
+' "$root")"
+[ -n "$tasks" ] || { echo "tasks:smoke: mise lists no tasks from $root" >&2; exit 1; }
+names="$(printf '%s\n' "$tasks" | cut -f1 | sort)"
+tabled="$(table | cut -d'|' -f1 | sort)"
+
+failed=0
+results=""
+record() {
+  results="$results$(printf '%-12s %-6s %-6s %-8s %s' "$1" "$2" "$3" "$4" "${5:-}")
+"
+  [ "$3" = ok ] || failed=1
+}
+
+for t in $(comm -23 <(printf '%s\n' "$names") <(printf '%s\n' "$tabled")); do
+  echo "tasks:smoke: task '$t' has no entry in the table in mise-tasks/tasks/smoke; add one" >&2
+  record "$t" "-" FAIL 0
+done
+for t in $(comm -13 <(printf '%s\n' "$names") <(printf '%s\n' "$tabled")); do
+  echo "tasks:smoke: the table names '$t', which is no longer a task; remove it" >&2
+  record "$t" "-" FAIL 0
+done
+
+# Every task file, whether or not --only picks it.
+lint=""
+for f in $(find mise-tasks -type f | sort); do
+  problems=""
+  bash -n "$f" 2>/dev/null || problems="$problems bash -n fails;"
+  grep -q '^#MISE description=' "$f" || problems="$problems no #MISE description;"
+  grep -q '^set -euo pipefail' "$f" || problems="$problems no 'set -euo pipefail';"
+  [ -x "$f" ] || problems="$problems not executable, so mise does not see it;"
+  if command -v shellcheck >/dev/null 2>&1 && ! shellcheck -x -S warning "$f" >/dev/null 2>&1; then
+    problems="$problems shellcheck -S warning fails (run: shellcheck -x -S warning $f);"
+  fi
+  if [ -n "$problems" ]; then
+    echo "tasks:smoke: $f:$problems" >&2
+    lint=1
+  fi
+done
+if [ -z "$lint" ]; then
+  record "(static)" lint ok 0
+else
+  record "(static)" lint FAIL 0
+fi
+
+# Off-screen: a smoke run never opens a window.
+unset WAYLAND_DISPLAY DISPLAY SWAYSOCK HYPRLAND_INSTANCE_SIGNATURE
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/hof-smoke.XXXXXX")"
+trap 'rm -rf "$scratch"' EXIT
+
+found_only=""
+while IFS='|' read -r task mode args why; do
+  [ -z "$only" ] || [ "$only" = "$task" ] || continue
+  found_only=1
+  source="$(printf '%s\n' "$tasks" | awk -F'\t' -v t="$task" '$1 == t { print $2 }')"
+  [ -n "$source" ] || continue
+  args="${args//@tmp@/$scratch}"
+  note=""
+  if [ "$mode" = dry ] && [ -z "$why" ]; then
+    echo "tasks:smoke: '$task' is a dry run with no reason given" >&2
+    record "$task" "$mode" FAIL 0
+    continue
+  fi
+  if [ "$all_dry" = true ] && [ "$mode" = run ]; then
+    mode=dry
+    note="--dry"
+  fi
+  echo "== tasks:smoke: $mode $task $args${note:+ ($note)}"
+  start="$(date +%s)"
+  result=ok
+  # shellcheck disable=SC2086 # the arguments column is a word list
+  case "$mode" in
+    run) mise run "$task" $args </dev/null || result=FAIL ;;
+    dry) { mise run -n "$task" $args </dev/null && bash -n "$source"; } || result=FAIL ;;
+    *) echo "tasks:smoke: '$task' has unknown mode '$mode'" >&2; result=FAIL ;;
+  esac
+  record "$task" "$mode" "$result" "$(($(date +%s) - start))" "$note"
+done < <(table)
+if [ -n "$only" ] && [ -z "$found_only" ]; then
+  echo "tasks:smoke: --only '$only' is not in the table" >&2
+  exit 1
+fi
+
+echo
+printf '%-12s %-6s %-6s %-8s %s\n' TASK MODE RESULT SECONDS NOTE
+printf '%s' "$results"
+exit "$failed"

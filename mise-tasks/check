@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
-#MISE description="What a change must pass: formatting, clippy and every test"
+#MISE description="What a change must pass before its tests: Ljós UI at the pinned revision, formatting, and clippy (mise run test runs the tests)"
 set -euo pipefail
+# Cargo.lock was made against third_party/ljos-ui.rev; another Ljós UI
+# revision rewrites it, or fails --locked builds, with no word of why.
+link="third_party/ljos-ui"
+rev="$(cat third_party/ljos-ui.rev)"
+[ -f "$link/crates/ljos/Cargo.toml" ] || { echo "check: no Ljós UI checkout at $link; run mise run setup" >&2; exit 1; }
+at="$(git -C "$link" rev-parse HEAD 2>/dev/null || echo unknown)"
+if [ "$at" != "$rev" ]; then
+  echo "check: $link is at $at, but Cargo.lock was made against $rev (third_party/ljos-ui.rev)." >&2
+  echo "  Run mise run setup (it moves its own clone), or git -C $link checkout $rev; to move the pin," >&2
+  echo "  write the new revision to third_party/ljos-ui.rev and commit it with the Cargo.lock it gives." >&2
+  exit 1
+fi
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --no-fail-fast
+cargo clippy --locked --workspace --all-targets -- -D warnings

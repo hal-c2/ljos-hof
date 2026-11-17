@@ -1,36 +1,45 @@
 #!/usr/bin/env bash
 #MISE description="Install hof on your PATH with cargo install (~/.cargo/bin unless --root), and with --agents the hof-agent builds for remote machines"
-#USAGE flag "--root <dir>" help="Install under DIR/bin instead of cargo's own root (CARGO_INSTALL_ROOT, install.root, else ~/.cargo)"
-#USAGE flag "--agents" help="Also build the static hof-agent for each musl target installed, into ROOT/lib/hof where hof looks for it"
+#USAGE flag "--root <dir>" help="Install under DIR/bin instead of $CARGO_INSTALL_ROOT, else $CARGO_HOME, else ~/.cargo"
+#USAGE flag "--agents" help="Also build the static hof-agent for x86_64 and aarch64 Linux, into ROOT/lib/hof where hof looks for it"
+#USAGE flag "--dry-run" help="Say where hof (and the agents) would go and what would be run, and change nothing"
 set -euo pipefail
-args=(--locked --path crates/hof)
-[ -z "${usage_root:-}" ] || args+=(--root "$usage_root")
-log="$(mktemp)"
-trap 'rm -f "$log"' EXIT
-cargo install "${args[@]}" 2>&1 | tee "$log"
+# The root is chosen here and handed to cargo, rather than read back from
+# what cargo prints, so the agents are put beside hof whatever cargo's
+# wording. Cargo's install.root setting is not consulted: pass --root.
+root="${usage_root:-${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}}"
+args=(--locked --path crates/hof --root "$root")
+if [ "${usage_dry_run:-false}" = true ]; then
+  echo "install --dry-run: would run: cargo install ${args[*]}"
+  echo "  hof would go to $root/bin/hof"
+  if [ "${usage_agents:-false}" = true ]; then
+    echo "  then: mise run agents, and copy hof-agent-x86_64-linux and hof-agent-aarch64-linux to $root/lib/hof/"
+  fi
+  [ -f crates/hof/Cargo.toml ] || { echo "install: no crates/hof/Cargo.toml here" >&2; exit 1; }
+  exit 0
+fi
+# Before minutes of cargo install: agents fails at once on a missing target.
 if [ "${usage_agents:-false}" = true ]; then
-  # Where cargo put hof, whichever of --root, CARGO_INSTALL_ROOT,
-  # install.root or CARGO_HOME chose it: the agents go beside it.
-  # Portable to macOS's sed: -E, and the escape byte itself, not \x1b.
-  esc="$(printf '\033')"
-  bin="$(sed -E "s/${esc}[[][0-9;]*m//g" "$log" | sed -nE 's/^ *(Installing|Replacing) (.*)\/hof$/\2/p' | tail -1)"
-  [ -n "$bin" ] || { echo "cargo didn't say where hof went (already installed?); pass --root DIR for the agents" >&2; exit 1; }
-  root="$(dirname "$bin")"
-  # Only the targets agents builds now. One installed earlier for a target
-  # no longer built goes first, even if agents then fails (no target at
-  # all), or hof would copy that old agent to machines.
-  built=()
+  for arch in x86_64 aarch64; do
+    rustup target list --installed | grep -qx "$arch-unknown-linux-musl" ||
+      { echo "install: --agents needs Rust's $arch-unknown-linux-musl target: run mise run setup" >&2; exit 1; }
+  done
+fi
+cargo install "${args[@]}"
+[ -x "$root/bin/hof" ] || { echo "install: cargo install finished, but there is no $root/bin/hof" >&2; exit 1; }
+echo "hof in $root/bin"
+if [ "${usage_agents:-false}" = true ]; then
+  mise run agents
+  # Where cargo builds: CARGO_TARGET_DIR, a build.target-dir in a
+  # .cargo/config.toml, or target/.
+  target_dir="$(cargo metadata --locked --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
   mkdir -p "$root/lib/hof"
   for arch in x86_64 aarch64; do
-    if rustup target list --installed | grep -qx "$arch-unknown-linux-musl"; then
-      built+=("$arch")
-    else
-      rm -f "$root/lib/hof/hof-agent-$arch-linux"
-    fi
-  done
-  mise run agents
-  for arch in "${built[@]}"; do
-    cp "${CARGO_TARGET_DIR:-target}/$arch-unknown-linux-musl/agent/hof-agent" "$root/lib/hof/hof-agent-$arch-linux"
+    cp "$target_dir/$arch-unknown-linux-musl/agent/hof-agent" "$root/lib/hof/hof-agent-$arch-linux"
   done
   echo "agents in $root/lib/hof"
 fi
+case ":$PATH:" in
+  *":$root/bin:"*) ;;
+  *) echo "note: $root/bin is not on your PATH" ;;
+esac

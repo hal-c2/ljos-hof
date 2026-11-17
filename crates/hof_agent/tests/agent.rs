@@ -339,7 +339,11 @@ fn an_attached_client_is_told_what_runs_in_the_foreground_and_when_it_changes() 
     // The agent looks again when there is output: the program it became
     // is told with what that program writes.
     let later = told(&mut client);
-    assert_eq!(later.args.last().map(String::as_str), Some(then));
+    assert_eq!(
+        later.args.last().map(String::as_str),
+        Some(then),
+        "told {later:?} after {first:?}"
+    );
     assert_eq!(later.pid, first.pid, "exec keeps the number");
 }
 

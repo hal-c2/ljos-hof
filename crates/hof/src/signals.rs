@@ -31,7 +31,7 @@ extern "C" fn heard(_: libc::c_int) {
 }
 
 /// Catches SIGINT, SIGTERM and SIGHUP from now on, for the window
-/// [`close_on_signal`] names. For Hof's own process, before its window.
+/// `close_on_signal` names. For Hof's own process, before its window.
 pub fn catch() -> std::io::Result<()> {
     let mut fds = [0 as RawFd; 2];
     // SAFETY: `fds` is two descriptors' room.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#MISE description="First, after cloning, and safe to run again: install Rust and Zig, link or clone Ljós UI into third_party/, fetch the crates, and say what's missing"
-#USAGE flag "--ljos-ui <dir>" help="The Ljós UI checkout to link into third_party/ljos-ui (default: the one linked already, else $LJOS_UI_DIR, ~/dev/ljos-ui)"
+#MISE description="First, after cloning, and safe to run again: install Rust (with the targets the tasks build for) and Zig, link or clone Ljós UI at the pinned revision into third_party/, fetch the crates, and say what's missing"
+#USAGE flag "--ljos-ui <dir>" help="The Ljós UI checkout to link into third_party/ljos-ui (default: the one there already, else $LJOS_UI_DIR, else a clone of hal-c2/ljos-ui at third_party/ljos-ui.rev)"
 #USAGE flag "--no-clone" help="When no Ljós UI checkout is found, fail instead of cloning hal-c2/ljos-ui into third_party/ljos-ui"
 set -euo pipefail
 did=()
@@ -8,41 +8,90 @@ skipped=()
 missing=()
 
 mise install --quiet
-did+=("mise install: Rust ${RUSTUP_TOOLCHAIN:-} and Zig $(zig version), as mise.toml pins them")
+pinned="${RUSTUP_TOOLCHAIN:-}"
+# mise.toml's activate_aggressive puts rustup's pinned toolchain first on
+# PATH; a rustc that is still another one means mise isn't driving this
+# shell (no mise.toml trust, or no rustup), and every build would differ.
+have="$(rustc --version 2>/dev/null | cut -d' ' -f2 || true)"
+if [ -z "$pinned" ] || [ "$have" != "$pinned" ]; then
+  echo "setup: rustc on PATH is ${have:-missing} ($(command -v rustc || echo none)), not mise.toml's ${pinned:-pin}." >&2
+  echo "  Install rustup (https://rustup.rs) so mise can install Rust ${pinned:-1.98.1}, then run mise run setup again." >&2
+  exit 1
+fi
+did+=("mise install: Rust $pinned and Zig $(zig version), as mise.toml pins them")
 
-# Ljós UI is a path dependency in third_party/ljos-ui. In order: the
+# The targets other tasks build for, added to the pinned toolchain only:
+# agents (the static hof-agent for Linux machines with no Hof) and
+# check-macos. Each is a download of the standard library for it.
+command -v rustup >/dev/null || { echo "setup: rustup is not on PATH; install it from https://rustup.rs" >&2; exit 1; }
+targets=(x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin)
+rustup target add --toolchain "$pinned" "${targets[@]}" >/dev/null 2>&1 ||
+  rustup target add --toolchain "$pinned" "${targets[@]}"
+did+=("rustup target add ${targets[*]} (to $pinned): for mise run agents and check-macos")
+
+# Ljós UI is a path dependency in third_party/ljos-ui, at the revision
+# Cargo.lock was made against (third_party/ljos-ui.rev): its main moves on,
+# and a build against a newer one rewrites Cargo.lock. In order: the
 # directory named, what is linked or cloned there already, $LJOS_UI_DIR,
 # and last a clone of our own.
 ljos_ok() { [ -f "$1/crates/ljos/Cargo.toml" ]; }
 link="third_party/ljos-ui"
+rev="$(cat third_party/ljos-ui.rev)"
 dir="${usage_ljos_ui:-}"
 if [ -n "$dir" ]; then
   ljos_ok "$dir" || { echo "no Ljós UI checkout at $dir" >&2; exit 1; }
-  mkdir -p third_party
   [ -L "$link" ] || [ ! -e "$link" ] || { echo "$link is a directory, not a link; move it away to link $dir" >&2; exit 1; }
   ln -sfn "$(cd "$dir" && pwd)" "$link"
   did+=("linked $link -> $dir")
 elif ljos_ok "$link"; then
   did+=("kept $link ($(readlink "$link" || echo "a clone"))")
-elif ljos_ok "${LJOS_UI_DIR:-}"; then
-  mkdir -p third_party
+elif [ -n "${LJOS_UI_DIR:-}" ] && ljos_ok "$LJOS_UI_DIR"; then
   # A relative link would resolve from third_party/, not from here.
   ln -sfn "$(cd "$LJOS_UI_DIR" && pwd)" "$link"
   did+=("linked $link -> $LJOS_UI_DIR")
 elif [ "${usage_no_clone:-false}" = true ]; then
-  echo "no Ljós UI checkout at ${LJOS_UI_DIR:-~/dev/ljos-ui}; pass --ljos-ui DIR or set LJOS_UI_DIR" >&2
+  echo "no Ljós UI checkout at ${LJOS_UI_DIR:-$link}; pass --ljos-ui DIR or set LJOS_UI_DIR" >&2
   exit 1
 else
-  # Its submodules are its corpus and prior art; Hof builds without them.
+  # Only the pinned commit: its submodules are its corpus and prior art,
+  # and Hof builds without them. Made beside it and moved into place when
+  # complete, so a fetch that fails (no network) leaves nothing that the
+  # next run would take for a checkout or trip over.
+  if [ -e "$link" ] && [ ! -L "$link" ]; then
+    echo "setup: $link is a directory with no Ljós UI in it; move it away, or pass --ljos-ui DIR" >&2
+    exit 1
+  fi
+  partial="$link.partial"
+  rm -rf "$partial"
+  git init --quiet "$partial"
+  git -C "$partial" remote add origin https://github.com/hal-c2/ljos-ui
+  git -C "$partial" fetch --quiet --depth 1 origin "$rev"
+  git -C "$partial" checkout --quiet FETCH_HEAD
   rm -f "$link"
-  git clone --quiet --depth 1 https://github.com/hal-c2/ljos-ui "$link"
-  did+=("cloned hal-c2/ljos-ui into $link (no checkout at ${LJOS_UI_DIR:-~/dev/ljos-ui}; --ljos-ui DIR links one instead)")
+  mv "$partial" "$link"
+  did+=("cloned hal-c2/ljos-ui at $rev into $link${LJOS_UI_DIR:+ (no checkout at $LJOS_UI_DIR)}; --ljos-ui DIR links one instead")
+fi
+
+# Our own clone follows the pin; a linked checkout is yours, so it is only
+# compared (and mise run check fails on a difference, as Cargo.lock would).
+at="$(git -C "$link" rev-parse HEAD 2>/dev/null || echo unknown)"
+locked=(--locked)
+if [ "$at" != "$rev" ]; then
+  if [ ! -L "$link" ] && [ -z "$(git -C "$link" status --porcelain)" ]; then
+    git -C "$link" fetch --quiet --depth 1 origin "$rev"
+    git -C "$link" checkout --quiet "$rev"
+    did+=("moved $link from $at to the pinned $rev")
+  else
+    locked=()
+    skipped+=("$link is at $at, not the pinned $rev (third_party/ljos-ui.rev): Cargo.lock may change and mise run check fails until it matches; git -C $link checkout $rev")
+  fi
 fi
 
 # Everything cargo needs from the network, once: libghostty-rs from git
 # and the crates. After this, builds work offline too. (Ghostty's own
 # source is fetched by libghostty-vt-sys's build script, at the first build.)
-cargo fetch --quiet
+# bash 3.2 (macOS) calls an empty array unbound under set -u.
+cargo fetch --quiet ${locked[@]+"${locked[@]}"}
 did+=("cargo fetch")
 
 # What Hof needs from the system, which setup can't install.
@@ -62,17 +111,8 @@ case "$(uname -s)" in
     xcode-select -p >/dev/null 2>&1 || missing+=("the Xcode command line tools: xcode-select --install")
     ;;
 esac
-# mise's Rust is rustup's; a system Rust earlier on PATH shadows it in tasks.
-pinned="${RUSTUP_TOOLCHAIN:-}"
-have="$(rustc --version | cut -d' ' -f2)"
-if [ -n "$pinned" ] && [ "$have" != "$pinned" ]; then
-  skipped+=("rustc on PATH is $have ($(command -v rustc)), not mise.toml's $pinned: tasks build with it; put rustup's ~/.cargo/bin before it, or remove the system Rust")
-fi
+command -v python3 >/dev/null || missing+=("python3, which the tasks read cargo's JSON with")
 command -v docker >/dev/null || skipped+=("docker not found: mise run remote-test needs it")
-for arch in x86_64 aarch64; do
-  rustup target list --installed 2>/dev/null | grep -qx "$arch-unknown-linux-musl" ||
-    skipped+=("$arch-unknown-linux-musl not installed: mise run agents skips it (rustup target add $arch-unknown-linux-musl)")
-done
 
 echo
 echo "setup did:"

@@ -1,3 +1,5 @@
 /target
 # A link to the Ljós UI checkout (`mise run setup`).
 /third_party/ljos-ui
+# Its clone while setup fetches it.
+/third_party/ljos-ui.partial

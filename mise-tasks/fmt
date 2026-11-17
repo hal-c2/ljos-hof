@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE description="Format the Rust code with rustfmt; --check only says what would change"
+#USAGE flag "--check" help="Change nothing; fail and show the difference when a file isn't formatted"
+set -euo pipefail
+if [ "${usage_check:-false}" = true ]; then
+  cargo fmt --all --check
+else
+  cargo fmt --all
+fi

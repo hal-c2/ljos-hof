@@ -2,4 +2,4 @@
 #MISE description="Build Hof, optimised: target/release/hof; what follows goes to cargo build"
 #USAGE arg "[cargo_args]" var=#true double_dash="automatic" help="More arguments for cargo build, such as --features or -v"
 set -euo pipefail
-cargo build --release -p hof "$@"
+cargo build --locked --release -p hof "$@"

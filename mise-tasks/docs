@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#MISE description="Build the API docs of Hof's crates (cargo doc) and print where they are; --open opens them"
+#USAGE flag "--open" help="Open them in a browser when built"
+set -euo pipefail
+# Only Hof's own crates: the dependencies' docs are on docs.rs, and Ljós UI
+# documents its own. Warnings fail, so a broken intra-doc link is found here.
+crates=()
+for manifest in crates/*/Cargo.toml; do
+  crates+=(-p "$(basename "$(dirname "$manifest")")")
+done
+open=()
+[ "${usage_open:-false}" != true ] || open=(--open)
+# Where it wrote them, as cargo says: under CARGO_TARGET_DIR or a
+# build.target-dir, and in a directory of the triple's own when a build
+# target is set (CARGO_BUILD_TARGET, or build.target in a config.toml).
+# Said again when nothing needed building.
+index="$(RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D warnings" cargo doc --locked --no-deps --message-format json-render-diagnostics "${crates[@]}" ${open[@]+"${open[@]}"} | python3 -c '
+import json, sys
+for line in sys.stdin:
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    if m.get("reason") == "compiler-artifact" and m["target"]["name"] == "hof":
+        print(*[f for f in m["filenames"] if f.endswith("/hof/index.html")], sep="\n")
+' | tail -n 1)"
+[ -n "$index" ] && [ -f "$index" ] || { echo "docs: cargo doc finished but named no hof/index.html it made${index:+ (it named $index)}" >&2; exit 1; }
+echo "docs: $(cd "$(dirname "$index")" && pwd)/index.html (and docs/ for how remote panes work)"

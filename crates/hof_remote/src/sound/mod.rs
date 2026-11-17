@@ -14,7 +14,8 @@ mod tagstruct;
 
 use std::sync::Arc;
 
-pub use mixer::Mixer;
+// Status is what Mixer::status returns, so it is public too.
+pub use mixer::{Mixer, Status};
 pub use server::Sound;
 
 /// The rate a mixer plays at when the speakers have not said.
