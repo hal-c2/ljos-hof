@@ -110,51 +110,68 @@ the shell: your own commands at a key, hooks on terminal events, plugins,
 
 ## Getting started
 
-Install [mise](https://mise.jdx.dev/getting-started.html), then:
+Install [mise](https://mise.jdx.dev/getting-started.html) and
+[rustup](https://rustup.rs), then:
 
 ```sh
-mise run setup        # Rust and Zig at mise.toml's versions, Ljós UI in third_party/,
-                      # the crates; then what it skipped and what the system lacks
+mise run setup        # Rust and Zig at mise.toml's versions, with the targets the
+                      # tasks build for; Ljós UI in third_party/ at the pinned
+                      # revision; the crates; then what it skipped and what the
+                      # system lacks
 mise run dev          # builds Hof and opens a window; `mise run dev --dropdown`
 mise run install      # puts hof on your PATH (cargo install; --root DIR, --agents)
 ```
 
 Hof builds against a checkout of [Ljós UI](https://github.com/hal-c2/ljos-ui)
-at `third_party/ljos-ui`. `setup` links the one at `$LJOS_UI_DIR`
-(`~/dev/ljos-ui` by default) or the one `--ljos-ui DIR` names, and clones
-one there when there is none (`--no-clone` fails instead). Zig is for
-libghostty-vt, whose build script builds Ghostty's parser. The system must
-have a C compiler and pkg-config, and on Linux the ALSA and fontconfig
-headers; `setup` says which are missing, and never installs them.
+at `third_party/ljos-ui`, at the revision `third_party/ljos-ui.rev` names:
+the one `Cargo.lock` was made against. `setup` links the checkout
+`--ljos-ui DIR` names, else keeps the one there, else links `$LJOS_UI_DIR`
+when that is set, and else clones that revision there (`--no-clone` fails
+instead). It moves its own clone to the pinned revision; a linked checkout
+is yours, so it only says when it differs, and `mise run check` fails until
+it matches. To build against a newer Ljós UI, move the checkout, let cargo
+update `Cargo.lock`, and commit both with the new revision in
+`third_party/ljos-ui.rev`.
 
-| task                          | what it does                                        |
-|-------------------------------|-----------------------------------------------------|
-| `mise run setup`              | the first run after cloning; safe to run again      |
-| `mise run dev [ARGS]`         | builds and runs Hof, with ARGS (`mise run hof` too) |
-| `mise run build [ARGS]`       | an optimised build, `target/release/hof`            |
-| `mise run install`            | `cargo install` of hof; `--root DIR`, `--agents`    |
-| `mise run test [ARGS]`        | every test, or what ARGS pick (`mise run test -p hof_vt`) |
-| `mise run check`              | what a change must pass: fmt, clippy and every test |
-| `mise run check-macos`        | that it compiles for macOS, checked from Linux      |
-| `mise run types`              | regenerates the QML types (see below)               |
-| `mise run fire [SECONDS]`     | the stress test (see below)                         |
-| `mise run agents`             | the static agents for remote machines               |
-| `mise run remote-test [IMG]`  | bootstrapping a container over ssh, with Docker     |
+Zig is for libghostty-vt, whose build script builds Ghostty's parser. The
+system must have a C compiler and pkg-config, and on Linux the ALSA and
+fontconfig headers; `setup` says which are missing, and never installs them.
 
-`mise run <task> --help` says what a task takes, and `mise <task>` is short
-for `mise run <task>`. There is nothing to deploy: Hof is installed from a
-checkout.
+| task                            | what it does                                        |
+|---------------------------------|-----------------------------------------------------|
+| `mise run setup`                | the first run after cloning; safe to run again      |
+| `mise run dev [ARGS]`           | builds and runs Hof, with ARGS                      |
+| `mise run hof [ARGS]`           | the same as `dev`                                   |
+| `mise run build [ARGS]`         | an optimised build, `target/release/hof`            |
+| `mise run install`              | `cargo install` of hof; `--root DIR`, `--agents`, `--dry-run` |
+| `mise run check`                | what a change must pass: the pinned Ljós UI, fmt and clippy |
+| `mise run test [ARGS]`          | every test, or what ARGS pick (`mise run test -p hof_vt`) |
+| `mise run fmt`                  | formats the code; `--check` only says whether it is |
+| `mise run docs`                 | the API docs of Hof's crates, `target/doc/hof/index.html`; `--open` |
+| `mise run check-macos`          | that it compiles for macOS, checked from Linux with Zig |
+| `mise run types`                | regenerates the QML types (see below); `--check`    |
+| `mise run fire [SECONDS]`       | the stress test (see below)                         |
+| `mise run agents`               | the static agents for remote machines; `--only x86_64` |
+| `mise run remote-test [IMG]`    | bootstrapping a container over ssh, with Docker     |
+| `mise run tasks:smoke`          | runs every task quickly, as CI does; `--list`, `--only TASK` |
+
+A change must pass `mise run check` and `mise run test`; CI runs both, then
+`mise run tasks:smoke`. `mise run <task> --help` says what a task takes, and
+`mise <task>` is short for `mise run <task>`, except for `install` and `fmt`,
+which are mise's own commands. There is nothing to deploy: Hof is installed
+from a checkout.
 
 The QML is compiled ahead of time against generated types. After changing a
 Rust type that QML can see, regenerate them:
 
 ```sh
 mise types            # LJOS_TYPES=write cargo test -p hof --test types
+mise types --check    # only says whether the committed types are current
 ```
 
-Remote machines with no Hof get a static, agent-only build. Build it,
-for each musl target rustup has, and try it on a container reached over
-ssh:
+Remote machines with no Hof get a static, agent-only build, for x86_64 and
+aarch64 Linux with musl (`setup` adds both targets). Build them, and try one
+on a container reached over ssh:
 
 ```sh
 mise agents                      # target/release/hof-agent-<arch>-linux
