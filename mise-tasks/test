@@ -3,4 +3,4 @@
 #USAGE arg "[cargo_args]" var=#true double_dash="automatic" help="Arguments for cargo test instead of --workspace, such as -p hof_vt or a test name"
 set -euo pipefail
 if [ $# -eq 0 ]; then set -- --workspace; fi
-cargo test --no-fail-fast "$@"
+cargo test --locked --no-fail-fast "$@"

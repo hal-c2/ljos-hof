@@ -3,8 +3,13 @@
 #USAGE arg "[base_image]" default="debian:bookworm-slim" help="The Docker image the container starts from"
 set -euo pipefail
 base="${usage_base_image:-debian:bookworm-slim}"
+for tool in docker ssh ssh-keygen; do
+  command -v "$tool" >/dev/null || { echo "remote-test: $tool is not on PATH; it needs Docker and OpenSSH's client" >&2; exit 1; }
+done
+docker info >/dev/null 2>&1 || { echo "remote-test: docker is installed but its daemon doesn't answer (is it running, and may you use it?)" >&2; exit 1; }
 release="${CARGO_TARGET_DIR:-target}/release"
-[ -f "$release/hof-agent-x86_64-linux" ] || mise run agents
+# The container is x86_64; its agent is all this needs.
+[ -f "$release/hof-agent-x86_64-linux" ] || mise run agents --only x86_64
 work="$(mktemp -d "${TMPDIR:-/tmp}/hof-remote-test.XXXXXX")"
 name="hof-remote-test-$$"
 cleanup() {
@@ -19,9 +24,14 @@ docker build -q --build-arg "BASE=$base" -t "$image" "$work" >/dev/null
 docker run -d --name "$name" -p 127.0.0.1::22 "$image" >/dev/null
 port="$(docker port "$name" 22/tcp | head -1 | sed 's/.*://')"
 ssh="ssh -T -p $port -i $work/key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR me@127.0.0.1"
-for _ in $(seq 50); do $ssh true 2>/dev/null && break; sleep 0.2; done
+up=
+for _ in $(seq 50); do
+  if $ssh true 2>/dev/null; then up=1; break; fi
+  sleep 0.2
+done
+[ -n "$up" ] || { echo "remote-test: the container's sshd never answered on port $port" >&2; exit 1; }
 echo "== $base on port $port, no Hof there: $($ssh 'command -v hof || echo none')"
 HOF_TEST_SSH="$ssh" HOF_AGENT_DIR="$(cd "$release" && pwd)" \
-  cargo test -p hof --test bootstrap -- --ignored --nocapture
+  cargo test --locked -p hof --test bootstrap -- --ignored --nocapture
 echo "== what Hof left there"
 $ssh 'ls -la ~/.local/share/hof/*/ ~/.local/bin/'
