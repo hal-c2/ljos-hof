@@ -1,4 +1,9 @@
 # Tooling for Ljós Hof. `mise install` installs it; tasks live in mise-tasks/.
+[settings]
+# Pinned tools' bin dirs go first on PATH, so `mise run` builds with rustup's pinned toolchain
+# even where a system rust (e.g. /usr/bin/cargo) or an inherited mise env comes first.
+activate_aggressive = true
+
 [tools]
 rust = { version = "1.98.1", components = "rustfmt,clippy" }
 # libghostty-vt is built from Ghostty's source by its build script.
@@ -6,7 +11,3 @@ zig = "0.17.1"
 
 [env]
 CARGO_TERM_COLOR = "always"
-# Where the Ljós UI checkout lives; `mise run setup` links it into
-# third_party/, or clones one there when there is none. Your own
-# LJOS_UI_DIR wins.
-LJOS_UI_DIR = "{{ get_env(name='LJOS_UI_DIR', default=env.HOME ~ '/dev/ljos-ui') }}"
