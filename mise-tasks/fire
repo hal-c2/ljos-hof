@@ -2,7 +2,10 @@
 #MISE description="Stress test: a fire, parsed headless, painted offscreen, then drawn in this terminal (fire 10)"
 #USAGE arg "[seconds]" default="5" help="How long the last part, drawn in this terminal, lasts"
 set -euo pipefail
-out="${CARGO_TARGET_DIR:-target}/release/examples"
+# Where cargo builds: CARGO_TARGET_DIR, a build.target-dir in a
+# .cargo/config.toml, or target/.
+target_dir="$(cargo metadata --locked --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
+out="$target_dir/release/examples"
 cargo build --locked --release -p hof_vt --example fire -p hof_qml --example paint_fire
 echo "== the parser and the grid"
 "$out/fire" headless

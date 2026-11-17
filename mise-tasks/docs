@@ -11,6 +11,9 @@ done
 open=()
 [ "${usage_open:-false}" != true ] || open=(--open)
 RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D warnings" cargo doc --locked --no-deps "${crates[@]}" ${open[@]+"${open[@]}"}
-index="${CARGO_TARGET_DIR:-target}/doc/hof/index.html"
+# Where cargo builds: CARGO_TARGET_DIR, a build.target-dir in a
+# .cargo/config.toml, or target/.
+target_dir="$(cargo metadata --locked --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
+index="$target_dir/doc/hof/index.html"
 [ -f "$index" ] || { echo "docs: cargo doc finished but made no $index" >&2; exit 1; }
 echo "docs: $(cd "$(dirname "$index")" && pwd)/index.html (and docs/ for how remote panes work)"

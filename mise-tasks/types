@@ -5,7 +5,8 @@ set -euo pipefail
 # The test compares the committed type dump with the Rust types; with
 # LJOS_TYPES=write it rewrites the dump instead.
 if [ "${usage_check:-false}" = true ]; then
-  cargo test --locked -p hof --test types
+  # A LJOS_TYPES=write in the caller's environment would make this write.
+  env -u LJOS_TYPES cargo test --locked -p hof --test types
 else
   LJOS_TYPES="write" cargo test --locked -p hof --test types
   git status --short -- crates/hof

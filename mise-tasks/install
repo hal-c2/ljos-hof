@@ -30,9 +30,12 @@ cargo install "${args[@]}"
 echo "hof in $root/bin"
 if [ "${usage_agents:-false}" = true ]; then
   mise run agents
+  # Where cargo builds: CARGO_TARGET_DIR, a build.target-dir in a
+  # .cargo/config.toml, or target/.
+  target_dir="$(cargo metadata --locked --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
   mkdir -p "$root/lib/hof"
   for arch in x86_64 aarch64; do
-    cp "${CARGO_TARGET_DIR:-target}/$arch-unknown-linux-musl/agent/hof-agent" "$root/lib/hof/hof-agent-$arch-linux"
+    cp "$target_dir/$arch-unknown-linux-musl/agent/hof-agent" "$root/lib/hof/hof-agent-$arch-linux"
   done
   echo "agents in $root/lib/hof"
 fi

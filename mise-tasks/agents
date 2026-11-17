@@ -4,7 +4,10 @@
 #USAGE   choices "x86_64" "aarch64"
 #USAGE }
 set -euo pipefail
-out="${CARGO_TARGET_DIR:-target}"
+# Where cargo builds: CARGO_TARGET_DIR, a build.target-dir in a
+# .cargo/config.toml, or target/.
+target_dir="$(cargo metadata --locked --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
+out="$target_dir"
 arches=(x86_64 aarch64)
 [ -z "${usage_only:-}" ] || arches=("$usage_only")
 # Every target first, so a missing one fails before minutes of building
@@ -22,14 +25,15 @@ if [ -z "${GHOSTTY_SOURCE_DIR:-}" ]; then
     if [ -f "$src/build.zig" ]; then GHOSTTY_SOURCE_DIR="$(cd "$src" && pwd)"; export GHOSTTY_SOURCE_DIR; break; fi
   done
 fi
-# The host's cc links only for the host's architecture. For another, Rust's
-# own rust-lld links musl's self-contained objects, with nothing to
-# install; a linker set for the target in the environment wins.
-host="$(uname -m)"
+# The host's cc links only for the host's own system and architecture
+# (Apple's cc never links for Linux). For anything else, Rust's own
+# rust-lld links musl's self-contained objects, with nothing to install;
+# a linker set for the target in the environment wins.
+host="$(uname -s)-$(uname -m)"
 for arch in "${arches[@]}"; do
   target="$arch-unknown-linux-musl"
   var="CARGO_TARGET_$(printf '%s' "$target" | tr 'a-z-' 'A-Z_')_LINKER"
-  if [ "$arch" != "$host" ] && [ -z "${!var:-}" ]; then
+  if [ "Linux-$arch" != "$host" ] && [ -z "${!var:-}" ]; then
     export "$var=rust-lld"
   fi
   cargo build --locked --profile agent -p hof_agent --bin hof-agent --target "$target"
