@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#MISE description="Build the API docs of Hof's crates (cargo doc) and print where they are; --open opens them"
+#USAGE flag "--open" help="Open them in a browser when built"
+set -euo pipefail
+# Only Hof's own crates: the dependencies' docs are on docs.rs, and Ljós UI
+# documents its own. Warnings fail, so a broken intra-doc link is found here.
+crates=()
+for manifest in crates/*/Cargo.toml; do
+  crates+=(-p "$(basename "$(dirname "$manifest")")")
+done
+open=()
+[ "${usage_open:-false}" != true ] || open=(--open)
+RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D warnings" cargo doc --locked --no-deps "${crates[@]}" ${open[@]+"${open[@]}"}
+index="${CARGO_TARGET_DIR:-target}/doc/hof/index.html"
+[ -f "$index" ] || { echo "docs: cargo doc finished but made no $index" >&2; exit 1; }
+echo "docs: $(cd "$(dirname "$index")" && pwd)/index.html (and docs/ for how remote panes work)"
