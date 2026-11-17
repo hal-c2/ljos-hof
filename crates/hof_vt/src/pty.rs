@@ -125,6 +125,7 @@ impl Pty {
         // makes async-signal-safe system calls; it allocates nothing.
         unsafe {
             cmd.pre_exec(|| {
+                default_signals();
                 rustix::process::setsid()?;
                 // stdin is the slave by now; make it the controlling terminal.
                 rustix::process::ioctl_tiocsctty(rustix::stdio::stdin())?;
@@ -134,6 +135,26 @@ impl Pty {
 
         let child = cmd.spawn().map_err(|e| Error::Spawn(program, e))?;
         Ok(Self { master, child })
+    }
+}
+
+/// Every signal back to its default action, in the forked child. An ignored
+/// signal stays ignored across exec, so a program started by an agent or a
+/// Hof that was itself started ignoring SIGHUP (by `nohup`, or a service
+/// manager or harness that does) would ignore the hangup that closing its
+/// pane sends, and outlive the pane. A shell can't undo that: POSIX keeps
+/// a signal ignored on entry to a non-interactive shell ignored. std resets
+/// only the signal mask and SIGPIPE.
+fn default_signals() {
+    // SAFETY: sigaction is async-signal-safe, and the action is a plain
+    // SIG_DFL with an empty mask. SIGKILL and SIGSTOP refuse it, harmlessly.
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = libc::SIG_DFL;
+        libc::sigemptyset(&raw mut action.sa_mask);
+        for signal in 1..32 {
+            libc::sigaction(signal, &raw const action, std::ptr::null_mut());
+        }
     }
 }
 
