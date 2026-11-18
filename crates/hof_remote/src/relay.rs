@@ -187,6 +187,13 @@ impl Relays {
         });
         {
             let mut channels = lock(&self.0.channels);
+            // close_all takes the sender before it drains the channels, so
+            // a channel that comes after the drain sees the sender gone.
+            // Kept, it would be closed by no one, and its program would
+            // wait on it for ever. Dropping `connect` closes its socket.
+            if lock(&self.0.send).is_none() {
+                return;
+            }
             if channels.contains_key(&channel) {
                 drop(channels);
                 self.end(channel);
@@ -612,5 +619,29 @@ mod tests {
         let mut rest = Vec::new();
         (&here).read_to_end(&mut rest).unwrap();
         wait_until("both ends to forget it", || a.is_empty() && b.is_empty());
+    }
+
+    #[test]
+    fn a_channel_added_after_the_connection_went_ends_at_once() {
+        // The connection goes between telling the other end of a channel
+        // and starting it, as when Hof leaves while an X client connects.
+        let gone: Arc<Mutex<Option<Relays>>> = Arc::default();
+        let closing = gone.clone();
+        let relays = Relays::new(move |m, _| {
+            if let (Message::Connect { .. }, Some(r)) = (&m, lock(&closing).as_ref()) {
+                r.close_all();
+            }
+            true
+        });
+        *lock(&gone) = Some(relays.clone());
+        let (client, at_agent) = UnixStream::pair().unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        relays.connect_out(1, "x11", Vec::new(), Box::new(at_agent));
+        let mut rest = Vec::new();
+        assert_eq!((&client).read_to_end(&mut rest).unwrap(), 0);
+        assert!(relays.is_empty());
+        lock(&gone).take();
     }
 }
