@@ -57,6 +57,10 @@ pub struct Settings {
     pub theme_name: String,
     #[qml(notify, readonly)]
     pub theme_names: Vec<String>,
+    /// The installed families a terminal's grid fits, sorted; empty until
+    /// `findFontFamilies()` has found them.
+    #[qml(notify, readonly)]
+    pub font_families: Vec<String>,
 
     #[qml(notify, readonly)]
     pub foreground: Color,
@@ -331,6 +335,7 @@ impl Settings {
             .into(),
             theme_name: config.theme.name.clone(),
             theme_names: hof_config::theme_names(&themes),
+            font_families: Vec::new(),
             foreground: color(theme.foreground),
             background: color(theme.background),
             cursor: theme.cursor.map_or(Color::INVALID, color),
@@ -613,6 +618,22 @@ impl Settings {
         }
         reload_now(cx);
         String::new()
+    }
+
+    /// Finds the installed fonts a terminal can be set in, once, apart from
+    /// the window: `fontFamilies` has them when they are found.
+    #[qml(invokable, name = "findFontFamilies")]
+    fn find_font_families(cx: &Cx) {
+        static ASKED: AtomicBool = AtomicBool::new(false);
+        if ASKED.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let (post, me) = (Platform::of(cx.engine).poster(), cx.this);
+        hof_qml::find_fixed_pitch_families(move |families| {
+            post.send(move |e: &Engine| {
+                let _ = e.set_internal(me, Settings::FONT_FAMILIES, families);
+            });
+        });
     }
 
     /// Takes the host `name` out of the file, with all it says about it,

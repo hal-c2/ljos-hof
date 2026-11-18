@@ -38,6 +38,16 @@ Popup {
     // The host the session is kept on, as `hosts` has it; null for this
     // machine.
     readonly property var sessionHost: hosts.find(h => h.name === Settings.sessionHost) ?? null
+    // The fonts to choose from: the system's monospace (the key left out),
+    // a family the file names that is not among the installed fixed-pitch
+    // ones (a list, or one not installed here), then those.
+    readonly property string systemFont: "System monospace"
+    readonly property bool fontIsSystem: Settings.fontFamily.length === 0 || Settings.fontFamily === "monospace"
+    readonly property var fontChoices: {
+        const fixed = Settings.fontFamilies;
+        const own = !fontIsSystem && fixed.indexOf(Settings.fontFamily) < 0 ? [Settings.fontFamily] : [];
+        return [systemFont].concat(own, fixed);
+    }
 
     // Writes `[section] key = value`; null takes the key out.
     function put(section, key, value) {
@@ -77,7 +87,10 @@ Popup {
     focus: true
     padding: 0
 
-    onAboutToShow: dialog.error = ""
+    onAboutToShow: {
+        dialog.error = "";
+        Settings.findFontFamilies();
+    }
 
     // The window behind is dimmed while the settings are open.
     Overlay.modal: Rectangle {
@@ -239,16 +252,16 @@ Popup {
 
                             SettingRow {
                                 title: "Font"
-                                description: "A family installed here; empty is the system's monospace."
+                                description: "The fixed-pitch fonts installed here. A list to fall back through is written in the file."
 
-                                ShellTextField {
+                                ShellComboBox {
                                     objectName: "settingFontFamily"
                                     Layout.preferredWidth: 220
-                                    text: Settings.fontFamily
-                                    placeholderText: "monospace"
+                                    outline: true
+                                    model: dialog.fontChoices
+                                    currentIndex: dialog.fontIsSystem ? 0 : dialog.fontChoices.indexOf(Settings.fontFamily)
                                     Accessible.name: "Font"
-                                    onEditingFinished: if (text !== Settings.fontFamily)
-                                        dialog.putText("font", "family", text)
+                                    onActivated: index => dialog.put("font", "family", index === 0 ? null : dialog.fontChoices[index])
                                 }
                             }
                             SettingRow {

@@ -1690,6 +1690,18 @@
               "notify": "themeNamesChanged"
             },
             {
+              "name": "fontFamilies",
+              "type": "var",
+              "kind": "value",
+              "list": false,
+              "readonly": true,
+              "final": true,
+              "required": false,
+              "constant": false,
+              "group": false,
+              "notify": "fontFamiliesChanged"
+            },
+            {
               "name": "foreground",
               "type": "color",
               "kind": "value",
@@ -2151,6 +2163,11 @@
                 }
               ],
               "returnType": "string"
+            },
+            {
+              "name": "findFontFamilies",
+              "parameters": [],
+              "returnType": "void"
             },
             {
               "name": "removeHost",

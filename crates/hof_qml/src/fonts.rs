@@ -37,6 +37,41 @@ thread_local! {
     static STACKS: RefCell<HashMap<Arc<str>, Stack>> = RefCell::default();
 }
 
+/// The installed families whose letters are all one width, sorted: the
+/// ones a terminal's grid fits, to choose from in the settings. Found on a
+/// thread of its own with a text engine of its own, since it reads a face
+/// of every family, and given to `done` there.
+pub fn find_fixed_pitch_families(done: impl FnOnce(Vec<String>) + Send + 'static) {
+    let spawned = std::thread::Builder::new()
+        .name("hof-fonts".into())
+        .spawn(move || done(fixed_pitch_in(&mut TextEngine::with_system_fonts())));
+    if let Err(e) = spawned {
+        eprintln!("hof: cannot list the fonts: {e}");
+    }
+}
+
+fn fixed_pitch_in(te: &mut TextEngine) -> Vec<String> {
+    te.family_names()
+        .into_iter()
+        .filter(|name| {
+            let style = TextStyle {
+                family: name.as_str().into(),
+                pixel_size: 16.0,
+                ..TextStyle::default()
+            };
+            let face = te.face_info(&style);
+            // A family the engine set in another's face is not one to name.
+            if !face.fixed_pitch || !face.family.eq_ignore_ascii_case(name) {
+                return false;
+            }
+            // Its letters too, not a face of emoji or icons all one width
+            // whose letters come from another.
+            let (m, i) = (te.advance_width("M", &style), te.advance_width("i", &style));
+            m > 0.0 && (m - i).abs() < 0.01
+        })
+        .collect()
+}
+
 /// Makes `style` draw with the stack a terminal set in its family draws
 /// with: the first in `family`, the rest before any it already falls back
 /// to.
@@ -238,6 +273,30 @@ mod engine_tests {
                 (m - i).abs() < 0.01,
                 "{family} draws with a proportional face: M {m}, i {i}"
             );
+        }
+    }
+
+    /// Each family offered is fixed pitch, and the proportional faces every
+    /// system has are not.
+    #[test]
+    fn the_families_offered_are_fixed_pitch() {
+        let mut te = TextEngine::with_system_fonts();
+        let fixed = fixed_pitch_in(&mut te);
+        assert!(!fixed.is_empty());
+        for name in &fixed {
+            let style = TextStyle {
+                family: name.as_str().into(),
+                pixel_size: 16.0,
+                ..TextStyle::default()
+            };
+            let (m, i) = (te.advance_width("M", &style), te.advance_width("i", &style));
+            assert!((m - i).abs() < 0.01, "{name}: M {m}, i {i}");
+        }
+        let installed = te.family_names();
+        for proportional in ["DejaVu Sans", "Noto Sans", "Helvetica", "Arial"] {
+            if installed.iter().any(|n| n == proportional) {
+                assert!(!fixed.iter().any(|n| n == proportional), "{proportional}");
+            }
         }
     }
 }
