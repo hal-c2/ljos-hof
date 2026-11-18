@@ -35,8 +35,10 @@ jobs:
         run: git diff --exit-code && test -z "$(git status --porcelain)"
 
   # Hof runs on macOS, and its tasks run there under bash 3.2. Linux's
-  # check-macos already type-checks the macOS code, so this job builds
-  # nothing: it runs setup and dry-runs every task with the static checks.
+  # check-macos already type-checks the macOS code, so this job builds only
+  # the font tests: it runs setup, dry-runs every task with the static
+  # checks, and measures the faces a terminal draws with in CoreText's
+  # fonts, which Linux's fontconfig cannot stand in for.
   macos:
     runs-on: macos-15
     steps:
@@ -47,3 +49,4 @@ jobs:
       - run: brew install shellcheck
       - run: mise run setup
       - run: mise run tasks:smoke --dry
+      - run: cargo test --locked -p hof_qml --lib fonts

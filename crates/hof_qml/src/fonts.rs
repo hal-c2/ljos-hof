@@ -203,9 +203,15 @@ mod engine_tests {
     /// Through the platform's own fonts: whatever the stack holds, the
     /// face a terminal draws with is fixed pitch, so a cell is as wide as
     /// any letter in it.
+    ///
+    /// The widths tell only on macOS: on Linux fontconfig finds a
+    /// monospace face even for "Menlo, monospace" taken as one name, so
+    /// the style is checked to hold the stack, each family its own name,
+    /// wherever the test runs.
     #[test]
     fn a_terminal_draws_with_a_fixed_pitch_face() {
         let mut te = TextEngine::with_system_fonts();
+        let installed = te.family_names();
         for family in ["monospace", "Menlo, monospace", "No Such Font, monospace"] {
             let mut style = TextStyle {
                 family: family.into(),
@@ -213,7 +219,19 @@ mod engine_tests {
                 ..TextStyle::default()
             };
             terminal_family(&mut te, &mut style);
-            assert!(!style.family.contains(','), "{family}: {}", style.family);
+            let drawn: Vec<&str> = std::iter::once(&*style.family)
+                .chain(
+                    style
+                        .fallback_families
+                        .iter()
+                        .flat_map(|f| f.iter().map(|n| &**n)),
+                )
+                .collect();
+            assert_eq!(
+                drawn,
+                stack_for(family, &installed, cfg!(target_os = "macos")),
+                "{family}"
+            );
             let m = te.advance_width("M", &style);
             let i = te.advance_width("i", &style);
             assert!(
