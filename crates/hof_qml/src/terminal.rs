@@ -1169,7 +1169,7 @@ fn measure(engine: &Engine, me: ObjectId) {
     let external = item::prop(engine, me, Terminal::EXTERNAL);
     let auto_start = item::prop(engine, me, Terminal::AUTO_START);
     let Some(metrics) = item::with_text_engine(|te| {
-        style.family = fonts::terminal_family(te, &style.family);
+        fonts::terminal_family(te, &mut style);
         Metrics::measure(te, &style, dpr)
     }) else {
         return;
