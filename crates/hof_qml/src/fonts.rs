@@ -24,7 +24,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use ljos::item::{TextEngine, TextStyle};
 
@@ -37,19 +37,73 @@ thread_local! {
     static STACKS: RefCell<HashMap<Arc<str>, Stack>> = RefCell::default();
 }
 
-/// The installed families whose letters are all one width, sorted: the
-/// ones a terminal's grid fits, to choose from in the settings. Found on a
-/// thread of its own with a text engine of its own, since it reads a face
-/// of every family, and given to `done` there.
-pub fn find_fixed_pitch_families(done: impl FnOnce(Vec<String>) + Send + 'static) {
+/// What [`find_fixed_pitch_families`] keeps for the whole process.
+struct Found {
+    families: Option<Arc<[String]>>,
+    scanning: bool,
+    waiting: Vec<Waiting>,
+}
+
+/// Told the families once they are found.
+type Waiting = Box<dyn FnOnce(Arc<[String]>) + Send>;
+
+static FOUND: Mutex<Found> = Mutex::new(Found {
+    families: None,
+    scanning: false,
+    waiting: Vec::new(),
+});
+
+/// Gives `done` the installed families whose letters are all one width,
+/// sorted: the ones a terminal's grid fits, to choose from in the settings.
+///
+/// Telling a face's widths reads a face of every family, so they are found
+/// once for the process, on a thread of their own with a text engine of
+/// their own. Whoever asks while they are being found is told when they
+/// are, on that thread; whoever asks after is told at once. A scan that
+/// fails is tried again by the next to ask.
+pub fn find_fixed_pitch_families(done: impl FnOnce(Arc<[String]>) + Send + 'static) {
+    let mut found = FOUND.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(families) = found.families.clone() {
+        drop(found);
+        done(families);
+        return;
+    }
+    found.waiting.push(Box::new(done));
+    if found.scanning {
+        return;
+    }
+    found.scanning = true;
+    drop(found);
     let spawned = std::thread::Builder::new()
         .name("hof-fonts".into())
-        .spawn(move || done(fixed_pitch_in(&mut TextEngine::with_system_fonts())));
+        .spawn(|| {
+            let scanned =
+                std::panic::catch_unwind(|| fixed_pitch_in(&mut TextEngine::with_system_fonts()));
+            let mut found = FOUND.lock().unwrap_or_else(|e| e.into_inner());
+            found.scanning = false;
+            let Ok(families) = scanned else {
+                // Those waiting stay waiting for the next to ask.
+                return;
+            };
+            let families: Arc<[String]> = families.into();
+            found.families = Some(families.clone());
+            let waiting = std::mem::take(&mut found.waiting);
+            drop(found);
+            for done in waiting {
+                done(families.clone());
+            }
+        });
     if let Err(e) = spawned {
+        FOUND.lock().unwrap_or_else(|e| e.into_inner()).scanning = false;
         eprintln!("hof: cannot list the fonts: {e}");
     }
 }
 
+/// Judged by letters and stops, which are what a terminal's grid holds,
+/// rather than by every character a face maps: a monospace face with a
+/// few wide symbols (Noto Sans Mono) is one to set a terminal in, though
+/// fontconfig would not call it mono. A face of emoji or icons all one
+/// width has its letters from another face, which tells.
 fn fixed_pitch_in(te: &mut TextEngine) -> Vec<String> {
     te.family_names()
         .into_iter()
@@ -59,15 +113,15 @@ fn fixed_pitch_in(te: &mut TextEngine) -> Vec<String> {
                 pixel_size: 16.0,
                 ..TextStyle::default()
             };
-            let face = te.face_info(&style);
             // A family the engine set in another's face is not one to name.
-            if !face.fixed_pitch || !face.family.eq_ignore_ascii_case(name) {
+            if !te.face_info(&style).family.eq_ignore_ascii_case(name) {
                 return false;
             }
-            // Its letters too, not a face of emoji or icons all one width
-            // whose letters come from another.
-            let (m, i) = (te.advance_width("M", &style), te.advance_width("i", &style));
-            m > 0.0 && (m - i).abs() < 0.01
+            let m = te.advance_width("M", &style);
+            m > 0.0
+                && ["i", "W", "."]
+                    .iter()
+                    .all(|c| (te.advance_width(c, &style) - m).abs() < 0.01)
         })
         .collect()
 }
@@ -282,17 +336,29 @@ mod engine_tests {
     fn the_families_offered_are_fixed_pitch() {
         let mut te = TextEngine::with_system_fonts();
         let fixed = fixed_pitch_in(&mut te);
-        assert!(!fixed.is_empty());
-        for name in &fixed {
-            let style = TextStyle {
-                family: name.as_str().into(),
-                pixel_size: 16.0,
-                ..TextStyle::default()
-            };
-            let (m, i) = (te.advance_width("M", &style), te.advance_width("i", &style));
-            assert!((m - i).abs() < 0.01, "{name}: M {m}, i {i}");
-        }
         let installed = te.family_names();
+        let monospace = [
+            "DejaVu Sans Mono",
+            "Liberation Mono",
+            "Noto Sans Mono",
+            "Adwaita Mono",
+            "Menlo",
+            "Courier New",
+        ];
+        let mut known = 0;
+        for name in monospace {
+            if installed.iter().any(|n| n == name) {
+                assert!(fixed.iter().any(|n| n == name), "{name} is left out");
+                known += 1;
+            }
+        }
+        assert!(
+            known > 0,
+            "none of {monospace:?} is installed to check with"
+        );
+        for name in ["Noto Color Emoji", "Apple Color Emoji"] {
+            assert!(!fixed.iter().any(|n| n == name), "{name} has no letters");
+        }
         for proportional in ["DejaVu Sans", "Noto Sans", "Helvetica", "Arial"] {
             if installed.iter().any(|n| n == proportional) {
                 assert!(!fixed.iter().any(|n| n == proportional), "{proportional}");

@@ -40,18 +40,38 @@ Popup {
     readonly property var sessionHost: hosts.find(h => h.name === Settings.sessionHost) ?? null
     // The fonts to choose from: the system's monospace (the key left out),
     // a family the file names that is not among the installed fixed-pitch
-    // ones (a list, or one not installed here), then those.
+    // ones (a list, or one not installed here), then those. Names are
+    // matched in any case, as fontconfig matches them.
     readonly property string systemFont: "System monospace"
     readonly property bool fontIsSystem: Settings.fontFamily.length === 0 || Settings.fontFamily === "monospace"
-    readonly property var fontChoices: {
-        const fixed = Settings.fontFamilies;
-        const own = !fontIsSystem && fixed.indexOf(Settings.fontFamily) < 0 ? [Settings.fontFamily] : [];
-        return [systemFont].concat(own, fixed);
+    readonly property int fontInstalled: {
+        const want = Settings.fontFamily.toLowerCase();
+        return Settings.fontFamilies.findIndex(f => f.toLowerCase() === want);
     }
+    readonly property bool fontIsOwn: !fontIsSystem && fontInstalled < 0
+    readonly property var fontChoices: [systemFont].concat(fontIsOwn ? [Settings.fontFamily] : [], Settings.fontFamilies)
+    readonly property int fontIndex: fontIndexIn(fontChoices)
 
     // Writes `[section] key = value`; null takes the key out.
     function put(section, key, value) {
         dialog.error = Settings.set(section, key, value);
+    }
+
+    // Where the font set is in `choices`. The combo's index is bound to
+    // this with the list, so it runs again with each new list and keeps the
+    // row chosen; bound to a number that did not change, the combo would go
+    // back to its first row when the list came.
+    function fontIndexIn(choices) {
+        const want = Settings.fontFamily.toLowerCase();
+        return dialog.fontIsSystem ? 0 : choices.findIndex((c, i) => i > 0 && c.toLowerCase() === want);
+    }
+
+    // The font at `index` of `fontChoices`; the one set already writes
+    // nothing, so the file keeps it as it is written.
+    function chooseFont(index) {
+        if (index === dialog.fontIndex || index < 0 || index >= dialog.fontChoices.length)
+            return;
+        dialog.put("font", "family", index === 0 ? null : dialog.fontChoices[index]);
     }
 
     // Text that means "unset" when empty.
@@ -259,9 +279,9 @@ Popup {
                                     Layout.preferredWidth: 220
                                     outline: true
                                     model: dialog.fontChoices
-                                    currentIndex: dialog.fontIsSystem ? 0 : dialog.fontChoices.indexOf(Settings.fontFamily)
+                                    currentIndex: dialog.fontIndexIn(dialog.fontChoices)
                                     Accessible.name: "Font"
-                                    onActivated: index => dialog.put("font", "family", index === 0 ? null : dialog.fontChoices[index])
+                                    onActivated: index => dialog.chooseFont(index)
                                 }
                             }
                             SettingRow {

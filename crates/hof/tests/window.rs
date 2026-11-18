@@ -1011,22 +1011,17 @@ fn the_settings_open_in_the_window_and_escape_puts_them_away() {
             .as_str(),
         "hof-dark"
     );
-    // The fonts are found apart from the window, and come once found.
+    // The fonts the system has come later (tests/settings.rs waits for them).
     let font = hof
         .find("settingFontFamily")
         .expect("the controls are made");
-    let text = |hof: &Hof| {
+    assert_eq!(
         hof.engine
             .read_by_name(font, "currentText")
             .to_js_string()
-            .as_str()
-            .to_owned()
-    };
-    assert_eq!(text(&hof), "System monospace");
-    hof.until("the installed fixed-pitch fonts", |hof| {
-        hof.engine.read_by_name(font, "count").to_number() >= 2.0
-    });
-    assert_eq!(text(&hof), "System monospace", "still the one chosen");
+            .as_str(),
+        "System monospace"
+    );
 
     hof.window.key(&KeyEvent::press(KEY_ESCAPE));
     hof.window.settle().unwrap();

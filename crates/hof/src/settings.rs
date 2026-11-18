@@ -620,18 +620,15 @@ impl Settings {
         String::new()
     }
 
-    /// Finds the installed fonts a terminal can be set in, once, apart from
-    /// the window: `fontFamilies` has them when they are found.
+    /// Finds the installed fonts a terminal can be set in, apart from the
+    /// window: `fontFamilies` has them when they are found, at once when
+    /// they were found before.
     #[qml(invokable, name = "findFontFamilies")]
     fn find_font_families(cx: &Cx) {
-        static ASKED: AtomicBool = AtomicBool::new(false);
-        if ASKED.swap(true, Ordering::AcqRel) {
-            return;
-        }
         let (post, me) = (Platform::of(cx.engine).poster(), cx.this);
         hof_qml::find_fixed_pitch_families(move |families| {
             post.send(move |e: &Engine| {
-                let _ = e.set_internal(me, Settings::FONT_FAMILIES, families);
+                let _ = e.set_internal(me, Settings::FONT_FAMILIES, families.to_vec());
             });
         });
     }
