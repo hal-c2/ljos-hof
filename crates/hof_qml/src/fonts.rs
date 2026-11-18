@@ -15,31 +15,61 @@
 //!
 //! Both belong in Ljós UI's text engine, and go from here once it has them:
 //! hal-c2/ljos-ui#189 and hal-c2/ljos-ui#190.
+//!
+//! The stack goes to the text engine as a first family and the families
+//! after it, never as one string with commas: Ljós UI reads a family as one
+//! name whatever it holds, as Qt does, and "Menlo, monospace" names no font.
+//! Text then falls to a proportional face, and every cell is as wide as its
+//! "M" again.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ljos::item::TextEngine;
+use ljos::item::{TextEngine, TextStyle};
+
+/// Families, the first tried first.
+type Stack = Arc<[Arc<str>]>;
 
 thread_local! {
     /// The stack for each family named, once: listing the families walks
     /// every font the platform has.
-    static STACKS: RefCell<HashMap<Arc<str>, Arc<str>>> = RefCell::default();
+    static STACKS: RefCell<HashMap<Arc<str>, Stack>> = RefCell::default();
 }
 
-/// The family list a terminal set in `family` draws with.
-pub(crate) fn terminal_family(te: &mut TextEngine, family: &Arc<str>) -> Arc<str> {
-    if let Some(known) = STACKS.with(|s| s.borrow().get(family).cloned()) {
-        return known;
-    }
-    let installed = te.family_names();
-    let stack: Arc<str> = stack_for(family, &installed, cfg!(target_os = "macos")).into();
-    STACKS.with(|s| s.borrow_mut().insert(family.clone(), stack.clone()));
-    stack
+/// Makes `style` draw with the stack a terminal set in its family draws
+/// with: the first in `family`, the rest before any it already falls back
+/// to.
+pub(crate) fn terminal_family(te: &mut TextEngine, style: &mut TextStyle) {
+    let stack = STACKS.with(|s| s.borrow().get(&style.family).cloned());
+    let stack = stack.unwrap_or_else(|| {
+        let installed = te.family_names();
+        let stack: Stack = stack_for(&style.family, &installed, cfg!(target_os = "macos"))
+            .into_iter()
+            .map(Arc::from)
+            .collect();
+        STACKS.with(|s| s.borrow_mut().insert(style.family.clone(), stack.clone()));
+        stack
+    });
+    set_stack(style, &stack);
 }
 
-fn stack_for(family: &str, installed: &[String], macos: bool) -> String {
+fn set_stack(style: &mut TextStyle, stack: &[Arc<str>]) {
+    let Some((first, rest)) = stack.split_first() else {
+        return;
+    };
+    let mut fallback: Vec<Arc<str>> = rest.to_vec();
+    fallback.extend(
+        style
+            .fallback_families
+            .iter()
+            .flat_map(|f| f.iter().cloned()),
+    );
+    style.family = first.clone();
+    style.fallback_families = (!fallback.is_empty()).then(|| Arc::new(fallback));
+}
+
+fn stack_for(family: &str, installed: &[String], macos: bool) -> Vec<String> {
     let mut stack: Vec<&str> = Vec::new();
     for name in family.split(',') {
         let name = name.trim().trim_matches(['"', '\'']);
@@ -59,7 +89,7 @@ fn stack_for(family: &str, installed: &[String], macos: bool) -> String {
     {
         stack.push(symbols);
     }
-    stack.join(", ")
+    stack.into_iter().map(str::to_owned).collect()
 }
 
 fn is_nerd(family: &str) -> bool {
@@ -89,13 +119,50 @@ mod tests {
         list.iter().map(|s| s.to_string()).collect()
     }
 
+    /// `stack_for`, written as a list for short asserts.
+    fn stack(family: &str, installed: &[String], macos: bool) -> String {
+        stack_for(family, installed, macos).join(", ")
+    }
+
+    #[test]
+    fn the_stack_is_a_family_and_its_fallbacks_not_one_name_with_commas() {
+        let mut style = TextStyle {
+            family: "monospace".into(),
+            fallback_families: Some(Arc::new(vec!["Noto Sans Mono".into()])),
+            ..TextStyle::default()
+        };
+        let stack = names(&["Menlo", "monospace", "Hack Nerd Font Mono"]);
+        set_stack(
+            &mut style,
+            &stack.into_iter().map(Arc::from).collect::<Vec<_>>(),
+        );
+        assert_eq!(&*style.family, "Menlo");
+        let fallback: Vec<&str> = style
+            .fallback_families
+            .iter()
+            .flat_map(|f| f.iter().map(|n| &**n))
+            .collect();
+        assert_eq!(
+            fallback,
+            ["monospace", "Hack Nerd Font Mono", "Noto Sans Mono"]
+        );
+
+        let mut alone = TextStyle {
+            family: "Iosevka".into(),
+            ..TextStyle::default()
+        };
+        set_stack(&mut alone, &[Arc::from("Iosevka")]);
+        assert_eq!(&*alone.family, "Iosevka");
+        assert!(alone.fallback_families.is_none());
+    }
+
     #[test]
     fn on_macos_monospace_is_menlo_first() {
-        assert_eq!(stack_for("monospace", &[], true), "Menlo, monospace");
-        assert_eq!(stack_for("monospace", &[], false), "monospace");
-        assert_eq!(stack_for("", &[], true), "Menlo");
+        assert_eq!(stack("monospace", &[], true), "Menlo, monospace");
+        assert_eq!(stack("monospace", &[], false), "monospace");
+        assert_eq!(stack("", &[], true), "Menlo");
         assert_eq!(
-            stack_for("Iosevka, monospace", &[], true),
+            stack("Iosevka, monospace", &[], true),
             "Iosevka, Menlo, monospace"
         );
     }
@@ -109,12 +176,12 @@ mod tests {
             "Menlo",
         ]);
         assert_eq!(
-            stack_for("monospace", &installed, true),
+            stack("monospace", &installed, true),
             "Menlo, monospace, Hack Nerd Font Mono"
         );
         let installed = names(&["Hack Nerd Font Mono", "Symbols Nerd Font Mono"]);
         assert_eq!(
-            stack_for("Menlo", &installed, true),
+            stack("Menlo", &installed, true),
             "Menlo, Symbols Nerd Font Mono"
         );
     }
@@ -123,8 +190,36 @@ mod tests {
     fn a_stack_with_a_nerd_font_is_left_as_it_is() {
         let installed = names(&["Symbols Nerd Font Mono"]);
         assert_eq!(
-            stack_for("JetBrainsMono Nerd Font", &installed, false),
+            stack("JetBrainsMono Nerd Font", &installed, false),
             "JetBrainsMono Nerd Font"
         );
+    }
+}
+
+#[cfg(test)]
+mod engine_tests {
+    use super::*;
+
+    /// Through the platform's own fonts: whatever the stack holds, the
+    /// face a terminal draws with is fixed pitch, so a cell is as wide as
+    /// any letter in it.
+    #[test]
+    fn a_terminal_draws_with_a_fixed_pitch_face() {
+        let mut te = TextEngine::with_system_fonts();
+        for family in ["monospace", "Menlo, monospace", "No Such Font, monospace"] {
+            let mut style = TextStyle {
+                family: family.into(),
+                pixel_size: 16.0,
+                ..TextStyle::default()
+            };
+            terminal_family(&mut te, &mut style);
+            assert!(!style.family.contains(','), "{family}: {}", style.family);
+            let m = te.advance_width("M", &style);
+            let i = te.advance_width("i", &style);
+            assert!(
+                (m - i).abs() < 0.01,
+                "{family} draws with a proportional face: M {m}, i {i}"
+            );
+        }
     }
 }

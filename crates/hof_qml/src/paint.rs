@@ -99,6 +99,7 @@ impl Metrics {
             (Some(a), Some(b)) => {
                 let (a, b) = (&a[0], &b[0]);
                 a.family == b.family
+                    && a.fallback_families == b.fallback_families
                     && a.pixel_size == b.pixel_size
                     && a.weight == b.weight
                     && a.italic == b.italic
