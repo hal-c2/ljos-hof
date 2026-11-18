@@ -2719,9 +2719,11 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "blake3",
+ "libc",
  "ljos_aot",
  "ljos_ir",
  "ljos_oxc_parser",
+ "miniz_oxide 0.8.9",
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
@@ -2736,6 +2738,7 @@ dependencies = [
  "qt_types",
  "tempfile",
  "thiserror 2.0.21",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4516,6 +4519,8 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 name = "qml_compat"
 version = "0.0.0"
 dependencies = [
+ "ljos_oxc_parser",
+ "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
  "oxc_span",
