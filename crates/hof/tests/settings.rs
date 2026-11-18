@@ -283,6 +283,15 @@ fn a_change_in_the_settings_is_written_into_the_file_and_followed() {
     hof.choose_font(1);
     assert_eq!(hof.file(), file);
 
+    // The system's, as fontconfig takes it in any case, is not another.
+    assert_eq!(hof.put("font", "family", Value::from("Monospace")), "");
+    assert_eq!(hof.text(font, "currentText"), "System monospace");
+    let choices = hof.font_choices();
+    assert!(!choices.iter().any(|c| c == "Monospace"), "{choices:?}");
+    let file = hof.file();
+    hof.choose_font(0);
+    assert_eq!(hof.file(), file, "the one set already");
+
     // An installed one, written in another case, is that one, offered once.
     let installed = hof.font_choices()[2].clone();
     assert_eq!(

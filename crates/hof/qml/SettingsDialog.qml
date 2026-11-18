@@ -43,7 +43,7 @@ Popup {
     // ones (a list, or one not installed here), then those. Names are
     // matched in any case, as fontconfig matches them.
     readonly property string systemFont: "System monospace"
-    readonly property bool fontIsSystem: Settings.fontFamily.length === 0 || Settings.fontFamily === "monospace"
+    readonly property bool fontIsSystem: Settings.fontFamily.length === 0 || Settings.fontFamily.toLowerCase() === "monospace"
     readonly property int fontInstalled: {
         const want = Settings.fontFamily.toLowerCase();
         return Settings.fontFamilies.findIndex(f => f.toLowerCase() === want);
