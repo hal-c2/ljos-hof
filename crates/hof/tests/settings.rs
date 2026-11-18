@@ -293,7 +293,8 @@ fn a_change_in_the_settings_is_written_into_the_file_and_followed() {
     assert_eq!(hof.file(), file, "the one set already");
 
     // An installed one, written in another case, is that one, offered once.
-    let installed = hof.font_choices()[2].clone();
+    // The system's is first, and nothing of the file's own is left.
+    let installed = hof.font_choices()[1].clone();
     assert_eq!(
         hof.put(
             "font",

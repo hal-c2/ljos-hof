@@ -345,17 +345,16 @@ mod engine_tests {
             "Menlo",
             "Courier New",
         ];
-        let mut known = 0;
+        // Some face is fixed pitch wherever a terminal runs, whichever it is.
+        assert!(!fixed.is_empty(), "no family offered");
+        for name in &fixed {
+            assert!(installed.contains(name), "{name} is not installed");
+        }
         for name in monospace {
             if installed.iter().any(|n| n == name) {
                 assert!(fixed.iter().any(|n| n == name), "{name} is left out");
-                known += 1;
             }
         }
-        assert!(
-            known > 0,
-            "none of {monospace:?} is installed to check with"
-        );
         for name in ["Noto Color Emoji", "Apple Color Emoji"] {
             assert!(!fixed.iter().any(|n| n == name), "{name} has no letters");
         }
