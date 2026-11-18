@@ -25,6 +25,7 @@ use std::rc::Rc;
 use ljos::item::{self, KeyItem, WheelItem};
 use ljos::prelude::*;
 
+pub use fonts::find_fixed_pitch_families;
 pub use keys::translate as translate_key;
 pub use terminal::Terminal;
 pub use workspace::Workspace;

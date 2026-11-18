@@ -86,6 +86,46 @@ impl Hof {
             .to_owned()
     }
 
+    /// Moves time on until `done`, or fails saying `what` it waited for.
+    /// Long: the fonts are found by reading a face of every family.
+    fn until(&mut self, what: &str, done: impl Fn(&Self) -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while !done(self) {
+            assert!(std::time::Instant::now() < deadline, "waiting for {what}");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            self.window.advance(20).unwrap();
+        }
+    }
+
+    fn text(&self, obj: ObjectId, name: &str) -> String {
+        let text = self.engine.read_by_name(obj, name).to_js_string();
+        text.as_str().to_owned()
+    }
+
+    /// The fonts the dialog offers, in order.
+    fn font_choices(&self) -> Vec<String> {
+        let font = self.find("settingFontFamily");
+        let count = self.engine.read_by_name(font, "count").to_number() as i32;
+        (0..count)
+            .map(|i| {
+                let text = self
+                    .engine
+                    .invoke_by_name(font, "textAt", &[Value::from(i)]);
+                text.unwrap().to_js_string().as_str().to_owned()
+            })
+            .collect()
+    }
+
+    /// Picks the font at `index` as the dialog's list does.
+    fn choose_font(&mut self, index: usize) {
+        let dialog = self.find("settingsDialog");
+        let index = i32::try_from(index).unwrap();
+        self.engine
+            .invoke_by_name(dialog, "chooseFont", &[Value::from(index)])
+            .unwrap();
+        self.window.settle().unwrap();
+    }
+
     fn click(&mut self, item: ObjectId) {
         let (w, h) = (
             self.engine.read_by_name(self.root, "width").to_number(),
@@ -225,4 +265,59 @@ fn a_change_in_the_settings_is_written_into_the_file_and_followed() {
         .unwrap();
     hof.window.settle().unwrap();
     assert!(!hof.file().contains("hosts.dev"), "{}", hof.file());
+
+    // A font the file names that is not installed here, or a list to fall
+    // back through, is offered as it is written, and kept when the fonts
+    // the system has come.
+    let font = hof.find("settingFontFamily");
+    let family = "Nope Mono, monospace";
+    assert_eq!(hof.put("font", "family", Value::from(family)), "");
+    assert_eq!(hof.text(font, "currentText"), family);
+    hof.until("the installed fixed-pitch fonts", |hof| {
+        hof.font_choices().len() >= 3
+    });
+    assert_eq!(hof.text(font, "currentText"), family);
+    assert_eq!(hof.font_choices()[1], family, "{:?}", hof.font_choices());
+    // Chosen again, it is left as it is written.
+    let file = hof.file();
+    hof.choose_font(1);
+    assert_eq!(hof.file(), file);
+
+    // The system's, as fontconfig takes it in any case, is not another.
+    assert_eq!(hof.put("font", "family", Value::from("Monospace")), "");
+    assert_eq!(hof.text(font, "currentText"), "System monospace");
+    let choices = hof.font_choices();
+    assert!(!choices.iter().any(|c| c == "Monospace"), "{choices:?}");
+    let file = hof.file();
+    hof.choose_font(0);
+    assert_eq!(hof.file(), file, "the one set already");
+
+    // An installed one, written in another case, is that one, offered once.
+    // The system's is first, and nothing of the file's own is left.
+    let installed = hof.font_choices()[1].clone();
+    assert_eq!(
+        hof.put(
+            "font",
+            "family",
+            Value::from(installed.to_lowercase().as_str())
+        ),
+        ""
+    );
+    let choices = hof.font_choices();
+    assert!(!choices.iter().any(|c| c == family), "{choices:?}");
+    let same: Vec<_> = choices
+        .iter()
+        .filter(|c| c.eq_ignore_ascii_case(&installed))
+        .collect();
+    assert_eq!(same, [&installed], "{choices:?}");
+    assert_eq!(hof.text(font, "currentText"), installed);
+    let file = hof.file();
+    let at = choices.iter().position(|c| *c == installed).unwrap();
+    hof.choose_font(at);
+    assert_eq!(hof.file(), file, "the one set already");
+
+    // The system's: the key goes.
+    hof.choose_font(0);
+    assert!(!hof.file().contains("family"), "{}", hof.file());
+    assert_eq!(hof.text(font, "currentText"), "System monospace");
 }
